@@ -198,6 +198,32 @@ def action_method(o, block, gated, discovery, model, log1x, user_type):
     }}''')
 
 
+def db_statements(model, ops, vals, cls, code=''):
+    """Every SQL and PL/SQL text the module sends to Oracle, for verify-db (compiled there, never executed)."""
+    statements = []
+
+    def add(kind, source, sql):
+        if sql and sql.strip():
+            statements.append({'id': len(statements) + 1, 'kind': kind, 'source': source, 'sql': sql})
+
+    for o in ops:
+        if o['op'] == 'action' and o.get('passthrough'):
+            add('plsql', o['action']['owner'] + ' / ' + o['action']['event'], o['passthrough']['sql'])
+        elif o['op'] == 'lov' and not o['lov']['blockers']:
+            add('sql', 'LOV ' + o['lov']['name'], o['lov']['sql'])
+    for event, plan in sorted(model.get('commit_plan', {}).items()):
+        add('plsql', event + ' (commitForm)', plan['plan']['sql'])
+    for trigger in model['triggers']:
+        add('plsql', trigger['id'], (trigger.get('passthrough') or {}).get('sql'))
+    for block, values in vals.items():
+        for key, label in (('SELECT_PAGE', 'lista'), ('SELECT_KEY', 'rekord betöltése'), ('INSERT_SQL', 'beszúrás'),
+                           ('DELETE_SQL', 'törlés')):
+            if values.get(key) and values[key] in code:  # only what the ServiceImpl really runs (ON-INSERT ... replaces DML)
+                add('sql', block + ' ' + label, json.loads(values[key]))
+    return {'version': 1, 'module_class': cls,
+            'binds': 'PL/SQL: pozicionális ? (verify-db :b1, :b2 ... névre cseréli); SQL: :név', 'statements': statements}
+
+
 def runner_name(o):
     """The private method that runs a button's PL/SQL: the action and the commit endpoint's prelude call it."""
     return 'run' + o['method'][0].upper() + o['method'][1:]
@@ -860,6 +886,7 @@ public class {cls}ControllerImpl extends {controller_base} implements {cls}Contr
         }});
     }}''')
             evidence.append((o['method'], crud_evidence(o, model, discovery, vals[b['name']])))
+    write_json(output / 'analysis/db-statements.json', db_statements(model, ops, vals, cls, '\n'.join(dps_methods + support)))
     write(output/'analysis/backend-evidence.md', '# Backend-bizonyíték\n\nA DPS ServiceImpl metódusai mögötti eredeti Forms SQL és PL/SQL, '
                                                  'és a generált SQL. A kódban csak rövid összefoglaló áll; a részletek itt vannak.\n\n'
           + ''.join('## ' + method + '\n\n```text\n' + text.strip() + '\n```\n\n' for method, text in evidence))

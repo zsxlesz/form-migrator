@@ -415,8 +415,17 @@ def main(argv=None) -> int:
     dimp.add_argument("export", type=Path)
     dimp.add_argument("--out", type=Path, required=True, help="A kimeneti schema.json")
     dimp.add_argument("--merge", type=Path, help="Meglévő schema.json: a kézi, ellenőrzött beállításai elsőbbséget kapnak")
+    verify = commands.add_parser("verify-db", help="A generált SQL és PL/SQL lefordítása a céladatbázisban (DBMS_SQL.PARSE), végrehajtás nélkül")
+    verify.add_argument("outputs", nargs="+", type=Path, help="migrate kimeneti mappák vagy egy batch gyűjtőmappa")
+    verify.add_argument("--dsn", required=True, help="Oracle kapcsolat: gep:port/szolgaltatas (python-oracledb thin mód)")
+    verify.add_argument("--user", required=True, help="Adatbázis-felhasználó (olvasási jog elég: a PARSE nem futtat)")
+    verify.add_argument("--password-env", default="NIVA_DB_PASSWORD", help="A jelszót tartalmazó környezeti változó (alap: NIVA_DB_PASSWORD)")
+    verify.add_argument("--report", type=Path, help="Az összesítő riport (alap: <első mappa>/DB_VERIFY_HU.md)")
     args = parser.parse_args(argv)
     try:
+        if args.command == "verify-db":
+            from .db_verify import run as run_verify
+            return run_verify(args)
         if args.command == "dictionary-sql":
             from .dictionary import run_sql
             return run_sql(args)

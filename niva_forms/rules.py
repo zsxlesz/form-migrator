@@ -633,7 +633,8 @@ def passthrough(trigger: dict, block: dict, source: str, model: dict, catalog: d
     lines += [f"        row.{field(b)} = ({JAVA_CASTS[b['type']]}) out[{offset + k}];" for k, b in enumerate(prepared["outs"])]
     lines.append(f"        if (out[{offset + len(prepared['outs'])}] instanceof String) for (String line : ((String) out[{offset + len(prepared['outs'])}]).split(\"\\n\")) if (!line.isBlank()) context.message(line);")
     info = {"binds": [b["source"] for b in prepared["binds"]], "written": [b["source"] for b in prepared["outs"]],
-            "notes": prepared["notes"], "units": prepared["units"], "unresolved": prepared["unresolved"], "guarded": prepared["guarded"]}
+            "notes": prepared["notes"], "units": prepared["units"], "unresolved": prepared["unresolved"], "guarded": prepared["guarded"],
+            "sql": prepared["sql"]}  # analysis/db-statements.json: verify-db compiles it in the target database
     return "\n".join(lines), info
 
 

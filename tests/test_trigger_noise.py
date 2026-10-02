@@ -161,7 +161,8 @@ class TriggerNoiseTests(unittest.TestCase):
                          block=None, items={}, units={}, prefixes=('qms$',))
         self.assertEqual(result['binds'], [])
         self.assertNotIn(':SYSTEM', result['sql'])
-        self.assertIn('NULL; UPDATE t SET a = 1;', result['sql'])
+        self.assertIn('BEGIN\n UPDATE t SET a = 1;', result['sql'])  # the NULL left for qms$event is pruned (4.14)
+        self.assertNotIn('qms$', result['sql'])
 
     def test_plsql_structure_check_accepts_nested_loops_cases_and_exception_handlers(self):
         body = '''DECLARE n NUMBER; BEGIN

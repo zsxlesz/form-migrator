@@ -72,16 +72,7 @@
     
 @@END_DELETE@@
         private void guard(String operation) {
-            boolean enabled;
-            switch (operation) {
-                case "read": enabled = @@CAN_READ@@; break;
-                case "search": enabled = @@CAN_SEARCH@@; break;
-                case "create": enabled = @@CAN_CREATE@@; break;
-                case "update": enabled = @@CAN_UPDATE@@; break;
-                case "delete": enabled = @@CAN_DELETE@@; break;
-                default: enabled = false; break;
-            }
-            if (!enabled) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Ez a művelet ebben a modulban még nem érhető el.");
+            if (!@@ENABLED_OPERATIONS@@.contains(operation)) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Ez a művelet ebben a modulban még nem érhető el.");
         }
 
 @@BEGIN_WRITE@@

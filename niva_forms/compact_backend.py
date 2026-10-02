@@ -177,15 +177,19 @@ def action_method(o, block, gated, discovery, model, log1x, user_type):
     arguments = ',\n                '.join(params)  # no backslash inside the f-string: Python 3.10/3.11
     if prepared.get('commit_points'):
         return commit_point_action(o, info, gated, log1x, user_type, prepared, params, messages, emulated)
+    # Only the request maps the block binds: no unused local (PMD UnusedLocalVariable).
+    inputs = ''
+    if any(not b['parameter'] for b in prepared['binds']):
+        inputs += '            var values = request.blocks() == null ? java.util.Map.<String, java.util.Map<String, String>>of() : request.blocks();\n'
+    if any(b['parameter'] for b in prepared['binds']):
+        inputs += '            var parameters = request.parameters() == null ? java.util.Map.<String, String>of() : request.parameters();\n'
     return (comment_lines('\n'.join(info), '    ') + f'''
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     @Override
     public ActionResult {o['method']}({user_type} user, ActionRequest request) throws Exception {{
         {log1x(o, '() -> {')}
             if (request == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Hiányzó kérés.");
-{guard}            var values = request.blocks() == null ? java.util.Map.<String, java.util.Map<String, String>>of() : request.blocks();
-            var parameters = request.parameters() == null ? java.util.Map.<String, String>of() : request.parameters();
-            Object[] out = DbCalls.call(jdbc, {sql_expression(prepared)},
+{guard}{inputs}            Object[] out = DbCalls.call(jdbc, {sql_expression(prepared)},
                 {arguments});
             var blocks = new java.util.LinkedHashMap<String, java.util.Map<String, String>>();
             var globals = new java.util.LinkedHashMap<String, String>();
@@ -519,7 +523,7 @@ def crud_evidence(op, model, discovery, values):
     return '\n'.join(lines)
 
 
-COMMON_TOOLS_CLASSES = ('SqlValues', 'RuleContext', 'FormsErrors', 'DbCalls', 'PlsqlValues', 'LovQuery', 'FormsChecks')
+COMMON_TOOLS_CLASSES = ('SqlValues', 'RuleContext', 'FormsErrors', 'DbCalls', 'PlsqlValues', 'FormsPlsql', 'LovQuery', 'FormsChecks')
 
 
 def common_tools_package(config) -> str:

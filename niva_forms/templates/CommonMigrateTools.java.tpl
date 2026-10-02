@@ -388,6 +388,99 @@ public final class CommonMigrateTools {
     }
 
     /** Gombkérés értékei (Oracle-nevek, szövegként) és a PL/SQL-kötések típusos értékei között. */
+    /**
+     * A Forms-emuláció rögzített PL/SQL-segédeljárásai (niva_msg, niva_cmd ...).
+     *
+     * <p>A generált névtelen blokkok a nevükkel hivatkoznak rájuk, így minden modul ugyanazt az
+     * egy példányt használja. A szövegük a migrátor forms_emulation.HELPERS értéke.
+     */
+    public static final class FormsPlsql {
+        /** niva_msg: a MESSAGE szövegei a válasz üzenetei közé. */
+        public static final String MSG = "  PROCEDURE niva_msg(p_text VARCHAR2, p_mode PLS_INTEGER "
+                + "DEFAULT NULL) IS\n"
+                + "  BEGIN niva_messages := SUBSTR(niva_messages || p_text || CHR(10), 1, 32000); "
+                + "END;\n";
+
+        /** niva_cmd: egy Forms-hívás felületi utasításként (CHR(30)/CHR(31) tagolás). */
+        public static final String CMD = "  PROCEDURE niva_cmd(p_op VARCHAR2, p1 VARCHAR2 DEFAULT "
+                + "NULL, p2 VARCHAR2 DEFAULT NULL,\n"
+                + "                     p3 VARCHAR2 DEFAULT NULL, p4 VARCHAR2 DEFAULT NULL, p5 "
+                + "VARCHAR2 DEFAULT NULL,\n"
+                + "                     p6 VARCHAR2 DEFAULT NULL) IS\n"
+                + "  BEGIN\n"
+                + "    niva_ui := SUBSTR(niva_ui || p_op || CHR(31) || p1 || CHR(31) || p2 || "
+                + "CHR(31) || p3 || CHR(31) || p4\n"
+                + "                      || CHR(31) || p5 || CHR(31) || p6 || CHR(30), 1, "
+                + "32000);\n"
+                + "  END;\n";
+
+        /** niva_find: FIND_ALERT, FIND_ITEM ... - a név maga az azonosító. */
+        public static final String FIND = "  FUNCTION niva_find(p_name VARCHAR2) RETURN VARCHAR2 "
+                + "IS BEGIN RETURN UPPER(p_name); END;\n";
+
+        /** niva_none: GET_PARAMETER_LIST - a képernyőn nincs paraméterlista-objektum. */
+        public static final String NONE = "  FUNCTION niva_none(p_name VARCHAR2) RETURN VARCHAR2 "
+                + "IS BEGIN RETURN NULL; END;\n";
+
+        /** niva_id_null: ID_NULL. */
+        public static final String ID_NULL = "  FUNCTION niva_id_null(p_id VARCHAR2) RETURN "
+                + "BOOLEAN IS BEGIN RETURN p_id IS NULL; END;\n";
+
+        /** niva_group: CREATE_GROUP, ADD_GROUP_COLUMN - utasítás és azonosító. */
+        public static final String GROUP = "  FUNCTION niva_group(p_op VARCHAR2, p1 VARCHAR2, p2 "
+                + "VARCHAR2 DEFAULT NULL, p3 VARCHAR2 DEFAULT NULL,\n"
+                + "                      p4 VARCHAR2 DEFAULT NULL) RETURN VARCHAR2 IS\n"
+                + "  BEGIN\n"
+                + "    niva_cmd(p_op, p1, p2, p3, p4);\n"
+                + "    RETURN CASE WHEN p_op = 'ADD_GROUP_COLUMN' THEN UPPER(p1) || '.' || "
+                + "UPPER(p2) ELSE UPPER(p1) END;\n"
+                + "  END;\n";
+
+        /** niva_copy: COPY(érték, 'BLOKK.MEZŐ'). */
+        public static final String COPY = "  PROCEDURE niva_copy(p_value VARCHAR2, p_target IN OUT "
+                + "VARCHAR2) IS BEGIN p_target := p_value; END;\n";
+
+        /** niva_default_value: DEFAULT_VALUE(érték, 'BLOKK.MEZŐ'). */
+        public static final String DEFAULT_VALUE = "  PROCEDURE niva_default_value(p_value "
+                + "VARCHAR2, p_target IN OUT VARCHAR2) IS BEGIN IF p_target IS NULL THEN p_target "
+                + ":= p_value; END IF; END;\n";
+
+        /** niva_alert_prop, niva_alert_text, niva_show_alert: SHOW_ALERT és társai. */
+        public static final String ALERT = "  PROCEDURE niva_alert_prop(p_alert VARCHAR2, p_prop "
+                + "VARCHAR2, p_value VARCHAR2,\n"
+                + "                            p_label VARCHAR2 DEFAULT NULL) IS\n"
+                + "  BEGIN\n"
+                + "    niva_alert_texts(UPPER(p_alert) || '|' || UPPER(p_prop)) := CASE WHEN "
+                + "p_label IS NULL THEN p_value ELSE p_label END;\n"
+                + "  END;\n"
+                + "  FUNCTION niva_alert_text(p_key VARCHAR2) RETURN VARCHAR2 IS\n"
+                + "  BEGIN\n"
+                + "    IF niva_alert_texts.EXISTS(p_key) THEN\n"
+                + "      RETURN niva_alert_texts(p_key);\n"
+                + "    END IF;\n"
+                + "    RETURN NULL;\n"
+                + "  END;\n"
+                + "  FUNCTION niva_show_alert(p_alert VARCHAR2) RETURN NUMBER IS\n"
+                + "    v_answer VARCHAR2(10);\n"
+                + "  BEGIN\n"
+                + "    niva_alert_count := niva_alert_count + 1;\n"
+                + "    v_answer := REGEXP_SUBSTR(nv_785e8c0a94, '[^,]+', 1, niva_alert_count);\n"
+                + "    IF v_answer IS NOT NULL THEN\n"
+                + "      RETURN 87 + TO_NUMBER(v_answer);\n"
+                + "    END IF;\n"
+                + "    niva_cmd('SHOW_ALERT', UPPER(p_alert), niva_alert_text(UPPER(p_alert) || "
+                + "'|ALERT_MESSAGE_TEXT'),\n"
+                + "             niva_alert_text(UPPER(p_alert) || '|ALERT_BUTTON1'), "
+                + "niva_alert_text(UPPER(p_alert) || '|ALERT_BUTTON2'),\n"
+                + "             niva_alert_text(UPPER(p_alert) || '|ALERT_BUTTON3'), "
+                + "TO_CHAR(niva_alert_count));\n"
+                + "    RAISE niva_alert_pending;\n"
+                + "  END;\n";
+
+        private FormsPlsql() {
+        }
+    }
+
     public static final class PlsqlValues {
         private PlsqlValues() {
         }
@@ -481,14 +574,15 @@ public final class CommonMigrateTools {
         }
 
         /**
-         * COMMIT_FORM egy gomb kódjának közepén (mentési pont): a mentés előtti kódrész ellenőrzése.
+         * COMMIT_FORM egy gomb kódjának közepén (mentési pont): a mentés előtti rész ellenőrzése.
          *
-         * <p>A commitForm a gomb kódját a mentési pontig újrafuttatja; ugyanoda és ugyanazokkal a
-         * mezőértékekkel kell érkeznie, mint a képernyő előző kérése (NIVA.COMMIT_POINT,
-         * NIVA.COMMIT_STATE). Eltérésre HTTP 409, a tranzakció visszagörgetve. Az eredmény a gomb
-         * felületi utasításai a NIVA_COMMIT jelölő nélkül.
+         * <p>A commitForm a gomb kódját a mentési pontig újrafuttatja; ugyanoda és ugyanazokkal
+         * a mezőértékekkel kell érkeznie, mint a képernyő előző kérése (NIVA.COMMIT_POINT,
+         * NIVA.COMMIT_STATE). Eltérésre HTTP 409, a tranzakció visszagörgetve. Az eredmény a
+         * gomb felületi utasításai a NIVA_COMMIT jelölő nélkül.
          */
-        public static List<List<String>> prelude(List<List<String>> commands, Map<String, String> parameters) {
+        public static List<List<String>> prelude(List<List<String>> commands,
+                Map<String, String> parameters) {
             String point = parameter(parameters, "NIVA.COMMIT_POINT");
             String state = parameter(parameters, "NIVA.COMMIT_STATE");
             boolean reached = false;
@@ -496,16 +590,18 @@ public final class CommonMigrateTools {
             for (List<String> command : commands) {
                 if (!command.isEmpty() && "NIVA_COMMIT".equals(command.get(0))) {
                     String at = command.size() > 1 ? command.get(1) : "";
-                    String now = command.size() > 2 && !command.get(2).isEmpty() ? command.get(2) : null;
-                    reached = point != null && point.equals(at) && (state == null ? now == null : state.equals(now));
+                    String now = command.size() > 2 && !command.get(2).isEmpty()
+                            ? command.get(2) : null;
+                    reached = point != null && point.equals(at)
+                            && (state == null ? now == null : state.equals(now));
                     continue;
                 }
                 result.add(command);
             }
             if (!reached) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "A mentés előtti kód nem ugyanott vagy nem "
-                        + "ugyanazokkal az értékekkel állt meg, mint az előző kérésben. Frissítsd az adatokat, és "
-                        + "próbáld újra.");
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "A mentés előtti kód nem "
+                        + "ugyanott vagy nem ugyanazokkal az értékekkel állt meg, mint az előző "
+                        + "kérésben. Frissítsd az adatokat, és próbáld újra.");
             }
             return result;
         }

@@ -8,9 +8,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import hu.company.features.cl.CommonMigrateTools.DbCalls;
 import hu.company.features.cl.CommonMigrateTools.FormsChecks;
+import hu.company.features.cl.CommonMigrateTools.FormsPlsql;
 import hu.company.features.cl.CommonMigrateTools.RuleContext;
 import hu.company.features.cl.CommonMigrateTools.SqlValues;
 import hu.company.features.dbcall.cl.DbcallConstants;
@@ -168,28 +170,7 @@ public class DbcallServiceImpl extends ModuleServiceBase<DpsLogHelper> implement
     }
 
     private void guardB(String operation) {
-        boolean enabled;
-        switch (operation) {
-            case "read":
-                enabled = true;
-                break;
-            case "search":
-                enabled = false;
-                break;
-            case "create":
-                enabled = true;
-                break;
-            case "update":
-                enabled = true;
-                break;
-            case "delete":
-                enabled = true;
-                break;
-            default:
-                enabled = false;
-                break;
-        }
-        if (!enabled) {
+        if (!Set.of("read", "create", "update", "delete").contains(operation)) {
             throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Ez a művelet ebben a modulban még nem "
                     + "érhető el.");
         }
@@ -312,10 +293,7 @@ public class DbcallServiceImpl extends ModuleServiceBase<DpsLogHelper> implement
         Object[] out = DbCalls.call(jdbc, "DECLARE\n"
                 + "  niva_messages VARCHAR2(32767);\n"
                 + "  nv_d87d6c3974 NUMBER := ?; -- B.ID\n"
-                + "  nv_d87d6c3974_o NUMBER; -- B.ID (védett)\n"
-                + "  PROCEDURE niva_msg(p_text VARCHAR2, p_mode PLS_INTEGER DEFAULT NULL) IS\n"
-                + "  BEGIN niva_messages := SUBSTR(niva_messages || p_text || CHR(10), 1, 32000); END;\n"
-                + "" + "BEGIN\n"
+                + "  nv_d87d6c3974_o NUMBER; -- B.ID (védett)\n" + FormsPlsql.MSG + "BEGIN\n"
                 + "  nv_d87d6c3974_o := nv_d87d6c3974;\n"
                 + "BEGIN undocumented_pkg.purge(nv_d87d6c3974); EXCEPTION WHEN OTHERS THEN NULL; END;\n"
                 + "  IF nv_d87d6c3974 <> nv_d87d6c3974_o OR (nv_d87d6c3974 IS NULL AND nv_d87d6c3974_o IS NOT NULL) "

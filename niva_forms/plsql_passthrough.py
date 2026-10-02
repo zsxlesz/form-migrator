@@ -782,13 +782,24 @@ def unit_constant(name: str) -> str:
 
 
 def sql_expression(prepared: dict) -> str:
-    """Java expression of the block: head + named program-unit constants + tail."""
+    """Java expression of the block: head (shared helpers by name) + named program-unit constants + tail."""
     from .common import java_text_block
     suffix = '_UI' if prepared.get('ui') else ''  # the screen-emulating variant of a program unit
-    parts = ([java_text_block(prepared['head'])]
-             + ['PlsqlUnits.' + unit_constant(n) + suffix + ' + "\\n"' for n in prepared['units']]
+    head = [('FormsPlsql.' + part[1]) if isinstance(part, tuple) else java_lines(part)
+            for part in prepared.get('head_parts') or [prepared['head']]]
+    parts = (head + ['PlsqlUnits.' + unit_constant(n) + suffix + ' + "\\n"' for n in prepared['units']]
              + [java_text_block(prepared['tail'])])
     return ' + '.join(parts)
+
+
+def java_lines(text: str, indent: str = '                ') -> str:
+    """A Java string literal of lines that all end with a newline (no trailing empty literal)."""
+    from .common import jstr
+    lines = text.split('\n')
+    if lines and lines[-1] == '':
+        lines = lines[:-1]
+        return ('\n' + indent + '+ ').join(jstr(line + '\n') for line in lines) if lines else '""'
+    return ('\n' + indent + '+ ').join(jstr(line + ('\n' if i < len(lines) - 1 else '')) for i, line in enumerate(lines))
 
 
 PACKAGE_HEADER = re.compile(r'^\s*PACKAGE\s+(BODY\s+)?([A-Za-z][\w$#]*(?:\.[A-Za-z][\w$#]*)?)\s+(?:IS|AS)\b', re.I)
@@ -1042,6 +1053,12 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
         body = 'BEGIN\n' + body + ('' if body.endswith(';') else ';') + '\nEND;'
     elif not body.endswith(';'):
         body += ';'
+    # What the emulation left empty (BEGIN NULL; END;, IF NOT TRUE ...) goes; the behaviour stays.
+    from .plsql_structure import prune
+    body = prune(body)
+    if 'failure' in rewriter.needs and not any(re.search(r'\bFORM_TRIGGER_FAILURE\b', code, re.I)
+                                               for code in [body] + [library[n]['text'] for n in order]):
+        rewriter.needs.discard('failure')  # only the pruned IF NOT TRUE THEN RAISE FORM_TRIGGER_FAILURE used it
     points = 0
     if rewriter.points:
         from . import commit_points as cp
@@ -1087,17 +1104,16 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     if 'acknowledge' in rewriter.needs: head.append('  ACKNOWLEDGE CONSTANT PLS_INTEGER := 0;\n  NO_ACKNOWLEDGE CONSTANT PLS_INTEGER := 1;')
     head += [f"  {var(b['source'])} {SQL_TYPES[b['type']]} := ?; -- {b['source']}" for b in binds]
     head += [f"  {var(b['source'])}_o {SQL_TYPES[b['type']]}; -- {b['source']} (védett)" for b in guarded]
-    emulated_items, emulated_subprograms = emu.declarations(rewriter.needs, var(emu.ALERT_PARAMETER)) if ui else ([], [])
+    emulated_items, helpers = emu.declarations(rewriter.needs) if ui else ([], [])
+    commit_subprograms = []
     if points:
         from . import commit_points as cp
         commit_items, commit_subprograms = cp.declarations(var('NIVA.RESUME'), var('NIVA.COMMIT'), cp.state_expression(binds, var))
         emulated_items += commit_items
-        emulated_subprograms += commit_subprograms
     head += emulated_items
     head += [library[n]['items'] for n in order if library[n]['items'].strip()]  # package variables: before any subprogram
-    head.append('  PROCEDURE niva_msg(p_text VARCHAR2, p_mode PLS_INTEGER DEFAULT NULL) IS\n'
-                '  BEGIN niva_messages := SUBSTR(niva_messages || p_text || CHR(10), 1, 32000); END;')
-    head += emulated_subprograms
+    # The fixed helpers by name (CommonMigrateTools.FormsPlsql in the Java code), then the block's own subprograms.
+    head += [('helper', 'MSG')] + [('helper', name) for name in helpers] + commit_subprograms
     outs = [b for b in binds if not b['parameter'] and writable(b)]
     # Written :GLOBAL values go back to the screen, which keeps them for the following requests.
     globals_out = [b for b in binds if b['parameter'] and b['block'] == 'GLOBAL' and b['source'] in assigned] if ui else []
@@ -1111,9 +1127,19 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
         tail += ["EXCEPTION", "  WHEN FORM_TRIGGER_FAILURE THEN",
                  "    RAISE_APPLICATION_ERROR(-20999, NVL(SUBSTR(RTRIM(niva_messages, CHR(10)), 1, 2000), 'A művelet nem hajtható végre.'));"]
     tail.append('END;')
-    head_text, tail_text = '\n'.join(head) + '\n', '\n'.join(tail)
+    head_parts = []  # literal text and ('helper', NAME) segments, in order
+    for part in head:
+        if isinstance(part, tuple):
+            head_parts.append(part)
+        elif head_parts and isinstance(head_parts[-1], str):
+            head_parts[-1] += part + '\n'
+        else:
+            head_parts.append(part + '\n')
+    head_text = ''.join(emu.HELPERS[p[1]] + '\n' if isinstance(p, tuple) else p for p in head_parts)
+    tail_text = '\n'.join(tail)
     sql = head_text + ''.join(library[n]['text'] + '\n' for n in order) + tail_text
-    return {'sql': sql, 'head': head_text, 'tail': tail_text, 'binds': binds, 'outs': outs, 'notes': rewriter.notes,
+    return {'sql': sql, 'head': head_text, 'head_parts': head_parts, 'tail': tail_text, 'binds': binds, 'outs': outs,
+            'notes': rewriter.notes,
             'units': order, 'assigned': sorted(assigned), 'unresolved': rewriter.unresolved, 'guarded': [b['source'] for b in guarded],
             'ui': ui, 'globals': globals_out, 'commands': list(dict.fromkeys(rewriter.commands)), 'commit_points': points}
 

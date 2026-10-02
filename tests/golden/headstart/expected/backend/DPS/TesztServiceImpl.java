@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import hu.company.features.cl.CommonMigrateTools.FormsChecks;
 import hu.company.features.cl.CommonMigrateTools.LovQuery;
@@ -175,28 +176,7 @@ public class TesztServiceImpl extends ModuleServiceBase<DpsLogHelper> implements
     }
 
     private void guardAit(String operation) {
-        boolean enabled;
-        switch (operation) {
-            case "read":
-                enabled = false;
-                break;
-            case "search":
-                enabled = false;
-                break;
-            case "create":
-                enabled = false;
-                break;
-            case "update":
-                enabled = false;
-                break;
-            case "delete":
-                enabled = false;
-                break;
-            default:
-                enabled = false;
-                break;
-        }
-        if (!enabled) {
+        if (!Set.of().contains(operation)) {
             throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Ez a művelet ebben a modulban még nem "
                     + "érhető el.");
         }

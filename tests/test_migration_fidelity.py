@@ -127,7 +127,11 @@ class MigrationFidelityTests(unittest.TestCase):
         self.assertIn("niva_msg('Failure'); RAISE;", sql)
         # Recovery in a finished nested handler does not leak into the outer body.
         nested = 'BEGIN BEGIN NULL; EXCEPTION WHEN OTHERS THEN NULL; END; qms$notify; END;'
-        self.assertIn('END; NULL; END;', runtime.prepared(nested)['sql'])
+        sql = runtime.prepared(nested)['sql']
+        # 4.14: the NULL left for qms$notify is pruned; it never became a RAISE.
+        self.assertIn('EXCEPTION WHEN OTHERS THEN NULL; END; END;', sql)
+        self.assertNotIn('RAISE;', sql)
+        self.assertNotIn('qms$', sql)
 
     def test_unknown_function_out_arguments_cannot_silently_change_protected_items(self):
         options = dict(block='B', items={'B': {'ID': {'type': 'number'}, 'NAME': {'type': 'text'}}},

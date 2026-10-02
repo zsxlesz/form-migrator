@@ -21,151 +21,12 @@ local package with state; GOTO.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
 
 from .plsql import Unsupported
+from .plsql_structure import apply, parse
 
 PLACEHOLDER = 'niva_commit_form(NIVA_POINT)'
-STOP_LIST = {'END', 'ELSE', 'ELSIF', 'EXCEPTION', 'WHEN'}
-
-
-@dataclass
-class Node:
-    kind: str  # simple | opaque | if | block
-    start: int  # token index
-    end: int  # token index of the closing ';'
-    branches: list = field(default_factory=list)  # if: [(cond_start, cond_end, [nodes])]; else -> cond None
-    body: list = field(default_factory=list)  # block statements
-    handlers: list = field(default_factory=list)  # block: [[nodes] per WHEN]
-    declare: tuple | None = None  # block: (first, last) token index of the declarations
-    exception_at: int | None = None  # block: token index of EXCEPTION
-
-
-class Parser:
-    def __init__(self, sig):
-        self.sig = sig
-
-    def word(self, i):
-        return self.sig[i][1].upper() if i < len(self.sig) and self.sig[i][0] == 'ident' else (
-            self.sig[i][1] if i < len(self.sig) else '')
-
-    def fail(self, i, what):
-        near = ' '.join(t[1] for t in self.sig[max(0, i - 2):i + 3])
-        raise Unsupported('COMMIT_FORM a kód közepén: a kód szerkezete nem bontható (' + what + ': ' + near + ').')
-
-    def statements(self, i, stop):
-        nodes = []
-        while i < len(self.sig) and self.word(i) not in stop:
-            node, i = self.statement(i)
-            nodes.append(node)
-        if i >= len(self.sig):
-            self.fail(i - 1, 'lezáratlan utasításlista')
-        return nodes, i
-
-    def statement(self, i):
-        word = self.word(i)
-        if word == '<' and self.word(i + 1) == '<':
-            close = i + 2
-            while close < len(self.sig) and not (self.word(close) == '>' and self.word(close + 1) == '>'):
-                close += 1
-            node, end = self.statement(close + 2)
-            node.start = i
-            return node, end
-        if word == 'IF':
-            return self.if_statement(i)
-        if word in {'BEGIN', 'DECLARE'}:
-            return self.block(i)
-        if word == 'GOTO':
-            raise Unsupported('COMMIT_FORM a kód közepén: GOTO mellett a folytatási pont nem követhető.')
-        return self.opaque(i)
-
-    def opaque(self, i):
-        """A statement up to its ';', loops and CASE statements included (no point may be inside)."""
-        stack, depth, k = [], 0, i
-        kind = 'simple'
-        while k < len(self.sig):
-            word = self.word(k)
-            if word in {'BEGIN', 'IF', 'LOOP', 'CASE'}:
-                stack.append(word)
-                if word == 'LOOP' or (word == 'CASE' and k == i):
-                    kind = 'opaque'
-            elif word == 'END':
-                if not stack:
-                    self.fail(k, 'felesleges END')
-                stack.pop()
-                if self.word(k + 1) in {'IF', 'LOOP', 'CASE'}:
-                    k += 1
-            elif word == '(':
-                depth += 1
-            elif word == ')':
-                depth -= 1
-            elif word == ';' and depth == 0 and not stack:
-                return Node(kind, i, k), k + 1
-            k += 1
-        self.fail(i, 'lezáratlan utasítás')
-
-    def condition(self, i, until):
-        """The expression from sig[i] to its THEN (a CASE expression inside it has THENs too)."""
-        cases, k = 0, i
-        while k < len(self.sig):
-            word = self.word(k)
-            if word == 'CASE':
-                cases += 1
-            elif word == 'END' and cases:
-                cases -= 1
-            elif word == until and not cases:
-                return k
-            k += 1
-        self.fail(i, 'THEN nélküli feltétel')
-
-    def if_statement(self, i):
-        node = Node('if', i, i)
-        keyword = i  # IF or ELSIF
-        while True:
-            then = self.condition(keyword + 1, 'THEN')
-            nodes, k = self.statements(then + 1, {'ELSIF', 'ELSE', 'END'})
-            node.branches.append((keyword + 1, then - 1, nodes))
-            word = self.word(k)
-            if word == 'ELSIF':
-                keyword = k
-                continue
-            if word == 'ELSE':
-                nodes, k = self.statements(k + 1, {'END'})
-                node.branches.append((None, None, nodes))
-            if self.word(k) != 'END' or self.word(k + 1) != 'IF' or self.word(k + 2) != ';':
-                self.fail(k, 'END IF hiányzik')
-            node.end = k + 2
-            return node, k + 3
-
-    def block(self, i):
-        from .libraries import declarations
-        node = Node('block', i, i)
-        k = i
-        if self.word(i) == 'DECLARE':
-            try:
-                k = declarations(self.sig, i + 1)
-            except Unsupported as exc:
-                self.fail(i, str(exc))
-            node.declare = (i + 1, k - 1)
-            if self.word(k) != 'BEGIN':
-                self.fail(k, 'DECLARE után BEGIN hiányzik')
-        node.body, k = self.statements(k + 1, {'END', 'EXCEPTION'})
-        if self.word(k) == 'EXCEPTION':
-            node.exception_at = k
-            k += 1
-            while self.word(k) == 'WHEN':
-                then = self.condition(k + 1, 'THEN')
-                nodes, k = self.statements(then + 1, {'WHEN', 'END'})
-                node.handlers.append(nodes)
-        if self.word(k) != 'END':
-            self.fail(k, 'END hiányzik')
-        k += 1
-        if self.word(k) != ';':
-            k += 1  # END label
-        if self.word(k) != ';':
-            self.fail(k, 'END utáni ; hiányzik')
-        node.end = k
-        return node, k + 1
+PURPOSE = 'COMMIT_FORM a kód közepén'
 
 
 def walk(nodes, path, found, sig, text):
@@ -212,14 +73,9 @@ def declared_names(sig, first, last):
 
 def transform(body: str) -> tuple[str, int]:
     """The body with numbered commit points and resume guards; (text, number of points)."""
-    from .plsql_passthrough import scan, significant
-    sig = significant(scan(body))
-    parser = Parser(sig)
-    if parser.word(0) not in {'BEGIN', 'DECLARE'}:
-        raise Unsupported('COMMIT_FORM a kód közepén: a kód nem blokk.')
-    root, after = parser.block(0)
-    if after != len(sig):
-        parser.fail(after, 'a blokk után további kód áll')
+    sig, root = parse(body, PURPOSE)
+    if any(t[0] == 'ident' and t[1].upper() == 'GOTO' for t in sig):
+        raise Unsupported(PURPOSE + ': GOTO mellett a folytatási pont nem követhető.')
     points, top = [], [root]
     walk(top, [], points, sig, body)
     if not points:
@@ -292,10 +148,7 @@ def transform(body: str) -> tuple[str, int]:
         node = path[-1][2]
         start, end = sig[node.start][2], sig[node.end][2]
         edits.append((start, end, 'niva_commit_form(' + str(number[id(node)]) + ')', 2))
-    out = body
-    for start, end, text, order in sorted(edits, key=lambda e: (e[0], e[1], e[3]), reverse=True):
-        out = out[:start] + text + out[end:]
-    return out, len(points)
+    return apply(body, edits), len(points)
 
 
 def state_expression(binds, var) -> str:

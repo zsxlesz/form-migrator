@@ -37,7 +37,7 @@ import org.springframework.web.server.ResponseStatusException;
  */
 public final class CommonMigrateTools {
     /** A változat, amelyet a generált modulok várnak. */
-    public static final String VERSION = "3";
+    public static final String VERSION = "4";
 
     private CommonMigrateTools() {
         // Csak statikus segédek.
@@ -476,6 +476,36 @@ public final class CommonMigrateTools {
                     fields.remove(fields.size() - 1);
                 }
                 result.add(fields);
+            }
+            return result;
+        }
+
+        /**
+         * COMMIT_FORM egy gomb kódjának közepén (mentési pont): a mentés előtti kódrész ellenőrzése.
+         *
+         * <p>A commitForm a gomb kódját a mentési pontig újrafuttatja; ugyanoda és ugyanazokkal a
+         * mezőértékekkel kell érkeznie, mint a képernyő előző kérése (NIVA.COMMIT_POINT,
+         * NIVA.COMMIT_STATE). Eltérésre HTTP 409, a tranzakció visszagörgetve. Az eredmény a gomb
+         * felületi utasításai a NIVA_COMMIT jelölő nélkül.
+         */
+        public static List<List<String>> prelude(List<List<String>> commands, Map<String, String> parameters) {
+            String point = parameter(parameters, "NIVA.COMMIT_POINT");
+            String state = parameter(parameters, "NIVA.COMMIT_STATE");
+            boolean reached = false;
+            List<List<String>> result = new ArrayList<>();
+            for (List<String> command : commands) {
+                if (!command.isEmpty() && "NIVA_COMMIT".equals(command.get(0))) {
+                    String at = command.size() > 1 ? command.get(1) : "";
+                    String now = command.size() > 2 && !command.get(2).isEmpty() ? command.get(2) : null;
+                    reached = point != null && point.equals(at) && (state == null ? now == null : state.equals(now));
+                    continue;
+                }
+                result.add(command);
+            }
+            if (!reached) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "A mentés előtti kód nem ugyanott vagy nem "
+                        + "ugyanazokkal az értékekkel állt meg, mint az előző kérésben. Frissítsd az adatokat, és "
+                        + "próbáld újra.");
             }
             return result;
         }

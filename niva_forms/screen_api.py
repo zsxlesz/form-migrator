@@ -139,7 +139,9 @@ def wiring(plan: dict, ui: dict, api: dict | None, key: str, forms: list, tables
             'checkbox_values': checkbox_values, 'tables': table_records, 'oracle_names': oracle_names,
             'screen_keys': screen_keys, 'forms': bool(forms), 'buttons': buttons, 'commit': commit,
             'ui_disabled': {b: e.get('ui_disabled', {}) for b, e in api['blocks'].items()},
-            'alerts_used': any(a.get('alerts') for a in api['actions'].values())}
+            'alerts_used': any(a.get('alerts') for a in api['actions'].values()),
+            # COMMIT_FORM in the middle of a button's code: the screen saves, then the button resumes (commit_points).
+            'commit_points': bool(commit) and bool(forms) and any(a.get('commit_point') for a in api['actions'].values())}
 
 
 def declarations(w: dict) -> list[str]:
@@ -355,8 +357,8 @@ __CASES__      default: return false;
         selections = ''.join(f"    if (this.{prop}Selection) records[{json.dumps(block)}] = {{ ...this.{prop}Selection }};\n" for block, prop in w['tables'])
         form_copy = ('    for (const [block, values] of Object.entries(this.formValues)) records[block] = { ...values };\n' if form_values else '')
         result.append('''  /** Gomb a generált akció-végponton: aktuális rekordok Oracle nevekkel, a válasz visszaírva.
-   *  answers: az eddigi alert-válaszok (a kód újrafut, és ezeket kapja a SHOW_ALERT). */
-  private runAction(ownId: string, answers: readonly number[] = []): boolean {
+   *  answers: az eddigi alert-válaszok (a kód újrafut, és ezeket kapja a SHOW_ALERT).__RESUME_DOC__ */
+  private runAction(ownId: string, answers: readonly number[] = []__RESUME_ARG__): boolean {
     const call = this.actionEndpoints[ownId];
     if (!call) return false;
     const records: Record<string, Record<string, unknown>> = {};
@@ -365,17 +367,17 @@ __FORMS____SELECTIONS__    const blocks: Record<string, Record<string, string | 
       const names = this.oracleNames[block] ?? {};
       blocks[block] = Object.fromEntries(Object.entries(values).filter(([key]) => key in names).map(([key, value]) => [names[key], this.wireText(block, key, value)]));
     }
-    call({ blocks, parameters: this.requestContext(answers)__QUERY_REQUEST__ }).subscribe({
+__PARAMETERS__    call({ blocks, parameters__PARAMETERS_VALUE____QUERY_REQUEST__ }).subscribe({
       next: response => {
 __QUERY_RESPONSE__
         const result = this.payload<__P__ActionResult>(response);
         const alert = result.commands?.find(command => command[0] === 'SHOW_ALERT');
         if (alert) {
           // Forms SHOW_ALERT: a kérés munkája visszagörgetve; a válasszal a kód elölről fut.
-          this.askAlert(alert, choice => this.runAction(ownId, [...answers, choice]));
+          this.askAlert(alert, choice => this.runAction(ownId, [...answers, choice]__RESUME_PASS__));
           return;
         }
-        if (result.globals) this.rememberGlobals(result.globals);
+__COMMIT_POINT__        if (result.globals) this.rememberGlobals(result.globals);
         for (const [block, values] of Object.entries(result.blocks ?? {})) this.applyOracleValues(block, values);
         this.runCommands(result.commands ?? []);
         if (result.messages?.length) this.toast.success('Üzenet', result.messages.join(' '), true, TOAST_LIFE.success);
@@ -385,6 +387,23 @@ __QUERY_RESPONSE__
     });
     return true;
   }'''.replace('__FORMS__', form_copy).replace('__SELECTIONS__', selections).replace('__P__', p)
+            .replace('__RESUME_DOC__', '\n   *  resume: mentési pont után a folytatás (NIVA.RESUME; COMMIT_FORM a kód közepén).' if w.get('commit_points') else '')
+            .replace('__RESUME_ARG__', ', resume = 0' if w.get('commit_points') else '')
+            .replace('__RESUME_PASS__', ', resume' if w.get('commit_points') else '')
+            .replace('__PARAMETERS__', ('    const parameters: Record<string, string> = { ...this.requestContext(answers), ...(resume ? { \'NIVA.RESUME\': String(resume) } : {}) };\n'
+                                        if w.get('commit_points') else ''))
+            .replace('__PARAMETERS_VALUE__', '' if w.get('commit_points') else ': this.requestContext(answers)')
+            .replace('__COMMIT_POINT__', '''        const point = result.commands?.find(command => command[0] === 'NIVA_COMMIT');
+        if (point) {
+          // COMMIT_FORM a kód közepén: a mentés előtti értékek a képernyőre, mentés (a backend a mentési pontig
+          // újrafuttatja a gomb kódját ugyanebben a tranzakcióban), majd a kód folytatása a pont után.
+          if (result.globals) this.rememberGlobals(result.globals);
+          for (const [block, values] of Object.entries(result.blocks ?? {})) this.applyChanged(block, values);
+          this.formsCommit({ action: ownId, actionBlocks: blocks, actionParameters: { ...parameters, 'NIVA.COMMIT_POINT': point[1] ?? '', 'NIVA.COMMIT_STATE': point[2] ?? '' } },
+                           () => this.runAction(ownId, [], Number(point[1])));
+          return;
+        }
+''' if w.get('commit_points') else '')
             .replace('__INIT__', json.dumps(w.get('init') or '@INIT'))
             .replace('__QUERY_REQUEST__', ', ...(this.queryActionBlocks[ownId] ? { offset: 0, limit: ' + str(QUERY_LIMIT) + ' } : {})'
                      if w.get('query_actions') else '')

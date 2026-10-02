@@ -36,10 +36,19 @@ def operation(blocks: list) -> dict | None:
                 constant='COMMIT_FORM_PATH', blocks=commit_blocks(blocks))
 
 
+PRELUDE_FIELDS = [('String', 'action'), ('Map<String, Map<String, String>>', 'actionBlocks'), ('Map<String, String>', 'actionParameters')]
+
+
+def request_fields(o: dict) -> list:
+    """CommitRequest: the screen values, the changes per block, and - with a commit point - the button to run first."""
+    fields = [('Map<String, Map<String, String>>', 'blocks'), ('Map<String, String>', 'parameters')]
+    fields += [(f"BlockChanges<{b['class']}Row>", 'changes' + field(b)) for b in o['blocks']]
+    return fields + (PRELUDE_FIELDS if o.get('preludes') else [])
+
+
 def dtos(o: dict, value_class) -> str:
     blocks = o['blocks']
-    request = [('Map<String, Map<String, String>>', 'blocks'), ('Map<String, String>', 'parameters')]
-    request += [(f"BlockChanges<{b['class']}Row>", 'changes' + field(b)) for b in blocks]
+    request = request_fields(o)
     result = [('Map<String, Map<String, String>>', 'blocks'), ('List<String>', 'messages'),
               ('List<List<String>>', 'commands'), ('Map<String, String>', 'globals')]
     result += [(f"List<{b['class']}Row>", 'rows' + field(b)) for b in blocks]
@@ -113,6 +122,24 @@ def method(o: dict, model: dict, log1x, user_type: str, gated: bool) -> str:
              'var globals = new java.util.LinkedHashMap<String, String>();',
              'var messages = new ArrayList<String>();',
              'var commands = new ArrayList<List<String>>();']
+    if o.get('preludes'):
+        # COMMIT_FORM in the middle of a button's code: its code up to the commit point runs first, in this
+        # transaction, and must arrive at the state the screen saw (PlsqlValues.prelude, HTTP 409 otherwise).
+        body += ['if (request.action() != null) {',
+                 '    var actionValues = request.actionBlocks() == null ? java.util.Map.<String, java.util.Map<String, String>>of() : request.actionBlocks();',
+                 '    var actionParameters = new java.util.LinkedHashMap<String, String>(request.actionParameters() == null ? java.util.Map.<String, String>of() : request.actionParameters());',
+                 '    actionParameters.put("NIVA.COMMIT", "POST");',
+                 '    var actionCommands = new ArrayList<List<String>>();',
+                 '    switch (request.action()) {']
+        for owner, runner in o['preludes']:
+            body += [f'        case {jstr(owner)}:',
+                     f'            {runner}(actionValues, actionParameters, blocks, globals, messages, actionCommands);',
+                     '            break;']
+        body += ['        default:',
+                 '            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ismeretlen mentés előtti művelet: " + request.action());',
+                 '    }',
+                 '    commands.addAll(PlsqlValues.prelude(actionCommands, actionParameters));',
+                 '}']
     if 'PRE-COMMIT' in plans:
         body += trigger_lines('PRE-COMMIT', plans['PRE-COMMIT']['plan'], '')
     saved = {}
@@ -158,6 +185,8 @@ def method(o: dict, model: dict, log1x, user_type: str, gated: bool) -> str:
             '(blokksorrend; blokkonként törlés, majd beszúrás és módosítás; minden rekord a saját triggereivel).']
     if plans:
         info.append('Form-triggerek: ' + ', '.join(plans) + ' (eredeti PL/SQL az adatbázisban).')
+    if o.get('preludes'):
+        info.append('Mentési pontos gombok (előbb a kódjuk fut a pontig): ' + ', '.join(owner for owner, _ in o['preludes']) + '.')
     from .action_scaffold import comment_lines
     text = '\n'.join('            ' + line if line else '' for line in body)
     return (comment_lines('\n'.join(info), '    ') + f'''

@@ -65,8 +65,8 @@ def generate(output: Path, config, package, cls, blocks, ops):
         # Forms COMMIT_FORM (commit_chain): one changes/result field per block.
         from .commit_chain import field
         wrappers['BlockChanges'] = [('List<T>', 'inserted'), ('List<UpdateRequest<T>>', 'updated'), ('List<T>', 'deleted')]
-        wrappers['CommitRequest'] = ([('Map<String, Map<String, String>>', 'blocks'), ('Map<String, String>', 'parameters')]
-                                     + [(f"BlockChanges<{b['class']}Row>", 'changes' + field(b)) for b in commit['blocks']])
+        from .commit_chain import request_fields
+        wrappers['CommitRequest'] = request_fields(commit)
         wrappers['CommitResult'] = ([('Map<String, Map<String, String>>', 'blocks'), ('List<String>', 'messages'),
                                      ('List<List<String>>', 'commands'), ('Map<String, String>', 'globals')]
                                     + [(f"List<{b['class']}Row>", 'rows' + field(b)) for b in commit['blocks']])

@@ -159,7 +159,7 @@ class Rewriter:
 
     def __init__(self, block, items, catalog_prefixes, *, other_blocks, parameters, transaction, units, procedures=None,
                  runtime_calls=(), ui=False, form='', trigger_item=None, tail_units=frozenset(), members=frozenset(),
-                 key_overrides=frozenset()):
+                 key_overrides=frozenset(), key_triggers=None, commit_points=False, cursor_on_item=True):
         self.block, self.items, self.prefixes = block, items, catalog_prefixes
         # Framework prefixes and catalogued Forms-runtime routines: both exist only in Forms.
         self.catalog = {'call_prefixes': tuple(catalog_prefixes or ()), 'runtime_calls': tuple(runtime_calls or ())}
@@ -174,6 +174,13 @@ class Rewriter:
         self.key_overrides = set(key_overrides)  # DO_KEY targets with an own KEY-* trigger: its code would be lost
         self.args_until = -1  # inside the argument list of an emulated built-in: Forms constants become text
         self.commands = []  # the emulated built-ins, for the evidence
+        # DO_KEY with an own KEY-* trigger: its code is embedded (KEY event -> candidate triggers, see rules.key_triggers).
+        self.key_triggers = key_triggers or {}
+        self.key_stack = frozenset()  # the KEY triggers being embedded: a DO_KEY of one of them would recurse
+        self.cursor_on_item = cursor_on_item  # the button takes the cursor (Mouse Navigate): its KEY triggers apply
+        # COMMIT_FORM followed by more code: a commit point the request stops at and resumes after (commit_points).
+        self.commit_points, self.points = commit_points, 0
+        self.not_tail = False  # embedded KEY trigger code that more code follows: no screen command may be last here
 
     def bind(self, token: str) -> str:
         name = token[1:].upper()
@@ -489,7 +496,7 @@ class Rewriter:
             return None
         if not at_start:
             raise Unsupported(word + ' kifejezésben: a webes emuláció csak utasításként kezeli.')
-        end = self.statement_end(sig, k)
+        end = self.statement_end(sig, k)  # the whole statement: DO_KEY embedding and commit points replace it
         if word in emu.NOOPS:
             replace[token[2]] = (end, 'NULL;')
             note = word + ' -> NULL (a webes képernyőn nincs teendő)'
@@ -528,15 +535,32 @@ class Rewriter:
             prop = sig[k + 4][1].upper() if k + 4 < close else ''
             if prop in emu.QUERY_PROPERTIES:
                 raise Unsupported('SET_BLOCK_PROPERTY ' + prop + ': a blokk lekérdezését/DML-jét módosítja, ezt a végpontnak kell követnie.')
+        key = None
         if word == 'DO_KEY':
             key = sig[k + 2][1][1:-1].upper() if literal else None
             from .forms_keys import KEY_EVENTS
+            if key is not None and key in self.key_overrides:
+                target = self.key_target(key)
+                if target is not None:
+                    # Forms runs the KEY trigger's own code: it is embedded where DO_KEY stands.
+                    replace[token[2]] = (end, self.inline_key(key, target, sig, k))
+                    return end
             if key is None or key in self.key_overrides or key not in KEY_EVENTS:
                 raise Unsupported('Nem támogatott UI eseménylánc: DO_KEY(' + (repr(key) if key else 'dinamikus argumentum') + ') → '
                                   + KEY_EVENTS.get(key or '', 'dinamikus/ismeretlen KEY esemény')
                                   + ': a saját key-trigger logikáját át kell ültetni.')
         if word in emu.TAIL_COMMANDS:
-            self.check_tail(sig, k, word)
+            reason = self.tail_reason(sig, k, word)
+            if reason:
+                if self.commit_points and (word == 'COMMIT_FORM' or key == 'COMMIT_FORM'):
+                    # More code follows the commit: a commit point (commit_points.transform numbers it).
+                    from .commit_points import PLACEHOLDER
+                    replace[token[2]] = (end, PLACEHOLDER + ';')
+                    self.points += 1
+                    self.needs.add('ui')
+                    self.commands.append('COMMIT_FORM')
+                    return end
+                raise Unsupported(reason)
         self.needs.add('ui')
         self.commands.append(word)
         if after == '(' and close == k + 2:
@@ -548,6 +572,90 @@ class Rewriter:
             return None
         replace[token[2]] = (token[3], "niva_cmd('" + word + "')")
         return None
+
+    def tail_reason(self, sig, k, word):
+        """Why the built-in at sig[k] cannot be the screen's last step, or None."""
+        if self.not_tail:
+            return (word + ' a DO_KEY-val beágyazott KEY-trigger kódjában: a DO_KEY után további kód következik, '
+                    'a webes képernyő a lépést csak a kód végén tudná végrehajtani.')
+        try:
+            self.check_tail(sig, k, word)
+        except Unsupported as exc:
+            return str(exc)
+        return None
+
+    def key_target(self, key):
+        """The KEY trigger DO_KEY(key) runs: the button item's, its block's, else the form's (Forms key scope)."""
+        from .forms_keys import KEY_EVENTS
+        event = KEY_EVENTS[key]
+        candidates = self.key_triggers.get(event, [])
+        if not candidates:
+            return None
+        # The cursor is on the button only if nothing moved it before DO_KEY (GO_ITEM, a navigating local unit ...).
+        on_button = self.cursor_on_item and not self.navigated()
+        item = self.trigger_item if on_button else None
+        own = [c for c in candidates if item and c['item'] and c['block'] + '.' + c['item'] == item]
+        block = [c for c in candidates if c['block'] and not c['item'] and self.block and on_button and c['block'] == self.block]
+        form = [c for c in candidates if not c['block']]
+        chosen = (own or block or form or [None])[0]
+        scoped = own + block + form
+        if chosen is None or (len(candidates) > len(scoped) and not item):
+            raise Unsupported('Nem támogatott UI eseménylánc: DO_KEY(' + repr(key) + ') → ' + event + ': több blokkban is van '
+                              'saját ' + event + ' trigger, és hogy melyik fut, a kurzor helyétől függ.')
+        if chosen.get('hierarchy') in {'BEFORE', 'AFTER'}:
+            raise Unsupported('Nem támogatott UI eseménylánc: DO_KEY(' + repr(key) + ') → ' + chosen['id']
+                              + ' (Execution Hierarchy = ' + chosen['hierarchy'] + '): a szülőszintű trigger is fut, kézi átültetés.')
+        return chosen
+
+    def navigated(self) -> bool:
+        """Did the code before this point move the cursor (navigation built-in, or a local unit that may)?"""
+        from .forms_emulation import NAVIGATION
+        if NAVIGATION & set(self.commands):
+            return True
+        for name in self.used_units:
+            unit = self.units.get(name, {})
+            try:
+                words = {t[1].upper() for t in significant(scan(decode_line_escapes(unit.get('text') or ''))) if t[0] == 'ident'}
+            except Unsupported:
+                return True
+            if words & NAVIGATION:
+                return True
+        return False
+
+    def inline_key(self, key, target, sig, k):
+        """The KEY trigger's code as a nested block, rewritten in its own block context."""
+        if key in self.key_stack:
+            raise Unsupported('DO_KEY(' + repr(key) + ') a saját ' + target['event'] + ' triggeréből: végtelen hívás.')
+        sub = Rewriter(target['block'] or None, self.items, self.prefixes, other_blocks=True, parameters=self.parameters,
+                       transaction=self.transaction, units=self.units, procedures=self.procedures,
+                       runtime_calls=self.catalog['runtime_calls'], ui=self.ui, form=self.form, trigger_item=self.trigger_item,
+                       tail_units=self.tail_units, members=self.members, key_overrides=self.key_overrides,
+                       key_triggers=self.key_triggers, commit_points=self.commit_points, cursor_on_item=self.cursor_on_item)
+        sub.key_stack = self.key_stack | {key}
+        sub.not_tail = self.not_tail or self.tail_reason(sig, k, 'DO_KEY') is not None
+        source = decode_line_escapes(target['source']).strip().rstrip('/').strip()
+        validate_structure(source)
+        text = sub.rewrite(source).strip()
+        from .forms_emulation import NOT_FROM_BUTTON
+        lost = [c for c in sub.commands if c in NOT_FROM_BUTTON]
+        if lost:
+            raise Unsupported('Nem támogatott UI eseménylánc: DO_KEY(' + repr(key) + ') → ' + target['event'] + ' (' + target['id']
+                              + '): a kódja ' + ', '.join(dict.fromkeys(lost)) + ' lépést tartalmaz, amelyet a webes képernyő '
+                              'gombból nem tud végrehajtani; a saját key-trigger logikáját át kell ültetni.')
+        for name, bind in sub.binds.items():
+            self.binds.setdefault(name, bind)
+        self.needs |= sub.needs
+        self.notes += [n for n in sub.notes if n not in self.notes]
+        self.used_units += [u for u in sub.used_units if u not in self.used_units]
+        self.unresolved += [u for u in sub.unresolved if u not in self.unresolved]
+        self.out_args += sub.out_args
+        self.commands += sub.commands
+        self.points += sub.points
+        self.notes.append('DO_KEY(' + repr(key) + ') -> a(z) ' + target['id'] + ' saját kódja beágyazva')
+        tokens = significant(scan(text))
+        if not tokens or tokens[0][1].upper() not in {'DECLARE', 'BEGIN'}:
+            return 'BEGIN\n' + text + ('' if text.endswith(';') else ';') + '\nEND;'
+        return text if text.endswith(';') else text + ';'
 
     @staticmethod
     def depth(sig, start, index):
@@ -878,7 +986,7 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
             other_blocks: bool = False, parameters: bool = False, transaction: bool = False,
             writable=lambda b: True, procedures: dict | None = None, library: dict | None = None,
             runtime_calls: tuple = (), ui: bool = False, form: str = '', trigger_item: str | None = None,
-            key_overrides=frozenset()) -> dict:
+            key_overrides=frozenset(), key_triggers=None, commit_points: bool = False, cursor_on_item: bool = True) -> dict:
     """The anonymous block and its binds, or Unsupported with the reason.
 
     Local program units come from the shared library (same text in every block);
@@ -895,7 +1003,8 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     rewriter = Rewriter(block, items, prefixes, other_blocks=other_blocks, parameters=parameters,
                         transaction=transaction, units=units, procedures=procedures, runtime_calls=runtime_calls,
                         ui=ui, form=form, trigger_item=trigger_item, tail_units=tail_units(units) if ui else (),
-                        key_overrides=key_overrides)
+                        key_overrides=key_overrides, key_triggers=key_triggers, commit_points=commit_points,
+                        cursor_on_item=cursor_on_item)
     body = rewriter.rewrite(text)
     order = []
     def include(name, stack):
@@ -933,12 +1042,29 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
         body = 'BEGIN\n' + body + ('' if body.endswith(';') else ';') + '\nEND;'
     elif not body.endswith(';'):
         body += ';'
+    points = 0
+    if rewriter.points:
+        from . import commit_points as cp
+        body, points = cp.transform('BEGIN\n' + body + '\nEND;')  # the body is a statement list of the outer block
+        stateful = [n for n in order if library[n]['kind'] == 'package' and library[n]['items'].strip()]
+        if stateful:
+            raise Unsupported('COMMIT_FORM a kód közepén: a(z) ' + ', '.join(stateful) + ' helyi csomag változói a '
+                              'folytatásig nem őrizhetők meg (a folytatás új kérésben indul).')
+        rewriter.parameter_bind('NIVA.RESUME')
+        rewriter.parameter_bind('NIVA.COMMIT')
+        rewriter.notes.append('COMMIT_FORM a kód közepén -> mentési pont (' + str(points) + '): a képernyő ment, majd a kód '
+                              'a pont után folytatódik (NIVA.RESUME).')
     if ui:
         rewriter.needs.add('ui')
+        handlers = []
         if 'alert' in rewriter.needs:
             # A pending dialog: the work of this request is undone, the screen asks and sends it again.
-            body = ('BEGIN\n  SAVEPOINT niva_start;\n' + body + '\nEXCEPTION\n  WHEN niva_alert_pending THEN\n'
-                    '    ROLLBACK TO SAVEPOINT niva_start;\nEND;')
+            handlers.append('  WHEN niva_alert_pending THEN\n    ROLLBACK TO SAVEPOINT niva_start;')
+        if points:
+            from .commit_points import HANDLER
+            handlers.append(HANDLER)
+        if handlers:
+            body = 'BEGIN\n  SAVEPOINT niva_start;\n' + body + '\nEXCEPTION\n' + '\n'.join(handlers) + '\nEND;'
     binds = list(rewriter.binds.values())
     code = body + '\n' + '\n'.join(library[n]['items'] + '\n' + library[n]['text'] for n in order)
     visible = ''.join(t[1] for t in scan(code) if t[0] not in {'string', 'comment'})
@@ -962,6 +1088,11 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     head += [f"  {var(b['source'])} {SQL_TYPES[b['type']]} := ?; -- {b['source']}" for b in binds]
     head += [f"  {var(b['source'])}_o {SQL_TYPES[b['type']]}; -- {b['source']} (védett)" for b in guarded]
     emulated_items, emulated_subprograms = emu.declarations(rewriter.needs, var(emu.ALERT_PARAMETER)) if ui else ([], [])
+    if points:
+        from . import commit_points as cp
+        commit_items, commit_subprograms = cp.declarations(var('NIVA.RESUME'), var('NIVA.COMMIT'), cp.state_expression(binds, var))
+        emulated_items += commit_items
+        emulated_subprograms += commit_subprograms
     head += emulated_items
     head += [library[n]['items'] for n in order if library[n]['items'].strip()]  # package variables: before any subprogram
     head.append('  PROCEDURE niva_msg(p_text VARCHAR2, p_mode PLS_INTEGER DEFAULT NULL) IS\n'
@@ -984,7 +1115,7 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     sql = head_text + ''.join(library[n]['text'] + '\n' for n in order) + tail_text
     return {'sql': sql, 'head': head_text, 'tail': tail_text, 'binds': binds, 'outs': outs, 'notes': rewriter.notes,
             'units': order, 'assigned': sorted(assigned), 'unresolved': rewriter.unresolved, 'guarded': [b['source'] for b in guarded],
-            'ui': ui, 'globals': globals_out, 'commands': list(dict.fromkeys(rewriter.commands))}
+            'ui': ui, 'globals': globals_out, 'commands': list(dict.fromkeys(rewriter.commands)), 'commit_points': points}
 
 
 def assigned_vars(visible: str) -> set[str]:

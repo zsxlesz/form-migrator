@@ -96,6 +96,8 @@ def frontend_api(ops, base, cls):
             api['actions'][o['action']['owner']] = {'constant': o['constant']}
             if 'SHOW_ALERT' in (o.get('passthrough') or {}).get('commands', []):
                 api['actions'][o['action']['owner']]['alerts'] = True  # the screen needs the alert dialog
+            if (o.get('passthrough') or {}).get('commit_points'):
+                api['actions'][o['action']['owner']]['commit_point'] = True  # NIVA_COMMIT: save, then resume
             if o['action'].get('init'):
                 api['init'] = o['action']['owner']  # the screen calls it when it opens
             if o.get('query_action'):
@@ -173,6 +175,8 @@ def action_method(o, block, gated, discovery, model, log1x, user_type):
         info.append(unresolved_note(prepared['unresolved'], model))
     info.append('Eredeti kód: analysis/backend-evidence.md')
     arguments = ',\n                '.join(params)  # no backslash inside the f-string: Python 3.10/3.11
+    if prepared.get('commit_points'):
+        return commit_point_action(o, info, gated, log1x, user_type, prepared, params, messages, emulated)
     return (comment_lines('\n'.join(info), '    ') + f'''
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     @Override
@@ -187,6 +191,60 @@ def action_method(o, block, gated, discovery, model, log1x, user_type):
             var globals = new java.util.LinkedHashMap<String, String>();
 {puts}            return new ActionResult(blocks, PlsqlValues.lines(out[{messages}]), {('PlsqlValues.commands(out[' + str(messages + 1) + '])') if emulated else 'List.of()'}, globals);
         }});
+    }}''')
+
+
+def runner_name(o):
+    """The private method that runs a button's PL/SQL: the action and the commit endpoint's prelude call it."""
+    return 'run' + o['method'][0].upper() + o['method'][1:]
+
+
+def commit_point_action(o, info, gated, log1x, user_type, prepared, params, messages, emulated):
+    """A button with COMMIT_FORM in the middle of its code (commit_points): the PL/SQL in a runner method.
+
+    The action calls it; so does commitForm, which runs the code up to the commit point again, in the
+    commit's transaction, before it saves the blocks (CommitRequest.action / actionBlocks / actionParameters).
+    """
+    info = info[:-1] + ['Mentési pont (' + str(prepared['commit_points']) + '): a képernyő a NIVA_COMMIT utasításra ment '
+                        '(a commitForm ugyanebben a tranzakcióban újrafuttatja a kódot a pontig), majd NIVA.RESUME-mal '
+                        'folytatja a pont utáni résszel.', info[-1]]
+    guard = ('            if (!MODULE_REVIEWED) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Ez a művelet ebben a modulban még nem érhető el.");\n'
+             if gated else '')
+    from .plsql_passthrough import sql_expression
+    runner = runner_name(o)
+    commands = f'PlsqlValues.commands(out[{messages + 1}])' if emulated else 'List.of()'
+    arguments = ',\n            '.join(params)
+    offset = len(prepared['binds'])
+    first_global = offset + len(prepared['outs'])
+    puts = ''.join(f"        PlsqlValues.put(blocks, {jstr(b['block'])}, {jstr(b['item'])}, out[{offset + k}]);\n"
+                   for k, b in enumerate(prepared['outs']))
+    puts += ''.join(f"        PlsqlValues.global(globals, {jstr(b['source'])}, out[{first_global + k}]);\n"
+                    for k, b in enumerate(prepared.get('globals', [])))
+    return (comment_lines('\n'.join(info), '    ') + f'''
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    @Override
+    public ActionResult {o['method']}({user_type} user, ActionRequest request) throws Exception {{
+        {log1x(o, '() -> {')}
+            if (request == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Hiányzó kérés.");
+{guard}            var values = request.blocks() == null ? java.util.Map.<String, java.util.Map<String, String>>of() : request.blocks();
+            var parameters = request.parameters() == null ? java.util.Map.<String, String>of() : request.parameters();
+            var blocks = new java.util.LinkedHashMap<String, java.util.Map<String, String>>();
+            var globals = new java.util.LinkedHashMap<String, String>();
+            var messages = new java.util.ArrayList<String>();
+            var commands = new java.util.ArrayList<List<String>>();
+            {runner}(values, parameters, blocks, globals, messages, commands);
+            return new ActionResult(blocks, messages, commands, globals);
+        }});
+    }}
+
+    // {o['action']['owner']}: a gomb PL/SQL-je; a commitForm a mentési pontig ezt futtatja újra (NIVA.COMMIT = POST).
+    private void {runner}(java.util.Map<String, java.util.Map<String, String>> values, java.util.Map<String, String> parameters,
+            java.util.Map<String, java.util.Map<String, String>> blocks, java.util.Map<String, String> globals,
+            List<String> messages, List<List<String>> commands) {{
+        Object[] out = DbCalls.call(jdbc, {sql_expression(prepared)},
+            {arguments});
+{puts}        messages.addAll(PlsqlValues.lines(out[{messages}]));
+        commands.addAll({commands});
     }}''')
 
 
@@ -556,6 +614,10 @@ def generate(model, output: Path, config, module, package, discovery, actions):
     for o in ops:
         if o.get('query_action'):
             o['query_blockers'] = query_action_blockers(o['query_action'], model)
+    if commit:
+        # Buttons with a commit point: commitForm runs their code up to the point first (commit_points).
+        commit['preludes'] = [(o['action']['owner'], runner_name(o)) for o in ops
+                              if o['op'] == 'action' and (o.get('passthrough') or {}).get('commit_points')]
     runnable_actions = [o for o in ops if o.get('passthrough') or o.get('query_action')]
     blocks = backend_blocks(model)
     served = {b['name'] for b in blocks}

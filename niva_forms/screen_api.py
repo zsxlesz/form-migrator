@@ -145,6 +145,8 @@ def wiring(plan: dict, ui: dict, api: dict | None, key: str, forms: list, tables
 
 
 def declarations(w: dict) -> list[str]:
+    if w.get('runtime'):
+        return []  # NivaPage, NivaActionResult, NivaCommitResult and localIso: niva-forms-screen.ts
     result = []
     if w['queries'] or w.get('query_actions'):
         nullable = ' | null' if w.get('query_actions') else ''
@@ -167,12 +169,14 @@ def declarations(w: dict) -> list[str]:
 
 def fields(w: dict) -> list[str]:
     result = ['  private readonly http = inject(HttpClient);']
+    # With the shared runtime (niva-forms-screen.ts) the screen only gives its data: override of the base fields.
+    shared = 'protected override readonly' if w.get('runtime') else 'private readonly'
     if w['queries'] or w.get('query_actions'):
         result.append('  // Forms EXECUTE_QUERY: blokk -> a keresés/lista kritériumai a képernyő mezőiből.\n'
                       '  private readonly queries: Record<string, { limit: number; criteria?: readonly { field: string; block: string; key: string; context?: string }[] }> = '
                       + ts({b: {k: v for k, v in q.items() if k in {'limit', 'criteria'}} for b, q in w['queries'].items()}, 1) + ';')
     if w['queries'] or w['actions'] or w.get('commit'):
-        result.append('  // Backend DTO-mező -> képernyő-vezérlő, blokkonként.\n  private readonly rowKeys: Record<string, Record<string, string>> = '
+        result.append('  // Backend DTO-mező -> képernyő-vezérlő, blokkonként.\n  ' + shared + ' rowKeys: Record<string, Record<string, string>> = '
                       + ts(w['row_keys'], 1) + ';')
     if w['lovs']:
         result.append('  private readonly lovEndpoints: Record<string, { binds: readonly { source: string; block: string; key: string }[]; '
@@ -181,18 +185,19 @@ def fields(w: dict) -> list[str]:
     if w['actions']:
         calls = {owner: Code('request => this.' + method + '(request)') for owner, method in w['actions'].items()}
         result.append('  // Gomb (Oracle BLOKK.ITEM) -> a generált akció-végpont hívása.\n'
-                      '  private readonly actionEndpoints: Record<string, (request: { blocks: Record<string, Record<string, string | null>>; '
+                      '  ' + shared + ' actionEndpoints: Record<string, (request: { blocks: Record<string, Record<string, string | null>>; '
                       'parameters: Record<string, string>; offset?: number; limit?: number }) => Observable<unknown>> = ' + ts(calls, 1) + ';')
     if w['actions'] or w.get('commit'):
         result.append('  // Képernyő-vezérlő -> Oracle mezőnév (az ActionRequest szerződése), blokkonként.\n'
-                      '  private readonly oracleNames: Record<string, Record<string, string>> = ' + ts(w['oracle_names'], 1) + ';')
+                      '  ' + shared + ' oracleNames: Record<string, Record<string, string>> = ' + ts(w['oracle_names'], 1) + ';')
         from .screen_emulation import emulation_fields
         result += emulation_fields(w)
     if w.get('query_actions'):
-        result.append('  private readonly queryActionBlocks: Record<string, string> = ' + ts(w['query_actions'], 1) + ';')
-        result.append('  private readonly activeQueryActions: Record<string, string> = {};')
+        result.append('  ' + shared + ' queryActionBlocks: Record<string, string> = ' + ts(w['query_actions'], 1) + ';')
+        if not w.get('runtime'):
+            result.append('  private readonly activeQueryActions: Record<string, string> = {};')
     if w['checkbox_values']:
-        result.append('  private readonly checkboxValues: Record<string, Record<string, readonly [string, string]>> = '
+        result.append('  ' + shared + ' checkboxValues: Record<string, Record<string, readonly [string, string]>> = '
                       + ts(w['checkbox_values'], 1) + ';')
     return result
 
@@ -221,7 +226,8 @@ def endpoint_method(w: dict, e: dict) -> str:
 def methods(w: dict, form_values: bool) -> list[str]:
     p = w['prefix']
     result = [endpoint_method(w, e) for e in w['endpoints']]
-    if w['queries'] or w['lovs'] or w['actions']:
+    runtime = bool(w.get('runtime'))  # payload, wireText, value, showRecord, runAction ... are in niva-forms-screen.ts
+    if (w['queries'] or w['lovs'] or w['actions']) and not runtime:
         envelope = w.get('envelope')
         where = (': a ' + envelope + ' boríték adatmezője (a mezőnév-lista itt igazítható), boríték nélkül maga a válasz'
                  if envelope else '; ha boríték érkezik, annak adatmezője')
@@ -238,7 +244,8 @@ def methods(w: dict, form_values: bool) -> list[str]:
     checkbox = ('''    const pair = this.checkboxValues[block]?.[key];
     if (pair && typeof value === 'boolean') return value ? pair[0] : pair[1];
 ''' if w['checkbox_values'] else '')
-    result.append('''  private wireText(block: string, key: string, value: unknown): string | null {
+    if not runtime:
+        result.append('''  private wireText(block: string, key: string, value: unknown): string | null {
 __CHECKBOX__    if (value === null || value === undefined || value === '') return null;
     if (value instanceof Date) return localIso(value);
     return String(value);
@@ -257,7 +264,7 @@ __CHECKBOX__    if (value === null || value === undefined || value === '') retur
             form_case = ('      default:\n        this.originals[block] = rows[0] ? { ...rows[0] } : null;\n'
                          '        this.showRecord(block, mapped[0] ?? {});\n        this.markPristine(block);\n')
         result.append('''  /** Forms EXECUTE_QUERY a blokk generált keresés/lista végpontján. false: nincs hozzá végpont. */
-  public executeQuery(block: string): boolean {
+  public __OVERRIDE__executeQuery(block: string): boolean {
 __ACTIVE_QUERY__
     const query = this.queries[block];
     if (!query) return false;
@@ -268,7 +275,7 @@ __CASES__      default: return false;
     }
     request.subscribe({
       next: response => {
-        const page = this.payload<__P__Page>(response);
+        const page = this.payload<__PAGE__>(response);
         this.showRows(block, page.rows ?? []);
         if (!page.rows?.length) this.toast.warning('Nincs találat', 'A lekérdezés nem adott vissza rekordot.', true, TOAST_LIFE.warning);
         if (page.messages?.length) this.toast.warning('Üzenet', page.messages.join(' '), true, TOAST_LIFE.warning);
@@ -276,22 +283,23 @@ __CASES__      default: return false;
       error: () => undefined, // WFF.err már jelezte
     });
     return true;
-  }'''.replace('__CASES__', cases).replace('__P__', p)
+  }'''.replace('__CASES__', cases).replace('__PAGE__', 'NivaPage' if runtime else p + 'Page').replace('__OVERRIDE__', 'override ' if runtime else '')
         .replace('__CONTEXT__', 'c.context ? this.requestContext([])[c.context] ?? null : ' if w['actions'] or w.get('commit') else '')
         .replace('__ACTIVE_QUERY__',
             '    const action = this.activeQueryActions[block];\n    if (action) return this.runAction(action);'
             if w.get('query_actions') else ''))
-        result.append('''  private showRows(block: string, rows: readonly Record<string, unknown>[]): void {
+        result.append('''  __SHOW_ROWS__showRows(block: string, rows: readonly Record<string, unknown>[]): void {
     this.changeDetector.markForCheck();
     const keys = this.rowKeys[block] ?? {};
     const mapped = rows.map(row => Object.fromEntries(Object.entries(row).filter(([field]) => field in keys).map(([field, value]) => [keys[field], value])));
     switch (block) {
 __TABLES____FORM__    }
-  }'''.replace('__TABLES__', table_cases).replace('__FORM__', form_case))
-    if w['actions'] and w['buttons']:
+  }'''.replace('__TABLES__', table_cases).replace('__FORM__', form_case)
+            .replace('__SHOW_ROWS__', 'protected override ' if runtime else 'private '))
+    if w['actions'] and w['buttons'] and not runtime:
         from .screen_emulation import steps_method
         result.append(steps_method())
-    elif w['queries'] and w['buttons']:
+    elif w['queries'] and w['buttons'] and not runtime:
         result.append('''  /** Felismert gomblépések: go_block + execute_query. true: a komponens lefuttatta. */
   private runSteps(steps: readonly { op: string; block?: string }[] | null): boolean {
     if (!steps?.length) return false;
@@ -305,7 +313,9 @@ __TABLES____FORM__    }
     for (const target of blocks) this.executeQuery(target);
     return blocks.length > 0;
   }''')
-    if form_values:
+    if runtime:
+        pass  # value and showRecord: niva-forms-screen.ts (stateRecord is the screen's hook)
+    elif form_values:
         result.append('''  private value(block: string, key: string): unknown {
     return this.formValues[block]?.[key];
   }''')
@@ -353,6 +363,9 @@ __CASES__      default: return false;
     for (const c of columns) if (c.returnItem) returnValues[c.returnItem] = row[c.column];
     return { label: shown.map(v => String(v)).join(' – '), value, returnValues };
   }'''.replace('__P__', p))
+    if runtime:
+        from .screen_emulation import runtime_hooks
+        return result + runtime_hooks(w)
     if w['actions']:
         selections = ''.join(f"    if (this.{prop}Selection) records[{json.dumps(block)}] = {{ ...this.{prop}Selection }};\n" for block, prop in w['tables'])
         form_copy = ('    for (const [block, values] of Object.entries(this.formValues)) records[block] = { ...values };\n' if form_values else '')

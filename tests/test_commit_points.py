@@ -20,7 +20,7 @@ from niva_forms.cli import main
 from niva_forms.commit_points import transform
 from niva_forms.plsql import Unsupported
 from niva_forms.plsql_passthrough import prepare
-from niva_forms.service_inline import mask
+from screen_support import RUNTIME_GLOBALS, screen_method, screen_source
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
@@ -198,7 +198,7 @@ class ReplicaFlowTests(unittest.TestCase):
             code = main(['migrate', str(REPLICA), '--out', str(cls.out), '--screen', '--module', 'rendeles', '--config', str(config)])
         assert code == 0, code
         cls.service = (cls.out / 'backend/DPS/RendelesServiceImpl.java').read_text(encoding='utf-8')
-        cls.screen = next((cls.out / 'frontend').rglob('*.component.ts')).read_text(encoding='utf-8')
+        cls.screen = screen_source(cls.out)  # the component and niva-forms-screen.ts
 
     @classmethod
     def tearDownClass(cls):
@@ -213,28 +213,30 @@ class ReplicaFlowTests(unittest.TestCase):
         self.assertIn('public String action;', (self.out / 'backend/CL/RendelesDtos.java').read_text(encoding='utf-8'))
 
     def method(self, name):
-        visible = mask(self.screen)
-        match = re.search(r'^  (?:private |public |protected )?' + name + r'(?:<[^>]+>)?\([^\n]*\)[^\n]*\{', visible, re.M)
-        self.assertIsNotNone(match, name)
-        start, end, depth = match.start(), match.end(), 1
-        while depth:
-            depth += {'{': 1, '}': -1}.get(visible[end], 0)
-            end += 1
-        return self.screen[start:end]
+        source = screen_method(self.out, name)  # the component's override, else niva-forms-screen.ts
+        self.assertIsNotNone(source, name)
+        return source
 
     def test_screen_saves_with_the_prelude_and_resumes_after_the_point(self):
         if not shutil.which('node'):
             self.skipTest('Node with TypeScript stripping required')
         methods = '\n'.join(self.method(name) for name in ('runAction', 'applyChanged', 'formsCommit', 'screenBlocks', 'recordOf',
                                                             'wireText', 'payload', 'showRecord', 'applyOracleValues'))
-        commit_call = re.search(r'this\.(\w+)\(request\)\.subscribe', self.method('formsCommit'))[1]
+        self.assertIn('commitEndpoint = (request: Record<string, unknown>) => this.', self.screen)
         script = self.root / 'commit-flow.ts'
         script.write_text('''import assert from 'node:assert/strict';
 const TOAST_LIFE = {warning: 1, success: 1};
 const localIso = (value: Date) => value.toISOString();
-interface PageActionResult { blocks?: Record<string, Record<string, string | null>>; messages?: string[]; commands?: (string | null)[][]; globals?: Record<string, string | null>; }
+__RUNTIME_GLOBALS__
 class Group { dirty = false; invalid = false; value: Record<string, unknown> = {}; markAsDirty() { this.dirty = true; } markAsPristine() { this.dirty = false; } markAllAsTouched() {} patchValue(v) { Object.assign(this.value, v); } }
 class Screen {
+  toastLife = TOAST_LIFE;
+  initAction = '@INIT';
+  queryActionBlocks = {};
+  activeQueryActions = {};
+  checkboxValues = {};
+  stateRecord() {}
+  selectedRecords() { return {}; }
   formValues: Record<string, Record<string, unknown>> = {RENDELES: {id: 7, statusz: 'N', vevo: 'V1'}, CTRL: {utolso: null}};
   formGroups = {rendeles: new Group(), ctrl: new Group()};
   regionBlocks = {rendeles: 'RENDELES', ctrl: 'CTRL'};
@@ -255,10 +257,10 @@ class Screen {
     const reply = this.actionReplies.shift();
     return {subscribe: handlers => handlers.next({data: reply})};
   }};
-  __COMMIT__(request) {
+  commitEndpoint = request => {
     this.commits.push(structuredClone(request));
     return {subscribe: handlers => handlers.next({data: {blocks: {}, messages: [], commands: [], globals: {}, rowsRendeles: [{id: 7, statusz: 'L', vevo: 'V1'}]}})};
-  }
+  };
   requestContext() { return {'SYSTEM.CURSOR_BLOCK': 'CTRL'}; }
   rememberGlobals() {}
   runCommands(commands) { this.ran = commands; }
@@ -286,7 +288,7 @@ assert.equal(screen.actions[0].parameters['NIVA.RESUME'], undefined);
 assert.equal(screen.actions[1].parameters['NIVA.RESUME'], '1');
 assert.equal(screen.formValues.CTRL.utolso, 'L');
 console.log('typescript commit-point OK');
-'''.replace('__METHODS__', methods).replace('__COMMIT__', commit_call))
+'''.replace('__METHODS__', methods).replace('__RUNTIME_GLOBALS__', RUNTIME_GLOBALS))
         run = subprocess.run(['node', '--experimental-strip-types', '--no-warnings', str(script)], capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn('typescript commit-point OK', run.stdout)

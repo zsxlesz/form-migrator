@@ -13,7 +13,7 @@ from .screen_model import apply_screen_types, build_screen
 from .screen_validation import NUMBER_VALIDATOR, TEXT_WIDGETS, validators
 from .screen_layout import contains
 from . import form_calls
-from . import screen_api
+from . import screen_api, screen_emulation
 from . import screen_windows
 from .xmlmodel import canonical
 
@@ -298,6 +298,9 @@ def generate(resolution, ui, output, config, module, discovery):
         if forms:
             states['touched'] = sorted(states['controls'])  # a runtime SET_ITEM_PROPERTY may target any field
             states['regions'] = sorted({c['region'] for c in states['controls'].values()})
+        # The Forms runtime of the screen is shared: frontend/niva-forms-screen.ts (NivaFormsScreen).
+        wiring['runtime'] = True
+    runtime = emulation
     state_machinery = bool(states['handlers']) or (emulation and bool(forms))
     plan['backend_calls'] = screen_api.summary(wiring)
     angular = ['Component'] + (['OnDestroy'] if forms else []) + (['ChangeDetectorRef', 'inject'] if has_lov else [])
@@ -307,6 +310,8 @@ def generate(resolution, ui, output, config, module, discovery):
         angular.append('inject')
     if 'inject' not in angular: angular.append('inject')  # the ToastService, in every component
     if state_machinery and 'ChangeDetectorRef' not in angular: angular.append('ChangeDetectorRef')
+    if runtime:
+        angular.remove('ChangeDetectorRef')  # NivaFormsScreen.changeDetector
     if window_controls['canvases']: angular.append('signal')
     imports.append("import { " + ', '.join(angular) + " } from '@angular/core';")
     toast_symbol = config['toast_service_symbol']
@@ -315,14 +320,20 @@ def generate(resolution, ui, output, config, module, discovery):
     else:
         imports.append('// TODO: importáld a saját csomagodból: ' + toast_symbol + ' (config: toast_service_import_path).')
     # Company base class (this.url) and error reporter: from java-imports.json ("/" paths), otherwise a TODO line.
-    imports.append('// TODO: importáld a saját csomagodból: ServiceBase' + (', WFF' if wiring else '') + ' (java-imports.json).')
-    if navigations or manual_navs or emulation:
+    if runtime:
+        imports.append('// TODO: importáld a saját csomagodból: WFF (java-imports.json).')
+        shared = ['NivaFormsScreen'] + (['NivaPage'] if wiring['queries'] or wiring.get('query_actions') else [])
+        imports.append("import { " + ', '.join(shared) + " } from '" + screen_emulation.RUNTIME_IMPORT + "';")
+    else:
+        imports.append('// TODO: importáld a saját csomagodból: ServiceBase' + (', WFF' if wiring else '') + ' (java-imports.json).')
+    if (navigations or manual_navs or emulation) and not runtime:
         imports.append("import { Router } from '@angular/router';")
     life = config['toast_life_ms']
     declarations.append('/** Toast élettartamok (ms); a figyelmeztetés tovább marad. */\n'
                         f"const TOAST_LIFE = {{ success: {life['success']}, warning: {life['warning']}, danger: {life['danger']} }} as const;")
     fields.append('  /** Hibák, figyelmeztetések és sikeres műveletek jelzése: toast.success / warning / danger(cím, részletek, mentés az előzményekbe = true, élettartam). */\n'
-                  '  protected readonly toast = inject(' + toast_symbol + ');')
+                  '  protected readonly toast = inject(' + toast_symbol + ');\n'
+                  '  protected readonly toastLife = TOAST_LIFE;')
     if wiring:
         imports.append("import { HttpClient } from '@angular/common/http';")
         imports.append("import { Observable, catchError } from 'rxjs';")
@@ -357,8 +368,9 @@ def generate(resolution, ui, output, config, module, discovery):
         # Built-in steps read from WHEN-BUTTON-PRESSED; null means manual wiring.
         body = ('{\n' + ''.join('    ' + quoted(owner) + ': ' + compact(steps) + ',\n' for owner, steps in known.items()) + '  }'
                 if known else '{}')
-        fields.append('  private readonly actionSteps: Record<string, readonly ' + prefix + 'FormsStep[]> = ' + body + ';')
-        if navigations or manual_navs or emulation:
+        fields.append('  ' + ('protected override readonly' if runtime else 'private readonly') + ' actionSteps: Record<string, readonly '
+                      + prefix + 'FormsStep[]> = ' + body + ';')
+        if (navigations or manual_navs or emulation) and not runtime:
             fields.append('  private readonly router = inject(Router);')
         if navigations:
             fields.append('  // Forms CALL_FORM/OPEN_FORM/NEW_FORM -> Angular útvonal, a paraméterlistával (MIGRATION_NOTES: Navigáció).\n'
@@ -548,7 +560,9 @@ def generate(resolution, ui, output, config, module, discovery):
     template = [line[2:] if line.startswith('  ') else line for line in template]  # was inside the wrapper div
     if labels: fields.insert(1, '  protected readonly labels = ' + ts(labels, 1) + ';')
     if forms:
-        fields.append('  protected readonly formGroups: Record<string, FormGroup> = Object.create(null);\n  private readonly formValues: Record<string, Record<string, unknown>> = Object.create(null);\n  private readonly bindings = new Map<string, { unsubscribe(): void }>();')
+        fields.append(('' if runtime else '  protected readonly formGroups: Record<string, FormGroup> = Object.create(null);\n'
+                       '  private readonly formValues: Record<string, Record<string, unknown>> = Object.create(null);\n')
+                      + '  private readonly bindings = new Map<string, { unsubscribe(): void }>();')
         checkbox_rules = [{'owner': i['owner'], 'block': i['block'], 'field': i['key'], 'checked': i['checked'], 'unchecked': i['unchecked']} for i in checkboxes]
         if checkboxes and buttons: fields.append('  private readonly checkboxRules = ' + array_code(checkbox_rules) + ';')
         if validation_rules:
@@ -598,7 +612,7 @@ __LOV__    };
                   + ('    if (this.stateButton(ownId)) return; // tisztán állapotkezelő gomb (SET_ITEM_PROPERTY)\n'
                      if any(h['moment'] == 'button' for h in states['handlers']) else '')
                   + ('    if (!this.validBefore(ownId)) return;\n' if forms else '')
-                  + '    const values: Record<string, Record<string, unknown>> = ' + values + ';\n')
+                  + ('    const values: Record<string, Record<string, unknown>> = ' + values + ';\n' if checkboxes else ''))
         if forms:
             def readable(items):
                 # A range end ('Dátum' - [ ]) has no caption of its own: name it after its start.
@@ -664,7 +678,8 @@ __LOV__    };
     if has_lov:
         prefix = name(key, 'pascal')
         declarations += ['export interface ' + prefix + 'LovChoice {\n  label: string;\n  value: string | number | null;\n  returnValues?: Record<string, unknown>;\n}']
-        fields += ['  private readonly changeDetector = inject(ChangeDetectorRef);\n  private readonly lovTickets: Record<string, number> = Object.create(null);\n  private readonly lovChoices: Record<string, ' + prefix + 'LovChoice[]> = Object.create(null);']
+        fields += [('' if runtime else '  private readonly changeDetector = inject(ChangeDetectorRef);\n')
+                   + '  private readonly lovTickets: Record<string, number> = Object.create(null);\n  private readonly lovChoices: Record<string, ' + prefix + 'LovChoice[]> = Object.create(null);']
         updates = '\n'.join('    this.' + s['property'] + 'Structure = this.' + s['property'] + 'Structure.map(field => field.ownId === ownId ? { ...field, suggestions: choices } : field);' for s in forms if any(i['lov'] for i in s['items']))
         lookup_rules = [{'owner': i['owner'], 'block': i['block'], 'field': i['key'], 'returns': next((l['return_items'] for l in plan['lookups'] if l['owner'] == i['owner']), [])} for i in form_items if i['lov']]
         fields.append('  private readonly lovRules = ' + array_code(lookup_rules) + ';')
@@ -701,20 +716,23 @@ __UPDATES__
     }
   }'''.replace('__CHOICE__', prefix + 'LovChoice').replace('__UPDATES__', updates)
                 .replace('__LOV_HTTP__', '    if (this.searchLov(ownId, lov, event.query, requestId)) return;\n' if wiring and wiring['lovs'] else ''))
-        fields.append('  private readonly regionBlocks: Record<string, string> = ' + ts({s['key']: s['block'] for s in forms}, 1) + ';')
+        fields.append('  ' + ('protected override readonly' if runtime else 'private readonly') + ' regionBlocks: Record<string, string> = '
+                      + ts({s['key']: s['block'] for s in forms}, 1) + ';')
     if state_machinery:
         fields.extend(state_fields(states, form_type))
-        methods.extend(state_methods(states, forms, form_type))
+        methods.extend(state_methods(states, forms, form_type, runtime))
         if not has_lov and not wiring:
             fields.append('  private readonly changeDetector = inject(ChangeDetectorRef);')
-    if emulation and not buttons:
+    if emulation and not buttons and not runtime:
         fields.append('  private readonly router = inject(Router);')  # CALL_FORM of the start-up code
     if wiring:
         fields.extend(screen_api.fields(wiring))
         if not has_lov:
-            fields.append('  private readonly changeDetector = inject(ChangeDetectorRef);')
+            if not runtime:
+                fields.append('  private readonly changeDetector = inject(ChangeDetectorRef);')
             if forms:
-                fields.append('  private readonly regionBlocks: Record<string, string> = ' + ts({s['key']: s['block'] for s in forms}, 1) + ';')
+                fields.append('  ' + ('protected override readonly' if runtime else 'private readonly') + ' regionBlocks: Record<string, string> = '
+                              + ts({s['key']: s['block'] for s in forms}, 1) + ';')
         methods.extend(screen_api.methods(wiring, bool(forms)))
     template_text = '\n'.join('    ' + line for line in template).replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
     source = '// CREATE_ONCE: szerkeszthető képernyőváz. Migrációs részletek: MIGRATION_NOTES.md.\n' + '\n'.join(imports) + '\n\n' + '\n\n'.join(declarations)
@@ -728,11 +746,17 @@ __UPDATES__
     if emulation and wiring.get('init'):
         # Forms PRE-FORM + WHEN-NEW-FORM-INSTANCE: the init endpoint runs when the screen opens.
         methods[0] = methods[0].rstrip()[:-1].rstrip() + '\n    this.runAction(' + quoted(wiring['init']) + '); // indítási kód (PRE-FORM, WHEN-NEW-FORM-INSTANCE)\n  }'
-    source += 'export class ' + plan['module']['class'] + ' extends ServiceBase' + (' implements OnDestroy' if forms else '') + ' {\n' + '\n\n'.join(fields) + '\n\n' + '\n\n'.join(methods) + '\n}\n'
+    base = 'NivaFormsScreen' if runtime else 'ServiceBase'
+    source += 'export class ' + plan['module']['class'] + ' extends ' + base + (' implements OnDestroy' if forms else '') + ' {\n' + '\n\n'.join(fields) + '\n\n' + '\n\n'.join(methods) + '\n}\n'
     # Imports from java-imports.json ("/" paths): ServiceBase, WFF, ToastService, FormBlock...
     from . import java_imports, ts_imports
     source, ts_report = ts_imports.tidy(source, java_imports.load_ts(config))
     write(root / (key + '.component.ts'), source)
+    if runtime:
+        # One copy per project, identical each time (like CommonMigrateTools): replace it on a new version.
+        shared, _ = ts_imports.tidy(screen_emulation.runtime_source(), java_imports.load_ts(config))
+        write(output / 'frontend' / screen_emulation.RUNTIME_FILE, shared)
+    plan['screen_runtime'] = screen_emulation.RUNTIME_FILE if runtime else None
     write_json(output / 'analysis/ts-imports.json', ts_report)
     write_json(output / 'analysis/screen-plan.json', plan)
     write(output / 'analysis/layout-preview.html', layout_preview(plan))
@@ -766,11 +790,11 @@ def state_fields(states, form_type):
             '  private readonly stateBindings = new Map<string, { unsubscribe(): void }>();']
 
 
-def state_methods(states, forms, form_type):
+def state_methods(states, forms, form_type, runtime=False):
     handlers = states['handlers']
     structures = sorted({states['controls'][o]['structure'] for o in states['touched']})
     cases = ''.join(f"      case {json.dumps(s)}: this.{s} = this.{s}.map(update); break;\n" for s in structures)
-    methods = [f'''  private setItemState(owner: string, state: {{ enabled?: boolean; visible?: boolean; required?: boolean; editable?: boolean }}): void {{
+    methods = [f'''  {'protected override' if runtime else 'private'} setItemState(owner: string, state: {{ enabled?: boolean; visible?: boolean; required?: boolean; editable?: boolean }}): void {{
     this.itemStates[owner] = {{ ...this.itemStates[owner], ...state }};
     this.applyItemState(owner);
   }}''', f'''  private applyItemState(owner: string): void {{
@@ -852,10 +876,12 @@ __CALLS__  }'''.replace('__CALLS__', ''.join(f'    this.{m}();\n' for m in start
     for h in handlers:
         if h['moment'] == 'record':
             records.setdefault(h['block'], []).append(h['method'])
-    methods.append('''  private stateRecord(block: string): void {
+    if records or not runtime:  # the shared runtime calls stateRecord; its default does nothing
+        methods.append('''  __MODIFIER__stateRecord(block: string): void {
     switch (block) {
 __CASES__    }
-  }'''.replace('__CASES__', ''.join(f"      case {json.dumps(b)}:\n" + ''.join(f'        this.{m}();\n' for m in ms) + '        break;\n' for b, ms in records.items())))
+  }'''.replace('__CASES__', ''.join(f"      case {json.dumps(b)}:\n" + ''.join(f'        this.{m}();\n' for m in ms) + '        break;\n' for b, ms in records.items()))
+            .replace('__MODIFIER__', 'protected override ' if runtime else 'private '))
     buttons = [h for h in handlers if h['moment'] == 'button']
     if buttons:
         methods.append('''  private stateButton(ownId: string): boolean {
@@ -865,7 +891,22 @@ __CASES__    }
   }'''.replace('__CASES__', ''.join(f"      case {json.dumps(h['owner'])}:\n        this.{h['method']}();\n        return true;\n" for h in buttons)))
     for h in handlers:
         methods.append(f"  /** {h['owner']} / {h['event']} */\n  private {h['method']}(): void {{\n" + '\n'.join(h['lines']) + '\n  }')
-    return methods
+    # The value helpers only when a handler (or another helper) calls them: no unused private members.
+    helpers = {'setItemValue', 'stateValue', 'isNull', 'cmp', 'watch'}
+    def defines(method):
+        found = re.match(r'\s*(?:/\*\*.*?\*/\s*)?private (\w+)\(', method, re.S)
+        return found.group(1) if found else None
+    kept = [m for m in methods if defines(m) not in helpers]
+    pending = True
+    while pending:
+        pending = False
+        text = '\n'.join(kept)
+        for m in methods:
+            name = defines(m)
+            if name in helpers and m not in kept and 'this.' + name + '(' in text:
+                kept.append(m)
+                pending = True
+    return [m for m in methods if m in kept]
 
 
 def field_lengths_template(plan):
@@ -907,7 +948,12 @@ def notes(plan, discovery, config):
              '- A komponens útvonalon érhető el, `@Input`/`@Output` nélkül: a bekötött lekérdezés-, LOV- és akció-végpontokat maga hívja; a kézzel átültetendő gombok az `onAction`-ben toasttal jeleznek.',
              '- A keresési checkboxok false értéke is érvényes. Az action eseményben az ellenőrzött checkbox értékpár szerinti Oracle kód szerepel.',
              '- A mezők műveleti engedélyeit és formátummaszkjait a query/insert/update móddal együtt ellenőrizd; a váz nem teljes Forms runtime.',
-             '- `--regenerate` megőrzi a komponens kézi módosításait. Új elrendezéshez generálj új célmappába, és hasonlítsd össze.', '',
+             '- `--regenerate` megőrzi a komponens kézi módosításait. Új elrendezéshez generálj új célmappába, és hasonlítsd össze.',
+             *(['- A Forms-futtató (gombok, indítási kód, alertek, :GLOBAL/:SYSTEM, mentési lánc) a közös `'
+                + plan['screen_runtime'] + '` fájlban van (`NivaFormsScreen`): egyszer kell a projektbe tenni, a képernyő '
+                'mappája mellé (vagy a `java-imports.json` `NivaFormsScreen` bejegyzése szerinti helyre). A képernyő ezt örökli; '
+                'a saját adatait `protected override readonly`, a saját részeit hook-ként (pl. `selectedRecords`, `clearTable`) adja.']
+               if plan.get('screen_runtime') else []), '',
              '## Képernyőrészek', '', '| Blokk | Canvas / fül | Megjelenítés | Mezők | Látható rekordok |', '|---|---|---|---:|---:|']
     for s in plan['sections']:
         lines.append('| ' + ' | '.join(map(cell, [s['block'], s['canvas'] + (' / ' + s['tab'] if s['tab'] else ''), s['mode'], len(s['items']), s['records']])) + ' |')

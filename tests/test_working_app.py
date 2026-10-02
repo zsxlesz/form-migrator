@@ -15,6 +15,7 @@ import tempfile
 import unittest
 
 from java_support import COMPANY_IMPORTS, write_stubs
+from screen_support import screen_source
 from niva_forms.cli import main
 from niva_forms.plsql import Unsupported
 from niva_forms.plsql_passthrough import prepare
@@ -97,7 +98,7 @@ class ReplicaTests(unittest.TestCase):
         cls.plan = json.loads((cls.out / 'analysis/backend-plan.json').read_text(encoding='utf-8'))
         cls.model = json.loads((cls.out / 'analysis/form.ir.json').read_text(encoding='utf-8'))
         cls.service = (cls.out / 'backend/DPS/RendelesServiceImpl.java').read_text(encoding='utf-8')
-        cls.screen = next((cls.out / 'frontend').rglob('*.component.ts')).read_text(encoding='utf-8')
+        cls.screen = screen_source(cls.out)  # the component and niva-forms-screen.ts (4.14)
 
     @classmethod
     def tearDownClass(cls):
@@ -141,7 +142,7 @@ class ReplicaTests(unittest.TestCase):
         self.assertIn('row.rendelesId = saved.id;', commit)
         self.assertIn('PlsqlValues.number(values, "RENDELES", "ID")', commit)
         self.assertIn("onToolbar('save')", self.screen)
-        self.assertIn('private formsCommit(prelude: Record<string, unknown> | null = null, then: (() => void) | null = null): void {', self.screen)
+        self.assertIn('protected formsCommit(prelude: Record<string, unknown> | null = null, then: (() => void) | null = null): void {', self.screen)
 
     def test_generated_java_compiles(self):
         if not shutil.which('java'):

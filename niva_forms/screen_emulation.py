@@ -20,6 +20,8 @@ ITEM_PROPERTIES = {'ENABLED': 'enabled', 'VISIBLE': 'visible', 'DISPLAYED': 'vis
 
 def emulation_fields(w: dict) -> list[str]:
     """State of the Forms runtime emulation: cursor, parameter lists, record groups, the open alert."""
+    if w.get('runtime'):
+        return runtime_fields(w)
     result = ['  // Forms-futtatókörnyezet emuláció: a backend a Forms-hívásokat felületi utasításként adja vissza (runCommands).\n'
               '  private cursorBlock = ' + json.dumps(w.get('first_block') or '') + ';\n'
               '  private cursorItem = \'\';\n'
@@ -347,3 +349,64 @@ __SELECTIONS__    const blocks: Record<string, Record<string, string | null>> = 
         .replace('__NO_PRELUDE__', ' && !prelude' if w.get('commit_points') else '')
         .replace('__THEN__', '\n        then?.();' if w.get('commit_points') else '')]
 
+
+
+RUNTIME_FILE = 'niva-forms-screen.ts'
+RUNTIME_IMPORT = '../niva-forms-screen'
+
+
+def runtime_source() -> str:
+    """frontend/niva-forms-screen.ts: the Forms runtime every generated screen extends (one copy per project)."""
+    from pathlib import Path
+    return (Path(__file__).with_name('templates') / 'niva-forms-screen.ts.tpl').read_text(encoding='utf-8')
+
+
+def runtime_fields(w: dict) -> list[str]:
+    """The screen's data for NivaFormsScreen: overrides of the base fields, nothing of its own state."""
+    result = ['  // Forms-futtatókörnyezet emuláció: niva-forms-screen.ts; itt a képernyő adatai.\n'
+              '  protected override cursorBlock = ' + json.dumps(w.get('first_block') or '') + ';']
+    if w.get('alerts'):
+        result.append('  protected override readonly alertDefinitions: Record<string, { title: string; text: string; buttons: string[] }> = '
+                      + ts(w['alerts'], 1) + ';')
+    if w.get('form_routes'):
+        result.append('  protected override readonly formRoutes: Record<string, string> = ' + ts(w['form_routes'], 1) + ';')
+    result.append('  protected override readonly screenBlockNames: readonly string[] = ' + json.dumps(sorted(w['screen_keys'])) + ';')
+    if w.get('init') and w['init'] != '@INIT':
+        result.append('  protected override readonly initAction = ' + json.dumps(w['init']) + ';')
+    if w.get('commit'):
+        blocks = {block: {'request': spec['request'], 'result': spec['result'], 'operations': spec['operations']}
+                  for block, spec in w['commit']['blocks'].items()}
+        result.append('  // Forms COMMIT_FORM: a mentett blokkok a commit-kérés mezőivel és a megengedett műveletekkel.\n'
+                      '  protected override readonly commitBlocks: Record<string, { request: string; result: string; operations: readonly string[] }> = '
+                      + ts(blocks, 1) + ';\n'
+                      '  protected override readonly commitEndpoint = (request: Record<string, unknown>) => this.' + w['commit']['call'] + '(request);')
+    return result
+
+
+def runtime_hooks(w: dict) -> list[str]:
+    """The screen-specific parts NivaFormsScreen asks for: the tables' selected rows, CLEAR_BLOCK of a table,
+    windows and canvases (SHOW_WINDOW, SHOW_VIEW)."""
+    result = []
+    if w['tables']:
+        selections = ''.join(f"    if (this.{prop}Selection) records[{json.dumps(block)}] = {{ ...this.{prop}Selection }};\n" for block, prop in w['tables'])
+        result.append('''  /** A táblázatok kijelölt sorai (Forms: a blokk aktuális rekordja). */
+  protected override selectedRecords(): Record<string, Record<string, unknown>> {
+    const records: Record<string, Record<string, unknown>> = {};
+__SELECTIONS__    return records;
+  }'''.replace('__SELECTIONS__', selections))
+        cases = ''.join(f"      case {json.dumps(block)}: this.{prop}Rows = []; this.{prop}Selection = null; break;\n" for block, prop in w['tables'])
+        result.append('''  protected override clearTable(block: string): void {
+    switch (block) {
+__CASES__      default: break;
+    }
+  }'''.replace('__CASES__', cases))
+    if w.get('window_type'):
+        result.append(f'''  protected override formsWindow(name: string, visible: boolean): void {{
+    if (Object.hasOwn(this.windowVisible(), name)) this.setWindowVisible(name as {w['window_type']}, visible);
+  }}''')
+    if w.get('canvas_type'):
+        result.append(f'''  protected override formsCanvas(name: string, visible: boolean): void {{
+    if (!Object.hasOwn(this.canvasVisible(), name)) return;
+    if (visible) this.showCanvas(name as {w['canvas_type']}); else this.hideCanvas(name as {w['canvas_type']});
+  }}''')
+    return result

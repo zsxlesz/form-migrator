@@ -172,6 +172,7 @@ def action_method(o, block, gated, discovery, model, log1x, user_type):
     if prepared.get('unresolved'):
         info.append(unresolved_note(prepared['unresolved'], model))
     info.append('Eredeti kód: analysis/backend-evidence.md')
+    arguments = ',\n                '.join(params)  # no backslash inside the f-string: Python 3.10/3.11
     return (comment_lines('\n'.join(info), '    ') + f'''
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     @Override
@@ -181,7 +182,7 @@ def action_method(o, block, gated, discovery, model, log1x, user_type):
 {guard}            var values = request.blocks() == null ? java.util.Map.<String, java.util.Map<String, String>>of() : request.blocks();
             var parameters = request.parameters() == null ? java.util.Map.<String, String>of() : request.parameters();
             Object[] out = DbCalls.call(jdbc, {sql_expression(prepared)},
-                {(",\n                ").join(params)});
+                {arguments});
             var blocks = new java.util.LinkedHashMap<String, java.util.Map<String, String>>();
             var globals = new java.util.LinkedHashMap<String, String>();
 {puts}            return new ActionResult(blocks, PlsqlValues.lines(out[{messages}]), {('PlsqlValues.commands(out[' + str(messages + 1) + '])') if emulated else 'List.of()'}, globals);

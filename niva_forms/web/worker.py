@@ -25,7 +25,8 @@ def run(job_dir: Path) -> int:
                               cache_dir=job_dir.parent.parent / "cache", zip=True, strict=options["strict"],
                               scaffold=options.get('generation_mode', 'strict') == 'scaffold',
                               screen=options.get('generation_mode', 'strict') == 'screen',
-                              olb=sorted((inputs / "olb").glob("*")), mmb=next((inputs / "mmb").glob("*"), None))
+                              olb=sorted((inputs / "olb").glob("*")), mmb=next((inputs / "mmb").glob("*"), None),
+                              pld=sorted((inputs / "pld").glob("*")))
 
     def progress(phase):
         try:

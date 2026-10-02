@@ -240,9 +240,9 @@ def crud_info(o, model):
 
 
 def unresolved_note(names, model):
-    """External calls resolved by the database at run time; own attached libraries are named."""
-    from .xmlmodel import get
-    libraries = [get(l, 'Name') for l in model.get('libraries', [])]
+    """External calls resolved by the database at run time; attached libraries without a .pld are named."""
+    from .libraries import unloaded
+    libraries = unloaded(model)
     note = 'Az adatbázis oldja fel futáskor: ' + ', '.join(names)
     if libraries:
         note += ('. A formhoz csatolt könyvtár(ak): ' + ', '.join(libraries)
@@ -268,7 +268,8 @@ def plsql_units_class(model, used, used_ui=()):
     for name, unit in sorted(model['plsql_units'].items()):
         if name not in used:
             continue  # unused Forms framework libraries stay in the analysis only
-        info = [f"{name} ({unit['kind']})", 'Hívja: ' + (', '.join(sorted(set(callers.get(name, [])))) or 'egyik generált végpont sem')]
+        info = [f"{name} ({unit['kind']}" + (f", csatolt könyvtár: {unit['library']}" if unit.get('library') else '') + ')',
+                'Hívja: ' + (', '.join(sorted(set(callers.get(name, [])))) or 'egyik generált végpont sem')]
         if unit['binds']:
             info.append('Mezők: ' + ', '.join(f"{b} -> {Rewriter.var(b)}" for b in unit['binds']))
         if unit['calls']:
@@ -284,7 +285,8 @@ def plsql_units_class(model, used, used_ui=()):
     for name, unit in sorted(model.get('plsql_units_ui', {}).items()):
         if name not in used_ui or unit['error']:
             continue
-        info = [f"{name} ({unit['kind']}), gombok és indítási kód változata: a Forms-hívások felületi utasítások",
+        info = [f"{name} ({unit['kind']}" + (f", csatolt könyvtár: {unit['library']}" if unit.get('library') else '')
+                + "), gombok és indítási kód változata: a Forms-hívások felületi utasítások",
                 'Hívja: ' + (', '.join(sorted(set(callers.get(name, [])))) or 'egyik generált végpont sem')]
         if unit.get('commands'):
             info.append('Forms-hívások: ' + ', '.join(dict.fromkeys(unit['commands'])))

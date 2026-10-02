@@ -1075,7 +1075,7 @@ function highlight(text: string, lang: CodeLang): string {
                 #sourceInput
                 type="file"
                 class="hidden"
-                accept=".fmb,.xml"
+                accept=".fmb,.xml,.pld,.pll"
                 multiple
                 (change)="onSources($event)"
               />
@@ -1103,7 +1103,7 @@ function highlight(text: string, lang: CodeLang): string {
                             : 'Húzd ide a formokat, vagy kattints a tallózáshoz'
                       }}</span>
                     <span class="text-sm opacity-70 cursor-help" [pTooltip]="sourceHelp()"
-                    >.fmb vagy Forms2XML .xml, egyszerre több is
+                    >.fmb vagy Forms2XML .xml, egyszerre több is; mellé a csatolt PL/SQL-könyvtárak (.pld)
                       <span class="opacity-60">ⓘ</span></span
                     >
                   </div>
@@ -1149,6 +1149,27 @@ function highlight(text: string, lang: CodeLang): string {
                         (onClick)="clearSources()"
                       />
                     </div>
+                  }
+                  @if (pld().length) {
+                    <ul class="nm-sources">
+                      @for (library of pld(); track library.name) {
+                        <li class="nm-source">
+                          <p-tag value="PLD" severity="secondary" />
+                          <span class="min-w-0 flex-1 truncate font-medium">{{ library.name }}</span>
+                          <span class="whitespace-nowrap text-sm opacity-60">{{
+                              bytes(library.size)
+                            }}</span>
+                          <p-button
+                            label="Eltávolítás"
+                            size="small"
+                            severity="secondary"
+                            variant="text"
+                            [disabled]="uploading()"
+                            (onClick)="removeLibrary(library)"
+                          />
+                        </li>
+                      }
+                    </ul>
                   }
                   @if (fmbWithoutExporter()) {
                     <p-message severity="warn" size="small"
@@ -2431,6 +2452,8 @@ export class Migrator implements OnInit, OnDestroy {
       : 'A formokhoz különböző AWU_AZON számokat adj meg.';
   });
   readonly olb = signal<File[]>([]);
+  // Attached PL/SQL libraries (.pld, or .pll for frmcmp): dropped with the forms, sent with every job.
+  readonly pld = signal<File[]>([]);
   // Survey: a batch run for the report, not the code (no AWU_AZON, no window question).
   readonly surveyControl = new FormControl(false, { nonNullable: true });
   readonly survey = toSignal(this.surveyControl.valueChanges, { initialValue: false });
@@ -2731,7 +2754,9 @@ export class Migrator implements OnInit, OnDestroy {
     return (
       'Oracle Forms modul: .fmb vagy Forms2XML export (.xml), legfeljebb ' +
       this.bytes(this.defaults()?.limits.file_bytes ?? 33554432) +
-      '. Az XML közvetlenül feldolgozható; az FMB-hez Oracle Forms2XML kell a backend gépén. Export: frmf2xml USE_PROPERTY_IDS=NO DUMP=ALL OVERWRITE=YES'
+      '. Az XML közvetlenül feldolgozható; az FMB-hez Oracle Forms2XML kell a backend gépén. Export: frmf2xml USE_PROPERTY_IDS=NO DUMP=ALL OVERWRITE=YES. ' +
+      'A formhoz csatolt PL/SQL-könyvtárakat (.pld) is ide húzd: a könyvtári eljárások így a form saját eljárásaihoz hasonlóan fordulnak. ' +
+      '.pll-ből: frmcmp_batch module=KONYVTAR.pll module_type=LIBRARY script=YES'
     );
   }
 
@@ -2752,8 +2777,13 @@ export class Migrator implements OnInit, OnDestroy {
 
   clearSources(): void {
     this.files.set([]);
+    this.pld.set([]);
     this.batchAwu.set({});
     this.form.controls.AWU_AZON.setValue('');
+  }
+
+  removeLibrary(library: File): void {
+    this.pld.update((files) => files.filter((f) => f !== library));
   }
 
   private selectSources(picked: File[]): void {
@@ -2761,6 +2791,13 @@ export class Migrator implements OnInit, OnDestroy {
     this.notice.set('');
     const limit = this.defaults()?.limits.file_bytes ?? 33554432;
     const rejected: string[] = [];
+    const libraries = picked.filter((f) => /\.(pld|pll)$/i.test(f.name) && f.size > 0 && f.size <= limit);
+    if (libraries.length)
+      this.pld.update((files) => [
+        ...files.filter((f) => !libraries.some((l) => l.name.toLowerCase() === f.name.toLowerCase())),
+        ...libraries,
+      ]);
+    picked = picked.filter((f) => !libraries.includes(f));
     const accepted = picked.filter((f) => {
       const ok =
         /\.(fmb|xml)$/i.test(f.name) &&
@@ -2997,6 +3034,7 @@ export class Migrator implements OnInit, OnDestroy {
     // Libraries and schema are chosen in survey mode only (the simplified form hides them).
     const survey = this.survey();
     if (survey) for (const companion of this.olb()) body.append('olb_files', companion);
+    for (const library of this.pld()) body.append('pld_files', library);
     const mmb = this.mmb(),
       schema = survey ? this.schema() : null,
       rules = this.rules(),

@@ -830,7 +830,8 @@ def unit_library(units: dict, items: dict, prefixes: tuple, procedures: dict | N
     members = {m for d in declared.values() if not isinstance(d, Unsupported) for m in d[2]}
     for name, unit in units.items():
         entry = {'kind': unit['kind'], 'source': unit['text'], 'text': '', 'items': '', 'members': [], 'binds': {},
-                 'needs': set(), 'calls': [], 'unresolved': [], 'out_args': [], 'error': None, 'commands': []}
+                 'needs': set(), 'calls': [], 'unresolved': [], 'out_args': [], 'error': None, 'commands': [],
+                 'library': unit.get('library')}
         rewriter = Rewriter(None, items, prefixes, other_blocks=True, parameters=True, transaction=False,
                             units=units, procedures=procedures, runtime_calls=runtime_calls, ui=ui, form=form,
                             tail_units=tails, members=members)
@@ -856,21 +857,21 @@ def unit_library(units: dict, items: dict, prefixes: tuple, procedures: dict | N
         entry.update(binds=rewriter.binds, needs=rewriter.needs, calls=[u for u in rewriter.used_units if u != name],
                      unresolved=rewriter.unresolved, out_args=rewriter.out_args, commands=rewriter.commands)
         library[name] = entry
-    # Two packages (or a package and a procedure) with the same member name cannot share one block.
-    owners = {}
-    for name in sorted(packages):
-        for member in library[name]['members']:
-            owners.setdefault(member, []).append(name)
-    for name in units:
-        if name not in packages:
-            owners.setdefault(name, []).append(name)
-    for member, names in owners.items():
-        if len(set(names)) > 1:
-            for name in names:
-                if library[name]['kind'] == 'package' and not library[name]['error']:
-                    library[name]['error'] = ('A(z) ' + member + ' név több helyi programegységben is szerepel ('
-                                              + ', '.join(sorted(set(names))) + '): egy névtelen blokkban nem ágyazhatók együtt.')
+    # Two packages (or a package and a procedure) with the same member name cannot share one block:
+    # checked in prepare() for the units one block really embeds (attached libraries are large).
     return library
+
+
+def member_collisions(order, library):
+    """Names declared twice in one block: a package member and another package's member or a procedure."""
+    owners = {}
+    for name in order:
+        for member in (library[name]['members'] if library[name]['kind'] == 'package' else [name]):
+            owners.setdefault(member, []).append(name)
+    for member, names in sorted(owners.items()):
+        if len(set(names)) > 1:
+            raise Unsupported('A(z) ' + member + ' név több helyi programegységben is szerepel ('
+                              + ', '.join(sorted(set(names))) + '): egy névtelen blokkban nem ágyazhatók együtt.')
 
 
 def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixes: tuple,
@@ -919,6 +920,7 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
         order.append(name)
     for name in list(rewriter.used_units):
         include(name, [])
+    member_collisions(order, library)
     if any(library[n]['kind'] == 'package' for n in order):
         rewriter.notes.append('Helyi csomag beágyazva (' + ', '.join(n for n in order if library[n]['kind'] == 'package')
                               + '): a csomagváltozók kérésenként újraindulnak.')
@@ -998,19 +1000,25 @@ def assigned_vars(visible: str) -> set[str]:
 
 
 def local_units(model) -> dict:
+    """The form's program units and the attached-library units it reaches (libraries.attach)."""
     from .xmlmodel import get
     units = {}
     for unit in model['program_units']:
         kind = (get(unit, 'ProgramUnitType') or '').lower()
         name = (get(unit, 'Name') or '').upper()
         text = get(unit, 'ProgramUnitText') or ''
+        library = unit.get('niva_library') if isinstance(unit, dict) else None
         if 'package' in kind:
             # Package Spec + Package Body share the name: both parts are kept for the inlining.
             entry = units.setdefault(name, {'kind': 'package', 'text': '', 'spec': '', 'body': ''})
             entry['body' if 'body' in kind else 'spec'] = text
             entry['text'] = (entry['spec'] + '\n' + entry['body']).strip()
+            if library:
+                entry['library'] = library
             continue
         units[name] = {'kind': 'procedure' if 'procedure' in kind else 'function', 'text': text}
+        if library:
+            units[name]['library'] = library
     return units
 
 

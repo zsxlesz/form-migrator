@@ -477,7 +477,8 @@ def plsql_library(model: dict, catalog: dict, ui: bool = False) -> dict:
                                   catalog.get("runtime_calls", ()), ui=ui, form=model["name"])
         model[summary] = {name: {"kind": u["kind"], "source": u["source"], "text": u["text"], "items": u.get("items", ""),
                                  "error": u["error"], "binds": list(u["binds"]), "calls": u["calls"], "unresolved": u["unresolved"],
-                                 "members": u.get("members", []), "commands": u.get("commands", [])}
+                                 "members": u.get("members", []), "commands": u.get("commands", []),
+                                 **({"library": u["library"]} if u.get("library") else {})}
                           for name, u in model[key].items()}
     return model[key]
 

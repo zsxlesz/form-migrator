@@ -169,6 +169,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                          field_lengths_file: Annotated[UploadFile | None, File()] = None,
                          olb_files: Annotated[list[UploadFile] | None, File()] = None,
                          mmb_file: Annotated[UploadFile | None, File()] = None,
+                         pld_files: Annotated[list[UploadFile] | None, File()] = None,
                          batch: Annotated[str | None, Form(max_length=40)] = None):
         filename = (file.filename or "").replace("\\", "/").split("/")[-1]
         suffix = Path(filename).suffix.lower()
@@ -231,6 +232,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 folder = incoming / kind
                 folder.mkdir(exist_ok=True)
                 await save_upload(upload, folder / basename, settings.max_upload_bytes)
+            # Attached PL/SQL libraries as text (.pld) or binary (.pll, converted with frmcmp): libraries.py.
+            if len(pld_files or []) > 32:
+                raise HTTPException(400, "Legfeljebb 32 PL/SQL-könyvtár tölthető fel.")
+            for upload in pld_files or []:
+                original = upload.filename or ""
+                basename = original.replace("\\", "/").split("/")[-1]
+                if basename != original or Path(basename).suffix.lower() not in {".pld", ".pll"} or len(basename) > 160:
+                    raise HTTPException(400, "PL/SQL-könyvtár: <könyvtárnév>.pld vagy .pll fájlnév kell; útvonal nem adható meg.")
+                if basename.casefold() in seen:
+                    raise HTTPException(400, "Ismétlődő kísérő fájlnév: " + basename)
+                seen.add(basename.casefold())
+                (incoming / "pld").mkdir(exist_ok=True)
+                await save_upload(upload, incoming / "pld" / basename, settings.max_upload_bytes)
             config = {**settings.engine_config, **selected.engine_overrides()}
             if overrides is not None: config['screen_overrides'] = overrides
             if lengths is not None: config['screen_field_lengths'] = lengths

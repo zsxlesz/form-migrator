@@ -168,9 +168,27 @@ python -m niva_forms verify-db batch/ --dsn dbhost:1521/ORCL --user APP --report
   - `ORA-00904`: hibás oszlopnév;
   - `ORA-00942`: a tábla nem létezik, vagy nincs rá jog.
 
+## 7. Felmérés: eltérések a Forms-működéstől
+
+A felmérés (`survey`) eddig azt mutatta meg, mi tiltja a végpontokat. Most egy új szakasz azt is
+megszámolja, **mi működik, de nem pontosan úgy, mint a Formsban**. Így a portfólió alapján dönthető el, melyik
+közelítés megszüntetése a legfontosabb. Ugyanúgy névtelenített és megosztható, mint a riport többi része:
+
+- többsoros, írható adatbázis-blokkok (részletblokk-jelöléssel);
+- mentéskor futó szerveroldali mező- és rekordvalidáció;
+- az eszköztáron nem futó, saját logikájú KEY-COMMIT / KEY-EXEQRY / KEY-CREREC / KEY-DELREC és az egyéb
+  billentyű-triggerek;
+- a kód közepén álló képernyőlépések (EXECUTE_QUERY, CLEAR_BLOCK …), lépésenként;
+- ON-ERROR / ON-MESSAGE;
+- a többsoros blokkon soronként futó POST-QUERY, külön jelölve az egyszerű kikeresést (`SELECT … INTO`),
+  amely a lekérdezésbe olvasztható.
+
+A `felmeres.json` `approximations` mezőt kap (`survey_version`: 2), a webes felület külön panelen
+mutatja. Részletek: [FELMERES_HU.md](FELMERES_HU.md).
+
 ## Ellenőrzés
 
-- Teljes tesztkészlet: 523 teszt, az új tesztek mind zöldek. A már a 4.13-as kiinduló állapotban is hibás
+- Teljes tesztkészlet: 529 teszt, az új tesztek mind zöldek. A már a 4.13-as kiinduló állapotban is hibás
   101 teszt nem változott: ezek a repóból hiányzó mintabemeneteket (`examples/` és a minta-`.fmb`
   exportok) keresik. Új hibás teszt nincs.
 - Új tesztek:
@@ -179,6 +197,7 @@ python -m niva_forms verify-db batch/ --dsn dbhost:1521/ORCL --user APP --report
   - `test_slim_code`;
   - `test_screen_runtime`;
   - `test_db_verify` (álkapcsolattal; valódi adatbázis nem kell).
+  - `test_survey` bővítése (minden eltéréstípus egy replika-változaton, névtelenítés-ellenőrzéssel).
 - A generált képernyők és a futtató szigorú TypeScript-ellenőrzése csonkokkal (`tests/ts_stubs`):
 
   ```bash

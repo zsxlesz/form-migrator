@@ -98,7 +98,13 @@ interface BatchReport {
 interface SurveyCause {
   code: string; reason: string; endpoints: number; sole: number; forms: number; operations: Record<string, number>;
 }
-interface SurveyResult { batch: string; markdown: string; report: { totals: Record<string, number>; causes: SurveyCause[] } }
+interface SurveyApproximation {
+  kind: string; label: string; unit: string; count: number; forms: number; details: Record<string, number>; now: string; fix: string;
+}
+interface SurveyResult {
+  batch: string; markdown: string;
+  report: { totals: Record<string, number>; causes: SurveyCause[]; approximations?: SurveyApproximation[] };
+}
 interface BatchSummary { id: string; total: number; completed: number; waiting: number; failed: number; active: number; created: string }
 interface BatchProgress { done: number; total: number; waiting: boolean; failed: string[] }
 interface Health { version: string; python: string; exporter: { status: 'available' | 'configured' | 'missing'; message: string } }
@@ -2123,6 +2129,32 @@ function highlight(text: string, lang: CodeLang): string {
               </p-table>
             </p-panel>
           }
+          @if (surveyApproximations().length) {
+            <p-panel header="Eltérések a Forms-működéstől" [toggleable]="true">
+              <p class="mb-2 text-sm opacity-80">
+                Elkészül és működik, de nem pontosan úgy, mint a Formsban. A végpontokat nem tiltja.
+              </p>
+              <p-table [value]="surveyApproximations()" size="small" [scrollable]="true" scrollHeight="22rem">
+                <ng-template #header
+                ><tr>
+                  <th>Eltérés</th>
+                  <th class="text-right">Előfordulás</th>
+                  <th class="text-right">Form</th>
+                </tr></ng-template
+                >
+                <ng-template #body let-row
+                ><tr>
+                  <td class="text-sm" [pTooltip]="'Javítás: ' + row.fix">
+                    <span class="font-medium">{{ row.label }}</span>
+                    <div class="opacity-80">{{ row.now }}</div>
+                  </td>
+                  <td class="text-right">{{ row.count }} {{ row.unit }}</td>
+                  <td class="text-right">{{ row.forms }}</td>
+                </tr></ng-template
+                >
+              </p-table>
+            </p-panel>
+          }
           <p-table [value]="b.jobs" size="small" [scrollable]="true" scrollHeight="20rem">
             <ng-template #header
             ><tr>
@@ -2587,6 +2619,8 @@ export class Migrator implements OnInit, OnDestroy {
     return question ? this.windowOptions(question) : [];
   });
   readonly surveyCauses = computed(() => this.surveyResult()?.report.causes.slice(0, 15) ?? []);
+  readonly surveyApproximations = computed(() =>
+    (this.surveyResult()?.report.approximations ?? []).filter((row) => row.count > 0));
   readonly companionSummary = computed(() =>
     [...this.olb().map((file) => file.name), this.schema()?.name ?? ''].filter(Boolean).join(', '),
   );

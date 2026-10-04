@@ -17,6 +17,8 @@ rövidebb lett.
 - **Közös képernyő-futtató:** `frontend/niva-forms-screen.ts` projektenként egyszer, a komponens
   `extends NivaFormsScreen`.
 - **`verify-db`:** a generált SQL és PL/SQL lefordítása a céladatbázisban (`DBMS_SQL.PARSE`), végrehajtás nélkül.
+- **Felmérés – eltérések a Forms-működéstől:** a riport azt is megszámolja, mi működik, de nem pontosan úgy,
+  mint a Formsban (többsoros írható blokkok, mentéskori validáció, eszköztáron nem futó KEY-triggerek …).
 - A CL-projektben a `CommonMigrateTools.java` fájlt cserélni kell (VERSION 4).
 
 Részletek és átállás: [JAVITASOK_4_14_HU.md](JAVITASOK_4_14_HU.md).

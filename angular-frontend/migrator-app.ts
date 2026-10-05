@@ -98,6 +98,14 @@ interface BatchReport {
 interface SurveyCause {
   code: string; reason: string; endpoints: number; sole: number; forms: number; operations: Record<string, number>;
 }
+interface DeployFile {
+  source: string; target: string | null; status: string; policy: string; reason?: string;
+}
+interface DeployReport {
+  project: string; dry_run: boolean; force: boolean; layout: Record<string, string | null>;
+  counts: Record<string, number>; files: DeployFile[]; markdown: string;
+}
+type DeployTarget = { kind: 'job' | 'batch'; id: string };
 interface SurveyApproximation {
   kind: string; label: string; unit: string; count: number; forms: number; details: Record<string, number>; now: string; fix: string;
 }
@@ -117,6 +125,7 @@ const API_KEY = 'frm-api-url-v2';
 // v5: the gap default changed (fields fill their row); older saved settings would bring gaps back.
 // v6: the UI offers no choices any more; stale saved choices must not stay active unseen.
 const OPTIONS_KEY = 'frm-options-v6';
+const PROJECT_KEY = 'frm-project-root-v1';
 const URL_PATTERN = /^https?:\/\/[^\s]+$/;
 
 // Every explanation lives in a tooltip, next to the control it explains.
@@ -172,6 +181,10 @@ function apiUrl(value: string): string {
     throw new Error('HTTP(S) API URL szükséges, például http://localhost:8000/api.');
   }
   return parsed.href.replace(/\/+$/, '');
+}
+
+function storedProject(): string {
+  try { return localStorage.getItem(PROJECT_KEY) ?? ''; } catch { return ''; }
 }
 
 function storedBase(): string {
@@ -668,6 +681,14 @@ function highlight(text: string, lang: CodeLang): string {
     }
     .nm-survey-bar {
       padding: 0.625rem 0.75rem 0.625rem 1rem;
+      border: 1px solid var(--p-content-border-color, #e2e8f0);
+      border-radius: var(--p-content-border-radius, 0.5rem);
+    }
+    .nm-deploy {
+      display: flex;
+      flex-direction: column;
+      gap: 0.625rem;
+      padding: 0.75rem 1rem;
       border: 1px solid var(--p-content-border-color, #e2e8f0);
       border-radius: var(--p-content-border-radius, 0.5rem);
     }
@@ -1773,6 +1794,88 @@ function highlight(text: string, lang: CodeLang): string {
                     }
                   }
                   @if (job.status === 'completed') {
+<section class="nm-deploy" aria-label="Telepítés a projektbe">
+  <div class="flex flex-wrap items-center gap-2">
+    <span class="font-semibold">Telepítés a projektbe</span>
+    <span class="text-sm opacity-70"
+    >A CL, DPS, WBS és frontend fájlok egyből a projekted saját mappáiba kerülnek; a CREATE_ONCE fájlok
+      (ServiceImpl, ControllerImpl, komponens) csak akkor, ha még nincsenek meg.</span
+    >
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <input
+      pInputText
+      class="min-w-0 flex-1"
+      placeholder="A fő projektmappa teljes útvonala (pl. C:\\projektek\\rendszer)"
+      aria-label="A fő projektmappa"
+      [formControl]="projectControl"
+    />
+    <p-button
+      label="Előnézet"
+      size="small"
+      severity="secondary"
+      variant="outlined"
+      [loading]="deploying() === 'preview'"
+      [disabled]="!projectControl.value.trim() || !!deploying()"
+      (onClick)="runDeploy({ kind: 'job', id: job.id }, true)"
+    />
+    <span pTooltip="Előbb nézd meg az előnézetet ugyanerre a mappára."
+    ><p-button
+      label="Telepítés"
+      size="small"
+      [loading]="deploying() === 'deploy'"
+      [disabled]="!deployReady({ kind: 'job', id: job.id }) || !!deploying()"
+      (onClick)="runDeploy({ kind: 'job', id: job.id }, false)"
+    /></span>
+  </div>
+  <p-panel header="Részek kézi megadása (ha a felismerés nem elég)" [toggleable]="true" [collapsed]="true">
+    <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+      @for (part of deployParts; track part.key) {
+        <input
+          pInputText
+          [placeholder]="part.hint"
+          [attr.aria-label]="part.key"
+          [formControl]="layoutControls[part.key]"
+        />
+      }
+    </div>
+  </p-panel>
+  @if (deployResultFor({ kind: 'job', id: job.id }); as r) {
+    <div class="flex flex-wrap items-center gap-2 text-sm">
+      @for (entry of deployLayout(r); track entry.key) {
+        <p-tag [value]="entry.key + ': ' + (entry.value ?? '— nincs')" [severity]="entry.value ? 'info' : 'warn'" />
+      }
+      <span class="flex-1"></span>
+      @for (entry of deployCounts(r); track entry.key) {
+        <p-tag [value]="entry.label + ': ' + entry.value" [severity]="entry.severity" />
+      }
+      <p-button
+        label="Riport"
+        size="small"
+        variant="text"
+        (onClick)="saveText(r.markdown, 'PROJECT_DEPLOY_HU.md')"
+      />
+    </div>
+    <p-table [value]="r.files" size="small" [scrollable]="true" scrollHeight="18rem">
+      <ng-template #header
+      ><tr>
+        <th>Fájl</th>
+        <th>Cél a projektben</th>
+        <th>Állapot</th>
+      </tr></ng-template
+      >
+      <ng-template #body let-row
+      ><tr>
+        <td class="text-sm">{{ row.source }}</td>
+        <td class="text-sm">{{ row.target ?? '—' }}</td>
+        <td class="text-sm" [pTooltip]="row.reason ?? ''">{{ deployStatus(row.status) }}</td>
+      </tr></ng-template
+      >
+    </p-table>
+  }
+</section>
+                  }
+                  @if (job.status === 'completed') {
                     <section class="nm-tree" aria-label="Generált kód">
                       <div class="nm-tree-head">
                         <span class="font-semibold">Generált kód</span>
@@ -2019,6 +2122,88 @@ function highlight(text: string, lang: CodeLang): string {
               (onClick)="saveText(b.markdown, 'PORTFOLIO_HU.md')"
             />
           </div>
+          @if (b.counts['completed']) {
+<section class="nm-deploy" aria-label="Telepítés a projektbe">
+  <div class="flex flex-wrap items-center gap-2">
+    <span class="font-semibold">Telepítés a projektbe</span>
+    <span class="text-sm opacity-70"
+    >A CL, DPS, WBS és frontend fájlok egyből a projekted saját mappáiba kerülnek; a CREATE_ONCE fájlok
+      (ServiceImpl, ControllerImpl, komponens) csak akkor, ha még nincsenek meg.</span
+    >
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <input
+      pInputText
+      class="min-w-0 flex-1"
+      placeholder="A fő projektmappa teljes útvonala (pl. C:\\projektek\\rendszer)"
+      aria-label="A fő projektmappa"
+      [formControl]="projectControl"
+    />
+    <p-button
+      label="Előnézet"
+      size="small"
+      severity="secondary"
+      variant="outlined"
+      [loading]="deploying() === 'preview'"
+      [disabled]="!projectControl.value.trim() || !!deploying()"
+      (onClick)="runDeploy({ kind: 'batch', id: b.batch }, true)"
+    />
+    <span pTooltip="Előbb nézd meg az előnézetet ugyanerre a mappára."
+    ><p-button
+      label="Telepítés"
+      size="small"
+      [loading]="deploying() === 'deploy'"
+      [disabled]="!deployReady({ kind: 'batch', id: b.batch }) || !!deploying()"
+      (onClick)="runDeploy({ kind: 'batch', id: b.batch }, false)"
+    /></span>
+  </div>
+  <p-panel header="Részek kézi megadása (ha a felismerés nem elég)" [toggleable]="true" [collapsed]="true">
+    <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+      @for (part of deployParts; track part.key) {
+        <input
+          pInputText
+          [placeholder]="part.hint"
+          [attr.aria-label]="part.key"
+          [formControl]="layoutControls[part.key]"
+        />
+      }
+    </div>
+  </p-panel>
+  @if (deployResultFor({ kind: 'batch', id: b.batch }); as r) {
+    <div class="flex flex-wrap items-center gap-2 text-sm">
+      @for (entry of deployLayout(r); track entry.key) {
+        <p-tag [value]="entry.key + ': ' + (entry.value ?? '— nincs')" [severity]="entry.value ? 'info' : 'warn'" />
+      }
+      <span class="flex-1"></span>
+      @for (entry of deployCounts(r); track entry.key) {
+        <p-tag [value]="entry.label + ': ' + entry.value" [severity]="entry.severity" />
+      }
+      <p-button
+        label="Riport"
+        size="small"
+        variant="text"
+        (onClick)="saveText(r.markdown, 'PROJECT_DEPLOY_HU.md')"
+      />
+    </div>
+    <p-table [value]="r.files" size="small" [scrollable]="true" scrollHeight="18rem">
+      <ng-template #header
+      ><tr>
+        <th>Fájl</th>
+        <th>Cél a projektben</th>
+        <th>Állapot</th>
+      </tr></ng-template
+      >
+      <ng-template #body let-row
+      ><tr>
+        <td class="text-sm">{{ row.source }}</td>
+        <td class="text-sm">{{ row.target ?? '—' }}</td>
+        <td class="text-sm" [pTooltip]="row.reason ?? ''">{{ deployStatus(row.status) }}</td>
+      </tr></ng-template
+      >
+    </p-table>
+  }
+</section>
+          }
           <div class="nm-survey-bar">
             <span class="font-medium">Felmérés</span>
             <span class="text-sm opacity-70"
@@ -2525,6 +2710,19 @@ export class Migrator implements OnInit, OnDestroy {
 
   // Generated code: folder tree on the overview tab, highlighted viewer in its own dialog.
   readonly codeFilterControl = new FormControl('', { nonNullable: true });
+  // Telepítés a projektbe: a fő projektmappa (a böngészőben megjegyezve) és a részek kézi megadása.
+  readonly projectControl = new FormControl(storedProject(), { nonNullable: true });
+  readonly deployParts = [
+    { key: 'CL', hint: 'CL: pl. rendszer-cl/src/main/java' },
+    { key: 'DPS', hint: 'DPS: pl. rendszer-dps/src/main/java' },
+    { key: 'WBS', hint: 'WBS: pl. rendszer-wbs/src/main/java' },
+    { key: 'frontend', hint: 'frontend: pl. rendszer-ui/src/app' },
+  ] as const;
+  readonly layoutControls: Record<string, FormControl<string>> = Object.fromEntries(
+    this.deployParts.map((part) => [part.key, new FormControl('', { nonNullable: true })]),
+  );
+  readonly deploying = signal<'' | 'preview' | 'deploy'>('');
+  private readonly deployResult = signal<{ key: string; project: string; report: DeployReport } | null>(null);
   readonly codeFilter = toSignal(this.codeFilterControl.valueChanges, { initialValue: '' });
   readonly wrapControl = new FormControl(false, { nonNullable: true });
   readonly viewerWrap = toSignal(this.wrapControl.valueChanges, { initialValue: false });
@@ -3268,6 +3466,62 @@ export class Migrator implements OnInit, OnDestroy {
       this.error.set(this.errorText(error));
     } finally {
       this.downloading.set('');
+    }
+  }
+
+  // ------------------------------------------------------------ deploy into the project --
+  deployResultFor(target: DeployTarget): DeployReport | null {
+    const result = this.deployResult();
+    return result?.key === target.kind + ':' + target.id ? result.report : null;
+  }
+
+  /** Telepíteni csak az ugyanarra a mappára készült előnézet után lehet. */
+  deployReady(target: DeployTarget): boolean {
+    const result = this.deployResult();
+    return !!result && result.key === target.kind + ':' + target.id && result.report.dry_run
+      && result.project === this.projectControl.value.trim();
+  }
+
+  deployLayout(report: DeployReport): { key: string; value: string | null }[] {
+    return Object.entries(report.layout).map(([key, value]) => ({ key, value }));
+  }
+
+  deployCounts(report: DeployReport): { key: string; label: string; value: number; severity: 'success' | 'info' | 'warn' | 'danger' | 'secondary' }[] {
+    const severities: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'secondary'> = {
+      new: 'success', updated: 'success', overwritten: 'warn', unchanged: 'secondary', kept: 'info',
+      conflict: 'danger', skipped: 'warn',
+    };
+    return Object.entries(report.counts).map(([key, value]) => ({
+      key, label: this.deployStatus(key), value, severity: severities[key] ?? 'secondary',
+    }));
+  }
+
+  deployStatus(status: string): string {
+    return {
+      new: 'új', updated: 'frissítve', unchanged: 'változatlan', kept: 'megőrizve (CREATE_ONCE)',
+      conflict: 'ütközés – nem írtuk felül', overwritten: 'felülírva', skipped: 'kihagyva',
+    }[status] ?? status;
+  }
+
+  async runDeploy(target: DeployTarget, dryRun: boolean): Promise<void> {
+    const project = this.projectControl.value.trim();
+    if (!project || this.deploying()) return;
+    try { localStorage.setItem(PROJECT_KEY, project); } catch { /* privát mód: csak ebben a munkamenetben */ }
+    const layout = Object.fromEntries(
+      Object.entries(this.layoutControls).map(([key, control]) => [key, control.value.trim()]).filter(([, value]) => value),
+    );
+    this.deploying.set(dryRun ? 'preview' : 'deploy');
+    this.error.set('');
+    try {
+      const path = target.kind === 'job' ? `/jobs/${target.id}/deploy` : `/batches/${encodeURIComponent(target.id)}/deploy`;
+      const report = await firstValueFrom(
+        this.http.post<DeployReport>(this.url(path), { project, layout, dry_run: dryRun, force: false }, this.mutation),
+      );
+      this.deployResult.set({ key: target.kind + ':' + target.id, project, report });
+    } catch (error) {
+      this.error.set(this.errorText(error));
+    } finally {
+      this.deploying.set('');
     }
   }
 

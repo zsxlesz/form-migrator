@@ -44,11 +44,25 @@ def generate(output, config, package, cls, blocks, ops, contract):
     at = (anchor.start() if anchor.group().startswith('import') else anchor.end()) if anchor else 0
     source = source[:at] + dto_imports + source[at:]
     source = bean_source(source, names, blocks)
+    # The DPS ServiceImpl extends the module's own ServiceBase (getModuleName); the company base class and its
+    # imports move there, the layout step drops the imports the ServiceImpl no longer uses.
+    source, declarations = re.subn(rf'^public class {cls}ServiceImpl extends [^{{\n]+? implements {cls}Service \{{',
+                                   f'public class {cls}ServiceImpl extends {cls}ServiceBase {{', source, count=1, flags=re.M)
+    if not declarations:
+        raise ValueError('DPS ServiceImpl: az osztálydeklaráció nem a várt alakú.')
     required = re.findall(r'[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*', config['java_service_base_dps'])
-    for line in imports(required + [user_type]).splitlines():
+    for line in imports([user_type]).splitlines():
         if line and line not in source:
             source = source.replace('\n\n', '\n\n' + line + '\n', 1)
     write(service_file, source)
+    emit('DPS', 'ServiceBase', f'''public abstract class {cls}ServiceBase extends {config['java_service_base_dps']} implements {cls}Service {{
+
+    @Override
+    public String getModuleName() {{
+        return {cls}Constants.NAME;
+    }}
+
+}}''', constants_import + imports(required))
 
     dps_interface, dps_impl, service_methods = [], [], []
     wbs_interface, wbs_impl, wbs_service, wbs_calls = [], [], [], []

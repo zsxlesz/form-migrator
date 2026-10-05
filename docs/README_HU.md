@@ -1,4 +1,14 @@
-# FRM Forms Migrator 4.15.0 — használat
+# FRM Forms Migrator 4.16.0 — használat
+
+**4.16 – DPS ServiceBase és generálás egyenesen a projektbe:**
+
+- **DPS ServiceBase:** céges formátumban a DPS ServiceImpl a modul saját `XYServiceBase` osztályából örököl
+  (`getModuleName()` → `XYConstants.NAME`).
+- **Telepítés a projektbe:** `--project <fő mappa>` (vagy `deploy` parancs, vagy a webes felület „Telepítés a
+  projektbe” panelje). A migrátor felismeri a CL, DPS, WBS és frontend projektet, és mindent a helyére tesz. A
+  CREATE_ONCE fájlokat nem írja felül, és jelzi a kézzel módosított generált fájlokat.
+
+Részletek: [JAVITASOK_4_16_HU.md](JAVITASOK_4_16_HU.md).
 
 **4.15 – javítások egy valódi felmérés alapján:**
 

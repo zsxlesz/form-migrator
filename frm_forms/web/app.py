@@ -23,7 +23,7 @@ from frm_forms.contracts import validate_company_config
 from frm_forms.screen_overrides import validate as validate_screen_overrides
 from frm_forms.ui_config import validate_field_lengths
 from .jobs import JobError, JobManager, tail
-from .models import JobAnswer, MigrationOptions
+from .models import DeployRequest, JobAnswer, MigrationOptions
 from .settings import PROJECT_ROOT, Settings
 
 
@@ -305,6 +305,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return FileResponse(manager().preview_path(job_id), media_type="text/html; charset=utf-8",
                             headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
                                      "X-Content-Type-Options": "nosniff"})
+
+    @app.post("/api/jobs/{job_id}/deploy")
+    def deploy_job(job_id: str, request: DeployRequest):
+        # Writes into the developer's project on this machine (the API only listens on localhost).
+        return manager().job_deploy(job_id, request.project, request.layout, request.dry_run, request.force)
+
+    @app.post("/api/batches/{batch_id}/deploy")
+    def deploy_batch(batch_id: str, request: DeployRequest):
+        return manager().batch_deploy(batch_id, request.project, request.layout, request.dry_run, request.force)
 
     @app.get("/api/batches/{batch_id}")
     def batch_report(batch_id: str):

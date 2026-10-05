@@ -68,7 +68,10 @@ DEFAULTS = {"java_package": "hu.company.features", "api_prefix": "/api/forms", "
             # Checkstyle CustomImportOrder customImportOrderRules: groups in this order, one empty line between.
             "java_import_order": "STATIC###STANDARD_JAVA_PACKAGE###THIRD_PARTY_PACKAGE",
             # Code page of the attached-library .pld files (--pld); "" = UTF-8, else cp1250 (Windows Forms).
-            "pld_encoding": ""}
+            "pld_encoding": "",
+            # Deploy into a project (--project): the folders of its parts, relative to the project root, where the
+            # automatic mapping is not enough: {"CL": "x-cl/src/main/java", "DPS": ..., "WBS": ..., "frontend": "x-ui/src/app"}.
+            "project_layout": {}}
 
 DEFAULTS.update(COMPANY_DEFAULTS)
 DEFAULTS.update(UI_DEFAULTS)
@@ -161,6 +164,8 @@ def configuration(args) -> dict:
     if result['screen_overrides'].get('items') and not getattr(args, 'screen', False):
         raise MigrationError('SCREEN_OVERRIDES: a felülbírálások csak --screen módban használhatók.')
     validate_ui_config(result, screen_mode=getattr(args, 'screen', False))
+    from .project_deploy import validate_layout
+    result["project_layout"] = validate_layout(result["project_layout"])
     return result
 
 
@@ -334,7 +339,20 @@ def migration(args, on_progress=None) -> int:
     print(json.dumps({"output": str(destination), "zip": str(zip_path) if args.zip else None, **result}, ensure_ascii=False, indent=2))
     if analysis_only and any(i["severity"] == "error" for i in ui_model["issues"]):
         return 3
-    return 3 if args.strict and (result["blocking_issues"] or any(b["write_blockers"] for b in model["blocks"] if b["database"])) else 0
+    code = 3 if args.strict and (result["blocking_issues"] or any(b["write_blockers"] for b in model["blocks"] if b["database"])) else 0
+    if getattr(args, "project", None) and not analysis_only:
+        # Straight into the developer's project: CL, DPS, WBS and the frontend in their own folders.
+        from .project_deploy import parse_layout, run as deploy_run
+        layout = {**config["project_layout"], **parse_layout(getattr(args, "layout", None))}
+        code = max(code, deploy_run([destination], args.project, layout, force=getattr(args, "project_force", False)))
+    return code
+
+
+def project_options(parser) -> None:
+    parser.add_argument("--project", type=Path, help="Generálás után telepítés a fő projektmappába (CL, DPS, WBS, frontend a saját mappájába)")
+    parser.add_argument("--layout", action="append", default=[], metavar="RÉSZ=MAPPA",
+                        help="--project mellett, ha az automatikus felismerés nem elég: CL/DPS/WBS=<mappa>/src/main/java, frontend=<mappa>")
+    parser.add_argument("--project-force", action="store_true", help="--project mellett a projektben módosított generált fájlok felülírása is")
 
 
 class SinglePath(argparse.Action):
@@ -377,6 +395,7 @@ def main(argv=None) -> int:
     migrate.add_argument("--cache-dir", type=Path, default=Path(".frm-ai-cache"))
     migrate.add_argument("--zip", action="store_true", help="A célmappa mellett modul-ZIP is készül")
     migrate.add_argument("--strict", action="store_true", help="Átültetendő/tiltott műveleteknél 3-as kilépési kód, a kimenet megmarad")
+    project_options(migrate)
     inspect = commands.add_parser("inventory", help="Az összes XML elem/attribútum leltára")
     inspect.add_argument("inputs", nargs="+", type=Path)
     inspect.add_argument("--out", type=Path, required=True)
@@ -394,6 +413,7 @@ def main(argv=None) -> int:
     batch.add_argument("--field-lengths", type=Path, help="Közös mezőhossz JSON (formControlName -> {min, max})")
     batch.add_argument("--regenerate", action="store_true", help="Meglévő almappák frissítése")
     batch.add_argument("--report-only", action="store_true", help="Nem generál: a --out alatti meglévő kimenetekből készít riportot")
+    project_options(batch)
     survey = commands.add_parser("survey", help="Felmérés: sok form generálása és megosztható riport arról, mi tiltja a végpontokat (FELMERES_HU.md, felmeres.json)")
     survey.add_argument("inputs", nargs="*", type=Path, help="Form XML/FMB fájlok vagy mappák (mappában: *.fmb és FormModule XML)")
     survey.add_argument("--out", type=Path, required=True, help="Gyűjtőmappa; formonként egy almappa készül")
@@ -421,8 +441,22 @@ def main(argv=None) -> int:
     verify.add_argument("--user", required=True, help="Adatbázis-felhasználó (olvasási jog elég: a PARSE nem futtat)")
     verify.add_argument("--password-env", default="FRM_DB_PASSWORD", help="A jelszót tartalmazó környezeti változó (alap: FRM_DB_PASSWORD)")
     verify.add_argument("--report", type=Path, help="Az összesítő riport (alap: <első mappa>/DB_VERIFY_HU.md)")
+    deploy = commands.add_parser("deploy", help="Generált modulok telepítése a fő projektmappába (CL, DPS, WBS, frontend a saját mappájába)")
+    deploy.add_argument("outputs", nargs="+", type=Path, help="migrate kimeneti mappák vagy egy batch gyűjtőmappa")
+    deploy.add_argument("--project", type=Path, required=True, help="A fő projektmappa, amelyben a CL, DPS, WBS és frontend projekt van")
+    deploy.add_argument("--layout", action="append", default=[], metavar="RÉSZ=MAPPA",
+                        help="Ha az automatikus felismerés nem elég: CL/DPS/WBS=<mappa>/src/main/java, frontend=<képernyők mappája>")
+    deploy.add_argument("--dry-run", action="store_true", help="Csak a terv: mi hova kerülne, írás nélkül")
+    deploy.add_argument("--force", action="store_true", help="A projektben módosított generált fájlok felülírása is (CREATE_ONCE soha)")
+    deploy.add_argument("--config", type=Path, help="Config a project_layout beállítással")
+    deploy.add_argument("--report", type=Path, help="A riport (alap: <első kimenet>/PROJECT_DEPLOY_HU.md)")
     args = parser.parse_args(argv)
     try:
+        if args.command == "deploy":
+            from .project_deploy import parse_layout, run as deploy_run, validate_layout
+            layout = validate_layout(read_json(args.config).get("project_layout") or {}) if args.config else {}
+            layout.update(parse_layout(args.layout))
+            return deploy_run(args.outputs, args.project, layout, dry_run=args.dry_run, force=args.force, report_path=args.report)
         if args.command == "verify-db":
             from .db_verify import run as run_verify
             return run_verify(args)
@@ -436,7 +470,13 @@ def main(argv=None) -> int:
             if not args.inputs and not args.report_only:
                 raise MigrationError("BATCH_INPUT: adj meg legalább egy formot vagy mappát (vagy --report-only).")
             from .portfolio import run_batch
-            return run_batch(args, survey=args.command == "survey")
+            code = run_batch(args, survey=args.command == "survey")
+            if getattr(args, "project", None):
+                from .project_deploy import parse_layout, run as deploy_run, validate_layout
+                layout = validate_layout(read_json(args.config).get("project_layout") or {}) if args.config else {}
+                layout.update(parse_layout(args.layout))
+                code = max(code, deploy_run([args.out], args.project, layout, force=args.project_force))
+            return code
         if args.command == "inventory":
             inventory(args.inputs, args.out)
             print("Attribútumleltár és kereshető modultérkép: " + str(args.out / 'form-explorer.html'))

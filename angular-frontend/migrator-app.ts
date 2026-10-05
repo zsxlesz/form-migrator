@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { DatePipe } from '@angular/common';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { FormBuilder, FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpBackend, HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -99,13 +99,20 @@ interface SurveyCause {
   code: string; reason: string; endpoints: number; sole: number; forms: number; operations: Record<string, number>;
 }
 interface DeployFile {
-  source: string; target: string | null; status: string; policy: string; reason?: string;
+  source: string; part: string | null; target: string | null; display: string | null; status: string; policy: string;
+  reason?: string;
 }
 interface DeployReport {
-  project: string; dry_run: boolean; force: boolean; layout: Record<string, string | null>;
+  project: string | null; dry_run: boolean; force: boolean; layout: Record<string, string | null>;
   counts: Record<string, number>; files: DeployFile[]; markdown: string;
 }
 type DeployTarget = { kind: 'job' | 'batch'; id: string };
+type DeployKey = 'project' | 'CL' | 'DPS' | 'WBS' | 'frontend';
+type FolderKind = 'java' | 'angular' | null;
+interface FolderEntry { name: string; path: string; kind: FolderKind }
+interface FolderListing {
+  path: string | null; parent: string | null; kind: FolderKind; roots: FolderEntry[]; folders: FolderEntry[]; truncated: boolean;
+}
 interface SurveyApproximation {
   kind: string; label: string; unit: string; count: number; forms: number; details: Record<string, number>; now: string; fix: string;
 }
@@ -116,7 +123,10 @@ interface SurveyResult {
 interface BatchSummary { id: string; total: number; completed: number; waiting: number; failed: number; active: number; created: string }
 interface BatchProgress { done: number; total: number; waiting: boolean; failed: string[] }
 interface Health { version: string; python: string; exporter: { status: 'available' | 'configured' | 'missing'; message: string } }
-interface Defaults { options: Options; limits: { file_bytes: number; json_bytes: number; job_timeout_seconds: number; pending_jobs?: number }; cors_origins: string[] }
+interface Defaults {
+  options: Options; limits: { file_bytes: number; json_bytes: number; job_timeout_seconds: number; pending_jobs?: number }; cors_origins: string[];
+  folders?: { dialog: boolean; limited: boolean };
+}
 interface SourceFile { path: string; bytes: number }
 interface Preview { path: string; text: string; truncated: boolean }
 interface Issue { code: string; owner: string; scope: string; detail: string }
@@ -125,7 +135,10 @@ const API_KEY = 'frm-api-url-v2';
 // v5: the gap default changed (fields fill their row); older saved settings would bring gaps back.
 // v6: the UI offers no choices any more; stale saved choices must not stay active unseen.
 const OPTIONS_KEY = 'frm-options-v6';
+// 4.16 kept only the main project folder; 4.17 keeps every chosen folder (the main one and the parts).
 const PROJECT_KEY = 'frm-project-root-v1';
+const LAYOUT_KEY = 'frm-project-layout-v1';
+const DEPLOY_KEYS: readonly DeployKey[] = ['project', 'CL', 'DPS', 'WBS', 'frontend'];
 const URL_PATTERN = /^https?:\/\/[^\s]+$/;
 
 // Every explanation lives in a tooltip, next to the control it explains.
@@ -183,8 +196,20 @@ function apiUrl(value: string): string {
   return parsed.href.replace(/\/+$/, '');
 }
 
-function storedProject(): string {
-  try { return localStorage.getItem(PROJECT_KEY) ?? ''; } catch { return ''; }
+function storedLayout(): Record<DeployKey, string> {
+  const folders: Record<DeployKey, string> = { project: '', CL: '', DPS: '', WBS: '', frontend: '' };
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? 'null');
+    if (saved && typeof saved === 'object') {
+      for (const key of DEPLOY_KEYS) {
+        const value = (saved as Record<string, unknown>)[key];
+        if (typeof value === 'string') folders[key] = value;
+      }
+    } else {
+      folders.project = localStorage.getItem(PROJECT_KEY) ?? '';
+    }
+  } catch { /* privát mód vagy sérült érték: üres mezők */ }
+  return folders;
 }
 
 function storedBase(): string {
@@ -577,6 +602,7 @@ function highlight(text: string, lang: CodeLang): string {
   imports: [
     ReactiveFormsModule,
     DatePipe,
+    NgTemplateOutlet,
     AccordionModule,
     BadgeModule,
     ButtonModule,
@@ -691,6 +717,70 @@ function highlight(text: string, lang: CodeLang): string {
       padding: 0.75rem 1rem;
       border: 1px solid var(--p-content-border-color, #e2e8f0);
       border-radius: var(--p-content-border-radius, 0.5rem);
+    }
+    .nm-deploy-grid {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr) max-content;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+    }
+    @media (max-width: 40rem) {
+      .nm-deploy-grid {
+        grid-template-columns: minmax(0, 1fr) max-content;
+      }
+      .nm-deploy-grid > .nm-deploy-label {
+        grid-column: 1 / -1;
+      }
+    }
+    .nm-deploy-layout {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      gap: 0.125rem 0.75rem;
+      margin: 0;
+      font-size: 0.8125rem;
+    }
+    .nm-deploy-layout dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+    .nm-folders {
+      display: flex;
+      flex-direction: column;
+      min-height: 8rem;
+      max-height: 22rem;
+      overflow: auto;
+      border: 1px solid var(--p-content-border-color, #e2e8f0);
+      border-radius: var(--p-content-border-radius, 0.5rem);
+    }
+    .nm-folder {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.375rem 0.75rem;
+      border: 0;
+      border-bottom: 1px solid var(--p-content-border-color, #e2e8f0);
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      font-size: 0.875rem;
+      text-align: left;
+      cursor: pointer;
+    }
+    .nm-folder:last-child {
+      border-bottom: 0;
+    }
+    .nm-folder:hover,
+    .nm-folder:focus-visible {
+      background: var(--p-content-hover-background, rgba(100, 116, 139, 0.12));
+      outline: none;
+    }
+    .nm-folder-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .nm-actions {
       padding-top: 1rem;
@@ -1794,86 +1884,7 @@ function highlight(text: string, lang: CodeLang): string {
                     }
                   }
                   @if (job.status === 'completed') {
-<section class="nm-deploy" aria-label="Telepítés a projektbe">
-  <div class="flex flex-wrap items-center gap-2">
-    <span class="font-semibold">Telepítés a projektbe</span>
-    <span class="text-sm opacity-70"
-    >A CL, DPS, WBS és frontend fájlok egyből a projekted saját mappáiba kerülnek; a CREATE_ONCE fájlok
-      (ServiceImpl, ControllerImpl, komponens) csak akkor, ha még nincsenek meg.</span
-    >
-  </div>
-  <div class="flex flex-wrap items-center gap-2">
-    <input
-      pInputText
-      class="min-w-0 flex-1"
-      placeholder="A fő projektmappa teljes útvonala (pl. C:\\projektek\\rendszer)"
-      aria-label="A fő projektmappa"
-      [formControl]="projectControl"
-    />
-    <p-button
-      label="Előnézet"
-      size="small"
-      severity="secondary"
-      variant="outlined"
-      [loading]="deploying() === 'preview'"
-      [disabled]="!projectControl.value.trim() || !!deploying()"
-      (onClick)="runDeploy({ kind: 'job', id: job.id }, true)"
-    />
-    <span pTooltip="Előbb nézd meg az előnézetet ugyanerre a mappára."
-    ><p-button
-      label="Telepítés"
-      size="small"
-      [loading]="deploying() === 'deploy'"
-      [disabled]="!deployReady({ kind: 'job', id: job.id }) || !!deploying()"
-      (onClick)="runDeploy({ kind: 'job', id: job.id }, false)"
-    /></span>
-  </div>
-  <p-panel header="Részek kézi megadása (ha a felismerés nem elég)" [toggleable]="true" [collapsed]="true">
-    <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-      @for (part of deployParts; track part.key) {
-        <input
-          pInputText
-          [placeholder]="part.hint"
-          [attr.aria-label]="part.key"
-          [formControl]="layoutControls[part.key]"
-        />
-      }
-    </div>
-  </p-panel>
-  @if (deployResultFor({ kind: 'job', id: job.id }); as r) {
-    <div class="flex flex-wrap items-center gap-2 text-sm">
-      @for (entry of deployLayout(r); track entry.key) {
-        <p-tag [value]="entry.key + ': ' + (entry.value ?? '— nincs')" [severity]="entry.value ? 'info' : 'warn'" />
-      }
-      <span class="flex-1"></span>
-      @for (entry of deployCounts(r); track entry.key) {
-        <p-tag [value]="entry.label + ': ' + entry.value" [severity]="entry.severity" />
-      }
-      <p-button
-        label="Riport"
-        size="small"
-        variant="text"
-        (onClick)="saveText(r.markdown, 'PROJECT_DEPLOY_HU.md')"
-      />
-    </div>
-    <p-table [value]="r.files" size="small" [scrollable]="true" scrollHeight="18rem">
-      <ng-template #header
-      ><tr>
-        <th>Fájl</th>
-        <th>Cél a projektben</th>
-        <th>Állapot</th>
-      </tr></ng-template
-      >
-      <ng-template #body let-row
-      ><tr>
-        <td class="text-sm">{{ row.source }}</td>
-        <td class="text-sm">{{ row.target ?? '—' }}</td>
-        <td class="text-sm" [pTooltip]="row.reason ?? ''">{{ deployStatus(row.status) }}</td>
-      </tr></ng-template
-      >
-    </p-table>
-  }
-</section>
+<ng-container *ngTemplateOutlet="deployPanel; context: { $implicit: { kind: 'job', id: job.id } }"></ng-container>
                   }
                   @if (job.status === 'completed') {
                     <section class="nm-tree" aria-label="Generált kód">
@@ -2123,86 +2134,7 @@ function highlight(text: string, lang: CodeLang): string {
             />
           </div>
           @if (b.counts['completed']) {
-<section class="nm-deploy" aria-label="Telepítés a projektbe">
-  <div class="flex flex-wrap items-center gap-2">
-    <span class="font-semibold">Telepítés a projektbe</span>
-    <span class="text-sm opacity-70"
-    >A CL, DPS, WBS és frontend fájlok egyből a projekted saját mappáiba kerülnek; a CREATE_ONCE fájlok
-      (ServiceImpl, ControllerImpl, komponens) csak akkor, ha még nincsenek meg.</span
-    >
-  </div>
-  <div class="flex flex-wrap items-center gap-2">
-    <input
-      pInputText
-      class="min-w-0 flex-1"
-      placeholder="A fő projektmappa teljes útvonala (pl. C:\\projektek\\rendszer)"
-      aria-label="A fő projektmappa"
-      [formControl]="projectControl"
-    />
-    <p-button
-      label="Előnézet"
-      size="small"
-      severity="secondary"
-      variant="outlined"
-      [loading]="deploying() === 'preview'"
-      [disabled]="!projectControl.value.trim() || !!deploying()"
-      (onClick)="runDeploy({ kind: 'batch', id: b.batch }, true)"
-    />
-    <span pTooltip="Előbb nézd meg az előnézetet ugyanerre a mappára."
-    ><p-button
-      label="Telepítés"
-      size="small"
-      [loading]="deploying() === 'deploy'"
-      [disabled]="!deployReady({ kind: 'batch', id: b.batch }) || !!deploying()"
-      (onClick)="runDeploy({ kind: 'batch', id: b.batch }, false)"
-    /></span>
-  </div>
-  <p-panel header="Részek kézi megadása (ha a felismerés nem elég)" [toggleable]="true" [collapsed]="true">
-    <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-      @for (part of deployParts; track part.key) {
-        <input
-          pInputText
-          [placeholder]="part.hint"
-          [attr.aria-label]="part.key"
-          [formControl]="layoutControls[part.key]"
-        />
-      }
-    </div>
-  </p-panel>
-  @if (deployResultFor({ kind: 'batch', id: b.batch }); as r) {
-    <div class="flex flex-wrap items-center gap-2 text-sm">
-      @for (entry of deployLayout(r); track entry.key) {
-        <p-tag [value]="entry.key + ': ' + (entry.value ?? '— nincs')" [severity]="entry.value ? 'info' : 'warn'" />
-      }
-      <span class="flex-1"></span>
-      @for (entry of deployCounts(r); track entry.key) {
-        <p-tag [value]="entry.label + ': ' + entry.value" [severity]="entry.severity" />
-      }
-      <p-button
-        label="Riport"
-        size="small"
-        variant="text"
-        (onClick)="saveText(r.markdown, 'PROJECT_DEPLOY_HU.md')"
-      />
-    </div>
-    <p-table [value]="r.files" size="small" [scrollable]="true" scrollHeight="18rem">
-      <ng-template #header
-      ><tr>
-        <th>Fájl</th>
-        <th>Cél a projektben</th>
-        <th>Állapot</th>
-      </tr></ng-template
-      >
-      <ng-template #body let-row
-      ><tr>
-        <td class="text-sm">{{ row.source }}</td>
-        <td class="text-sm">{{ row.target ?? '—' }}</td>
-        <td class="text-sm" [pTooltip]="row.reason ?? ''">{{ deployStatus(row.status) }}</td>
-      </tr></ng-template
-      >
-    </p-table>
-  }
-</section>
+<ng-container *ngTemplateOutlet="deployPanel; context: { $implicit: { kind: 'batch', id: b.batch } }"></ng-container>
           }
           <div class="nm-survey-bar">
             <span class="font-medium">Felmérés</span>
@@ -2438,6 +2370,225 @@ function highlight(text: string, lang: CodeLang): string {
             [disabled]="!!activeJobs().length || !online()"
             (onClick)="clearCache()"
           /></span>
+        </div>
+      </div>
+    </p-dialog>
+
+    <!-- Deploy into the project: the panel of a job and of a batch -------------------------->
+    <ng-template #deployPanel let-target>
+      <section class="nm-deploy" aria-label="Telepítés a projektbe">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="font-semibold">Telepítés a projektbe</span>
+          <span class="text-sm opacity-70"
+          >Tallózd ki, hova kerüljenek a fájlok: a részek mappáit egyenként, vagy csak a fő projektmappát,
+            amelyben a migrátor megkeresi őket. A CREATE_ONCE fájlok (ServiceImpl, ControllerImpl, komponens) csak
+            akkor íródnak, ha még nincsenek meg.</span
+          >
+        </div>
+        <div class="nm-deploy-grid">
+          @for (part of deployParts; track part.key) {
+            <span class="nm-deploy-label text-sm font-medium cursor-help" [pTooltip]="part.help"
+            >{{ part.label }} <span class="opacity-60">ⓘ</span></span
+            >
+            <input
+              pInputText
+              class="min-w-0"
+              [placeholder]="deployPlaceholder(part.key, target)"
+              [attr.aria-label]="part.label"
+              [formControl]="deployControls[part.key]"
+            />
+            <p-button
+              label="Tallózás…"
+              size="small"
+              severity="secondary"
+              variant="outlined"
+              [disabled]="!!picking() || !!deploying()"
+              (onClick)="browseFolder(part.key)"
+            />
+          }
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="flex-1 text-sm opacity-70">{{ deployHint() }}</span>
+          <p-button
+            label="Előnézet"
+            size="small"
+            severity="secondary"
+            variant="outlined"
+            [loading]="deploying() === 'preview'"
+            [disabled]="!deployChosen() || !!deploying()"
+            (onClick)="runDeploy(target, true)"
+          />
+          <span pTooltip="Előbb nézd meg az előnézetet ugyanezekre a mappákra."
+          ><p-button
+            label="Telepítés"
+            size="small"
+            [loading]="deploying() === 'deploy'"
+            [disabled]="!deployReady(target) || !!deploying()"
+            (onClick)="runDeploy(target, false)"
+          /></span>
+        </div>
+        @if (deployResultFor(target); as r) {
+          <dl class="nm-deploy-layout" aria-label="Célmappák">
+            @for (entry of deployLayout(r); track entry.key) {
+              <dt class="font-medium">{{ entry.label }}</dt>
+              <dd>
+                @if (entry.value) {
+                  {{ entry.value }}
+                } @else {
+                  <p-tag value="nincs kiválasztva, és nem található: a fájljai kimaradnak" severity="warn" />
+                }
+              </dd>
+            }
+          </dl>
+          <div class="flex flex-wrap items-center gap-2 text-sm">
+            @for (entry of deployCounts(r); track entry.key) {
+              <p-tag [value]="entry.label + ': ' + entry.value" [severity]="entry.severity" />
+            }
+            <span class="flex-1"></span>
+            <p-button
+              label="Riport"
+              size="small"
+              variant="text"
+              (onClick)="saveText(r.markdown, 'PROJECT_DEPLOY_HU.md')"
+            />
+          </div>
+          <p-table [value]="r.files" size="small" [scrollable]="true" scrollHeight="18rem">
+            <ng-template #header
+            ><tr>
+              <th>Fájl</th>
+              <th>Cél</th>
+              <th>Állapot</th>
+            </tr></ng-template
+            >
+            <ng-template #body let-row
+            ><tr>
+              <td class="text-sm">{{ row.source }}</td>
+              <td class="text-sm" [pTooltip]="row.target ?? ''">{{ row.display ?? '—' }}</td>
+              <td class="text-sm" [pTooltip]="row.reason ?? ''">{{ deployStatus(row.status) }}</td>
+            </tr></ng-template
+            >
+          </p-table>
+        }
+      </section>
+    </ng-template>
+
+    <!-- The machine's own folder dialog is open (the server opened it) ---------------------->
+    <p-dialog
+      [visible]="!!picking()"
+      (visibleChange)="!$event && cancelPick(false)"
+      [modal]="true"
+      [draggable]="false"
+      [style]="{ width: 'min(32rem, 96vw)' }"
+      header="Mappa kiválasztása"
+    >
+      <div class="flex flex-col gap-4">
+        <p class="m-0 text-sm">
+          Megnyílt a mappaválasztó ablak: válaszd ki benne a(z) <b>{{ deployPart(picking())?.label }}</b> mappáját.
+          Ha nem látod, a tálcán találod.
+        </p>
+        <div class="flex flex-wrap justify-end gap-2">
+          <p-button
+            label="Inkább itt, a böngészőben"
+            size="small"
+            severity="secondary"
+            variant="outlined"
+            (onClick)="cancelPick(true)"
+          />
+          <p-button label="Mégse" size="small" severity="secondary" variant="text" (onClick)="cancelPick(false)" />
+        </div>
+      </div>
+    </p-dialog>
+
+    <!-- In-page folder browser (where the folder dialog cannot open) ------------------------->
+    <p-dialog
+      [(visible)]="browserOpen"
+      [modal]="true"
+      [draggable]="false"
+      [style]="{ width: 'min(46rem, 96vw)' }"
+      [header]="deployPart(browserFor())?.title ?? 'Mappa kiválasztása'"
+    >
+      <div class="flex flex-col gap-3">
+        @if (browser()?.path) {
+          <div class="flex flex-wrap items-center gap-2">
+            @for (root of browser()?.roots ?? []; track root.path) {
+              <p-button
+                [label]="root.name"
+                size="small"
+                severity="secondary"
+                variant="text"
+                [disabled]="browserLoading()"
+                (onClick)="browseTo(root.path)"
+              />
+            }
+          </div>
+        }
+        <div class="flex items-center gap-2">
+          <p-button
+            label="↑ Fel"
+            size="small"
+            severity="secondary"
+            variant="outlined"
+            [disabled]="!browser()?.parent || browserLoading()"
+            (onClick)="browseTo(browser()?.parent ?? '')"
+          />
+          <input
+            pInputText
+            class="min-w-0 flex-1"
+            aria-label="A mappa útvonala"
+            placeholder="Válassz egy kiindulópontot, vagy írd be az útvonalat"
+            [value]="browserPath"
+            (input)="browserPath = $any($event.target).value"
+            (keydown.enter)="browseTo(browserPath)"
+          />
+        </div>
+        @if (browserLoading()) {
+          <p-progressbar mode="indeterminate" [style]="{ height: '4px' }" />
+        }
+        @if (browserError()) {
+          <p-message severity="error" size="small">{{ browserError() }}</p-message>
+        }
+        <div class="nm-folders" role="list" aria-label="Almappák">
+          @for (folder of browser()?.folders ?? []; track folder.path) {
+            <button
+              type="button"
+              class="nm-folder"
+              role="listitem"
+              [disabled]="browserLoading()"
+              (click)="browseTo(folder.path)"
+            >
+              <span aria-hidden="true">📁</span>
+              <span class="nm-folder-name">{{ folder.name }}</span>
+              @if (folder.kind) {
+                <p-tag [value]="folderKind(folder.kind)" severity="info" />
+              }
+            </button>
+          } @empty {
+            <p class="m-0 p-3 text-sm opacity-70">
+              {{ browser()?.path ? 'Ebben a mappában nincs almappa.' : browserLoading() ? 'Betöltés…' : '' }}
+            </p>
+          }
+        </div>
+        @if (browser()?.truncated) {
+          <p class="m-0 text-xs opacity-70">Csak az első 500 almappa látszik; írd be a pontos útvonalat.</p>
+        }
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="min-w-0 flex-1 text-sm" style="overflow-wrap: anywhere">
+            @if (browser()?.path; as current) {
+              Kiválasztva: <b>{{ current }}</b>
+              @if (browser()?.kind; as kind) {
+                ({{ folderKind(kind) }})
+              }
+            } @else {
+              Lépj be abba a mappába, amelyet választani szeretnél.
+            }
+          </span>
+          <p-button label="Mégse" size="small" severity="secondary" variant="text" (onClick)="browserOpen.set(false)" />
+          <p-button
+            label="Ezt a mappát választom"
+            size="small"
+            [disabled]="!browser()?.path || browserLoading()"
+            (onClick)="chooseBrowsed()"
+          />
         </div>
       </div>
     </p-dialog>
@@ -2710,19 +2861,34 @@ export class Migrator implements OnInit, OnDestroy {
 
   // Generated code: folder tree on the overview tab, highlighted viewer in its own dialog.
   readonly codeFilterControl = new FormControl('', { nonNullable: true });
-  // Telepítés a projektbe: a fő projektmappa (a böngészőben megjegyezve) és a részek kézi megadása.
-  readonly projectControl = new FormControl(storedProject(), { nonNullable: true });
-  readonly deployParts = [
-    { key: 'CL', hint: 'CL: pl. rendszer-cl/src/main/java' },
-    { key: 'DPS', hint: 'DPS: pl. rendszer-dps/src/main/java' },
-    { key: 'WBS', hint: 'WBS: pl. rendszer-wbs/src/main/java' },
-    { key: 'frontend', hint: 'frontend: pl. rendszer-ui/src/app' },
-  ] as const;
-  readonly layoutControls: Record<string, FormControl<string>> = Object.fromEntries(
-    this.deployParts.map((part) => [part.key, new FormControl('', { nonNullable: true })]),
-  );
+  // Telepítés a projektbe: a részek kitallózott mappái és a nem kötelező fő projektmappa (a böngészőben megjegyezve).
+  readonly deployParts: readonly { key: DeployKey; label: string; title: string; hint: string; help: string }[] = [
+    { key: 'project', label: 'Fő projektmappa', title: 'Válaszd ki a fő projektmappát',
+      hint: 'nem kötelező: a ki nem választott részeket itt keresi meg',
+      help: 'Ha a CL, DPS, WBS és frontend projekt egy közös mappában van, elég ezt kiválasztani: a migrátor megkeresi benne a részeket. A külön kiválasztott rész mindig elsőbbséget kap.' },
+    { key: 'CL', label: 'CL', title: 'Válaszd ki a CL projekt mappáját', hint: 'a CL Java-projekt mappája',
+      help: 'A CL Java-projekt mappája (vagy a src/main/java). A fájlok a csomagjuk szerint kerülnek alá.' },
+    { key: 'DPS', label: 'DPS', title: 'Válaszd ki a DPS projekt mappáját', hint: 'a DPS Java-projekt mappája',
+      help: 'A DPS Java-projekt mappája (vagy a src/main/java). A fájlok a csomagjuk szerint kerülnek alá.' },
+    { key: 'WBS', label: 'WBS', title: 'Válaszd ki a WBS projekt mappáját', hint: 'a WBS Java-projekt mappája',
+      help: 'A WBS Java-projekt mappája (vagy a src/main/java). A fájlok a csomagjuk szerint kerülnek alá.' },
+    { key: 'frontend', label: 'Frontend', title: 'Válaszd ki a frontend mappáját', hint: 'az Angular-projekt vagy a képernyők mappája',
+      help: 'Az Angular-projekt mappája (ahol az angular.json van), vagy közvetlenül a képernyők mappája. Projektmappánál a képernyők a korábbi telepítés helyére, különben a src/app alá kerülnek.' },
+  ];
+  readonly deployControls = Object.fromEntries(
+    Object.entries(storedLayout()).map(([key, value]) => [key, new FormControl(value, { nonNullable: true })]),
+  ) as Record<DeployKey, FormControl<string>>;
   readonly deploying = signal<'' | 'preview' | 'deploy'>('');
-  private readonly deployResult = signal<{ key: string; project: string; report: DeployReport } | null>(null);
+  private readonly deployResult = signal<{ key: string; folders: string; report: DeployReport } | null>(null);
+  // Mappaválasztás: a gép saját mappaválasztó ablaka (a szerver nyitja meg), ha az nem nyílik, a beépített böngésző.
+  readonly picking = signal<DeployKey | ''>('');
+  private folderDialogMissing = false;
+  browserOpen = signal(false);
+  readonly browserFor = signal<DeployKey | ''>('');
+  readonly browser = signal<FolderListing | null>(null);
+  readonly browserLoading = signal(false);
+  readonly browserError = signal('');
+  browserPath = '';
   readonly codeFilter = toSignal(this.codeFilterControl.valueChanges, { initialValue: '' });
   readonly wrapControl = new FormControl(false, { nonNullable: true });
   readonly viewerWrap = toSignal(this.wrapControl.valueChanges, { initialValue: false });
@@ -3470,20 +3636,52 @@ export class Migrator implements OnInit, OnDestroy {
   }
 
   // ------------------------------------------------------------ deploy into the project --
+  deployPart(key: string): { key: DeployKey; label: string; title: string; hint: string; help: string } | undefined {
+    return this.deployParts.find((part) => part.key === key);
+  }
+
+  /** A kérés mappái: a fő projektmappa (vagy null) és a kiválasztott részek. */
+  private deployFolders(): { project: string | null; layout: Record<string, string> } {
+    const value = (key: DeployKey) => this.deployControls[key].value.trim();
+    const layout: Record<string, string> = {};
+    for (const key of DEPLOY_KEYS) if (key !== 'project' && value(key)) layout[key] = value(key);
+    return { project: value('project') || null, layout };
+  }
+
+  deployChosen(): boolean {
+    const folders = this.deployFolders();
+    return !!folders.project || Object.keys(folders.layout).length > 0;
+  }
+
+  deployHint(): string {
+    const folders = this.deployFolders();
+    if (!folders.project && !Object.keys(folders.layout).length)
+      return 'Tallózd ki legalább egy rész mappáját, vagy a fő projektmappát.';
+    const missing = DEPLOY_KEYS.filter((key) => key !== 'project' && !folders.layout[key]);
+    if (!missing.length || folders.project) return '';
+    return 'Nincs kiválasztva: ' + missing.map((key) => this.deployPart(key)?.label ?? key).join(', ')
+      + ' – ezek fájljai kimaradnak.';
+  }
+
+  deployPlaceholder(key: DeployKey, target: DeployTarget): string {
+    const found = key === 'project' ? null : this.deployResultFor(target)?.layout[key];
+    return found ? 'felismerve: ' + found : this.deployPart(key)?.hint ?? '';
+  }
+
   deployResultFor(target: DeployTarget): DeployReport | null {
     const result = this.deployResult();
     return result?.key === target.kind + ':' + target.id ? result.report : null;
   }
 
-  /** Telepíteni csak az ugyanarra a mappára készült előnézet után lehet. */
+  /** Telepíteni csak az ugyanezekre a mappákra készült előnézet után lehet. */
   deployReady(target: DeployTarget): boolean {
     const result = this.deployResult();
     return !!result && result.key === target.kind + ':' + target.id && result.report.dry_run
-      && result.project === this.projectControl.value.trim();
+      && result.folders === JSON.stringify(this.deployFolders());
   }
 
-  deployLayout(report: DeployReport): { key: string; value: string | null }[] {
-    return Object.entries(report.layout).map(([key, value]) => ({ key, value }));
+  deployLayout(report: DeployReport): { key: string; label: string; value: string | null }[] {
+    return Object.entries(report.layout).map(([key, value]) => ({ key, label: this.deployPart(key)?.label ?? key, value }));
   }
 
   deployCounts(report: DeployReport): { key: string; label: string; value: number; severity: 'success' | 'info' | 'warn' | 'danger' | 'secondary' }[] {
@@ -3503,26 +3701,114 @@ export class Migrator implements OnInit, OnDestroy {
     }[status] ?? status;
   }
 
+  private saveDeployFolders(): void {
+    const folders = Object.fromEntries(DEPLOY_KEYS.map((key) => [key, this.deployControls[key].value.trim()]));
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(folders)); } catch { /* privát mód: csak ebben a munkamenetben */ }
+  }
+
   async runDeploy(target: DeployTarget, dryRun: boolean): Promise<void> {
-    const project = this.projectControl.value.trim();
-    if (!project || this.deploying()) return;
-    try { localStorage.setItem(PROJECT_KEY, project); } catch { /* privát mód: csak ebben a munkamenetben */ }
-    const layout = Object.fromEntries(
-      Object.entries(this.layoutControls).map(([key, control]) => [key, control.value.trim()]).filter(([, value]) => value),
-    );
+    const folders = this.deployFolders();
+    if (!this.deployChosen() || this.deploying()) return;
+    this.saveDeployFolders();
     this.deploying.set(dryRun ? 'preview' : 'deploy');
     this.error.set('');
     try {
       const path = target.kind === 'job' ? `/jobs/${target.id}/deploy` : `/batches/${encodeURIComponent(target.id)}/deploy`;
       const report = await firstValueFrom(
-        this.http.post<DeployReport>(this.url(path), { project, layout, dry_run: dryRun, force: false }, this.mutation),
+        this.http.post<DeployReport>(this.url(path), { ...folders, dry_run: dryRun, force: false }, this.mutation),
       );
-      this.deployResult.set({ key: target.kind + ':' + target.id, project, report });
+      this.deployResult.set({ key: target.kind + ':' + target.id, folders: JSON.stringify(folders), report });
     } catch (error) {
       this.error.set(this.errorText(error));
     } finally {
       this.deploying.set('');
     }
+  }
+
+  // ------------------------------------------------------------ folder choice ("Tallózás…") --
+  folderKind(kind: FolderKind): string {
+    return kind === 'java' ? 'Java-projekt' : kind === 'angular' ? 'Angular-projekt' : '';
+  }
+
+  /** Honnan induljon a tallózás: a rész eddigi mappája, a fő projektmappa, vagy egy másik rész mellől. */
+  private browseStart(key: DeployKey): string | null {
+    const own = this.deployControls[key].value.trim() || this.deployControls.project.value.trim();
+    if (own) return own;
+    const other = DEPLOY_KEYS.map((k) => this.deployControls[k].value.trim()).find((value) => value);
+    return other ? other.replace(/[\\/][^\\/]+[\\/]?$/, '') || other : null;
+  }
+
+  private chooseFolder(key: DeployKey, path: string): void {
+    this.deployControls[key].setValue(path);
+    this.saveDeployFolders();
+  }
+
+  async browseFolder(key: DeployKey): Promise<void> {
+    if (this.picking() || this.deploying()) return;
+    const initial = this.browseStart(key);
+    if (this.defaults()?.folders?.dialog !== false && !this.folderDialogMissing) {
+      this.picking.set(key);
+      try {
+        const picked = await firstValueFrom(this.http.post<{ path: string | null; cancelled: boolean }>(
+          this.url('/fs/pick'), { title: this.deployPart(key)?.title ?? 'Mappa kiválasztása', initial }, this.mutation));
+        if (picked.path) this.chooseFolder(key, picked.path);
+        return;
+      } catch (error) {
+        if (!(error instanceof HttpErrorResponse && error.status === 501)) {
+          this.error.set(this.errorText(error));
+          return;
+        }
+        this.folderDialogMissing = true;  // nincs mappaválasztó ablak ezen a gépen: innentől a beépített böngésző
+      } finally {
+        this.picking.set('');
+      }
+    }
+    await this.openBrowser(key, initial);
+  }
+
+  /** A nyitva lévő mappaválasztó ablak bezárása; browser: helyette a beépített böngésző. */
+  async cancelPick(browser: boolean): Promise<void> {
+    const key = this.picking();
+    if (!key) return;
+    this.picking.set('');
+    try {
+      await firstValueFrom(this.http.post(this.url('/fs/pick/cancel'), {}, this.mutation));
+    } catch { /* már bezárult */ }
+    if (browser) await this.openBrowser(key, this.browseStart(key));
+  }
+
+  async openBrowser(key: DeployKey, initial: string | null): Promise<void> {
+    this.browserFor.set(key);
+    this.browser.set(null);
+    this.browserPath = '';
+    this.browserOpen.set(true);
+    if (!(await this.browseTo(initial ?? '')) && initial) await this.browseTo('');
+  }
+
+  async browseTo(path: string): Promise<boolean> {
+    this.browserLoading.set(true);
+    this.browserError.set('');
+    try {
+      const listing = await firstValueFrom(
+        this.http.post<FolderListing>(this.url('/fs/folders'), { path: path.trim() || null }, this.mutation),
+      );
+      this.browser.set(listing);
+      this.browserPath = listing.path ?? '';
+      return true;
+    } catch (error) {
+      this.browserError.set(this.errorText(error));
+      return false;
+    } finally {
+      this.browserLoading.set(false);
+    }
+  }
+
+  chooseBrowsed(): void {
+    const key = this.browserFor();
+    const path = this.browser()?.path;
+    if (!key || !path) return;
+    this.chooseFolder(key, path);
+    this.browserOpen.set(false);
   }
 
   saveText(text: string, name: string): void {

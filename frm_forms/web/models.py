@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from frm_forms.contracts import COMPANY_DEFAULTS, validate_base_url, validate_awu_azon, validate_common_migrate_tools_package, validate_cl_package
 from frm_forms.common import MigrationError
 
@@ -119,11 +119,37 @@ class JobAnswer(BaseModel):
 
 
 class DeployRequest(BaseModel):
-    """Deploy a job's (or a batch's) generated files into the developer's project folder."""
+    """Deploy a job's (or a batch's) generated files into the developer's project: CL, DPS, WBS, frontend."""
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    project: str = Field(min_length=1, max_length=1000)
-    # Where the automatic mapping is not enough: CL / DPS / WBS / frontend -> folder relative to the project.
+    # The main project folder: the parts not chosen in layout are found in it. Optional.
+    project: str | None = Field(default=None, max_length=1000)
+    # The chosen folder of a part: CL / DPS / WBS / frontend -> full path (or relative to the project).
     layout: dict[str, str] = Field(default_factory=dict, max_length=4)
     dry_run: bool = True
     force: bool = False
+
+    @model_validator(mode="after")
+    def some_folder(self):
+        self.project = (self.project or "").strip() or None
+        self.layout = {key: value.strip() for key, value in self.layout.items() if value.strip()}
+        if any(len(value) > 1000 for value in self.layout.values()):
+            raise ValueError("Túl hosszú mappaútvonal.")
+        if not self.project and not self.layout:
+            raise ValueError("Add meg a fő projektmappát, vagy legalább egy rész (CL, DPS, WBS, frontend) mappáját.")
+        return self
+
+
+class FolderRequest(BaseModel):
+    """The subfolders of a folder for the in-page folder browser; no path: the drives and the home folder."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    path: str | None = Field(default=None, max_length=1000)
+
+
+class PickRequest(BaseModel):
+    """Open the operating system's folder dialog on this machine."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    title: str = Field(default="Mappa kiválasztása", min_length=1, max_length=120)
+    initial: str | None = Field(default=None, max_length=1000)

@@ -222,6 +222,8 @@ Egyedi adatmappa: `python -m frm_forms.web --data-dir D:/frm-data`. Az `--data-d
 | `FRM_JOB_TIMEOUT` | `1800` másodperc, teljes feladat időkorlátja |
 | `FRM_OLLAMA_URL` | `http://xx:11434` |
 | `FRM_OLLAMA_MODEL` | `frm-model` |
+| `FRM_PROJECT_ROOTS` | Üres; vesszővel elválasztott mappák: a telepítés, a mappaböngésző és a mappaválasztó ablak csak ezek alá enged |
+| `FRM_FOLDER_DIALOG` | `true`; a „Tallózás…” a gép saját mappaválasztó ablakát nyitja meg. `false`: mindig a beépített mappaböngésző |
 
 Feltöltési limit: 32 MiB FMB/XML, külön-külön 1 MiB schema/rules JSON. A kapcsolódó limitet a felület is kijelzi. A JSON-formátumok és a generátor részletes támogatási határai: [README_HU.md](README_HU.md), [SEMANTICS_HU.md](docs/SEMANTICS_HU.md).
 
@@ -241,6 +243,9 @@ A Python szerver kizárólag `127.0.0.1` címen figyel. A CORS pontos originlist
 | `GET /api/jobs/{id}/logs` | Feldolgozási napló |
 | `GET /api/jobs/{id}/download?kind=all` | Teljes ZIP; további érték: `frontend`, `backend` |
 | `DELETE /api/cache` | Közös AI-cache törlése, üres sor mellett |
+| `POST /api/jobs/{id}/deploy`, `POST /api/batches/{id}/deploy` | Telepítés a projektbe (`project`, `layout`, `dry_run`) |
+| `POST /api/fs/folders` | Egy mappa almappái a beépített mappaböngészőnek (`path`; üresen: meghajtók és a saját mappa) |
+| `POST /api/fs/pick`, `POST /api/fs/pick/cancel` | A gép saját mappaválasztó ablaka (megvárja a választást) / bezárása |
 | `GET /api/openapi.json` | Géppel olvasható API-séma |
 
 A beépített Swagger/ReDoc felület nincs bekapcsolva, hogy a böngésző ne töltsön le külső JavaScriptet. Az OpenAPI JSON helyben elérhető. A feladat létrehozása 202, hibás opció 422, túl nagy fájl 413, megtelt sor 429, még nem letölthető/törölhető feladat 409 választ ad.

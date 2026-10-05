@@ -1,4 +1,14 @@
-# FRM Forms Migrator 4.16.0 — használat
+# FRM Forms Migrator 4.17.0 — használat
+
+**4.17 – a mappák kitallózása, részenként:**
+
+- **Tallózás:** a „Telepítés a projektbe” panelen a CL, DPS, WBS és frontend mappa (és a nem kötelező fő
+  projektmappa) a „Tallózás…” gombbal választható ki, útvonalat nem kell beírni. A gomb a gép saját
+  mappaválasztó ablakát nyitja meg; ha az nem nyílik meg, a felületbe épített mappaböngészőt.
+- **Bárhol lehetnek:** a részeknek nem kell egy közös mappában lenniük. Parancssorból: `--layout RÉSZ=<mappa>`,
+  `--project` nélkül is.
+
+Részletek: [JAVITASOK_4_17_HU.md](JAVITASOK_4_17_HU.md).
 
 **4.16 – DPS ServiceBase és generálás egyenesen a projektbe:**
 

@@ -69,8 +69,9 @@ DEFAULTS = {"java_package": "hu.company.features", "api_prefix": "/api/forms", "
             "java_import_order": "STATIC###STANDARD_JAVA_PACKAGE###THIRD_PARTY_PACKAGE",
             # Code page of the attached-library .pld files (--pld); "" = UTF-8, else cp1250 (Windows Forms).
             "pld_encoding": "",
-            # Deploy into a project (--project): the folders of its parts, relative to the project root, where the
-            # automatic mapping is not enough: {"CL": "x-cl/src/main/java", "DPS": ..., "WBS": ..., "frontend": "x-ui/src/app"}.
+            # Deploy into the project (--project / --layout): the folders of its parts, absolute or relative to the
+            # main project folder: {"CL": "C:/p/x-cl", "DPS": ..., "WBS": ..., "frontend": "C:/p/x-ui"}. A Java part
+            # is its project folder or its src/main/java, the frontend the Angular project or its screens folder.
             "project_layout": {}}
 
 DEFAULTS.update(COMPANY_DEFAULTS)
@@ -340,7 +341,7 @@ def migration(args, on_progress=None) -> int:
     if analysis_only and any(i["severity"] == "error" for i in ui_model["issues"]):
         return 3
     code = 3 if args.strict and (result["blocking_issues"] or any(b["write_blockers"] for b in model["blocks"] if b["database"])) else 0
-    if getattr(args, "project", None) and not analysis_only:
+    if (getattr(args, "project", None) or getattr(args, "layout", None)) and not analysis_only:
         # Straight into the developer's project: CL, DPS, WBS and the frontend in their own folders.
         from .project_deploy import parse_layout, run as deploy_run
         layout = {**config["project_layout"], **parse_layout(getattr(args, "layout", None))}
@@ -348,11 +349,14 @@ def migration(args, on_progress=None) -> int:
     return code
 
 
+LAYOUT_HELP = ("Egy rész mappája: CL, DPS, WBS (a Java-projekt mappája vagy a src/main/java) vagy frontend (az Angular-projekt "
+               "vagy a képernyők mappája); teljes útvonal, vagy a --project mappához képest. Önmagában is telepít.")
+
+
 def project_options(parser) -> None:
-    parser.add_argument("--project", type=Path, help="Generálás után telepítés a fő projektmappába (CL, DPS, WBS, frontend a saját mappájába)")
-    parser.add_argument("--layout", action="append", default=[], metavar="RÉSZ=MAPPA",
-                        help="--project mellett, ha az automatikus felismerés nem elég: CL/DPS/WBS=<mappa>/src/main/java, frontend=<mappa>")
-    parser.add_argument("--project-force", action="store_true", help="--project mellett a projektben módosított generált fájlok felülírása is")
+    parser.add_argument("--project", type=Path, help="Generálás után telepítés a projektbe: a fő projektmappa, amelyben a CL, DPS, WBS és frontend projektet a migrátor megkeresi")
+    parser.add_argument("--layout", action="append", default=[], metavar="RÉSZ=MAPPA", help="Generálás után telepítés. " + LAYOUT_HELP)
+    parser.add_argument("--project-force", action="store_true", help="A telepítésnél a projektben módosított generált fájlok felülírása is")
 
 
 class SinglePath(argparse.Action):
@@ -441,11 +445,10 @@ def main(argv=None) -> int:
     verify.add_argument("--user", required=True, help="Adatbázis-felhasználó (olvasási jog elég: a PARSE nem futtat)")
     verify.add_argument("--password-env", default="FRM_DB_PASSWORD", help="A jelszót tartalmazó környezeti változó (alap: FRM_DB_PASSWORD)")
     verify.add_argument("--report", type=Path, help="Az összesítő riport (alap: <első mappa>/DB_VERIFY_HU.md)")
-    deploy = commands.add_parser("deploy", help="Generált modulok telepítése a fő projektmappába (CL, DPS, WBS, frontend a saját mappájába)")
+    deploy = commands.add_parser("deploy", help="Generált modulok telepítése a projektbe (CL, DPS, WBS, frontend a saját mappájába)")
     deploy.add_argument("outputs", nargs="+", type=Path, help="migrate kimeneti mappák vagy egy batch gyűjtőmappa")
-    deploy.add_argument("--project", type=Path, required=True, help="A fő projektmappa, amelyben a CL, DPS, WBS és frontend projekt van")
-    deploy.add_argument("--layout", action="append", default=[], metavar="RÉSZ=MAPPA",
-                        help="Ha az automatikus felismerés nem elég: CL/DPS/WBS=<mappa>/src/main/java, frontend=<képernyők mappája>")
+    deploy.add_argument("--project", type=Path, help="A fő projektmappa: a --layout-tal meg nem adott részeket a migrátor itt keresi meg")
+    deploy.add_argument("--layout", action="append", default=[], metavar="RÉSZ=MAPPA", help=LAYOUT_HELP)
     deploy.add_argument("--dry-run", action="store_true", help="Csak a terv: mi hova kerülne, írás nélkül")
     deploy.add_argument("--force", action="store_true", help="A projektben módosított generált fájlok felülírása is (CREATE_ONCE soha)")
     deploy.add_argument("--config", type=Path, help="Config a project_layout beállítással")
@@ -471,7 +474,7 @@ def main(argv=None) -> int:
                 raise MigrationError("BATCH_INPUT: adj meg legalább egy formot vagy mappát (vagy --report-only).")
             from .portfolio import run_batch
             code = run_batch(args, survey=args.command == "survey")
-            if getattr(args, "project", None):
+            if getattr(args, "project", None) or getattr(args, "layout", None):
                 from .project_deploy import parse_layout, run as deploy_run, validate_layout
                 layout = validate_layout(read_json(args.config).get("project_layout") or {}) if args.config else {}
                 layout.update(parse_layout(args.layout))

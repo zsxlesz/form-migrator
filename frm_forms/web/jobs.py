@@ -295,18 +295,28 @@ class JobManager:
                 archive.write(module_zip, "modulok/" + name)
         return path, "tomeges-" + batch + ".zip"
 
-    def deploy(self, outputs: list[Path], project: str, layout: dict, dry_run: bool, force: bool) -> dict:
-        """Generated files into the developer's project (frm_forms.project_deploy), on this machine."""
+    def deploy(self, outputs: list[Path], project: str | None, layout: dict, dry_run: bool, force: bool) -> dict:
+        """Generated files into the developer's project (frm_forms.project_deploy), on this machine.
+
+        project: the main project folder (optional); layout: the chosen folder of each part (full paths)."""
         from frm_forms.common import MigrationError
-        from frm_forms.project_deploy import deploy, markdown, validate_layout
-        folder = Path(project).expanduser()
-        if not folder.is_absolute():
+        from frm_forms.project_deploy import deploy, map_project, mapped_folders, markdown, validate_layout
+        folder = Path(project).expanduser() if project else None
+        if folder is not None and not folder.is_absolute():
             raise JobError("A projektmappát teljes útvonallal add meg (például C:\\projektek\\rendszer).", 422)
         allowed = [Path(root).expanduser().resolve() for root in self.settings.project_roots]
-        if allowed and not any(folder.resolve().is_relative_to(root) for root in allowed):
+        if allowed and folder is not None and not any(folder.resolve().is_relative_to(root) for root in allowed):
             raise JobError("A projektmappa nincs az engedélyezett mappák között (FRM_PROJECT_ROOTS).", 403)
         try:
-            report = deploy(outputs, folder, validate_layout(layout) if layout else {}, dry_run=dry_run, force=force)
+            layout = validate_layout(layout) if layout else {}
+            mapped = map_project(folder, layout)
+        except MigrationError as exc:
+            raise JobError(str(exc), 422) from exc
+        # the folders really written: a chosen package folder means its src/main/java, the manifest goes above it
+        if allowed and not all(any(path.resolve().is_relative_to(root) for root in allowed) for path in mapped_folders(mapped)):
+            raise JobError("Egy rész mappája nincs az engedélyezett mappák között (FRM_PROJECT_ROOTS).", 403)
+        try:
+            report = deploy(outputs, folder, layout, dry_run=dry_run, force=force, mapped=mapped)
         except MigrationError as exc:
             raise JobError(str(exc), 422) from exc
         for output in outputs:
@@ -316,13 +326,13 @@ class JobManager:
             entry.pop("output", None)
         return {**report, "markdown": markdown(report)}
 
-    def job_deploy(self, job_id: str, project: str, layout: dict, dry_run: bool, force: bool) -> dict:
+    def job_deploy(self, job_id: str, project: str | None, layout: dict, dry_run: bool, force: bool) -> dict:
         job = self.get(job_id)
         if job["status"] != "completed":
             raise JobError("A telepítés a generálás befejezése után érhető el.", 409)
         return self.deploy([self.root / job_id / "module"], project, layout, dry_run, force)
 
-    def batch_deploy(self, batch: str, project: str, layout: dict, dry_run: bool, force: bool) -> dict:
+    def batch_deploy(self, batch: str, project: str | None, layout: dict, dry_run: bool, force: bool) -> dict:
         outputs = [self.root / j["id"] / "module" for j in self.batch_jobs(batch) if j["status"] == "completed"]
         if not outputs:
             raise JobError("A tömeges futtatásnak még nincs befejezett modulja.", 409)

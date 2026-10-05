@@ -22,8 +22,9 @@ from frm_forms.common import MigrationError, RESERVED
 from frm_forms.contracts import validate_company_config
 from frm_forms.screen_overrides import validate as validate_screen_overrides
 from frm_forms.ui_config import validate_field_lengths
+from .folders import FolderError, FolderPicker, list_folders
 from .jobs import JobError, JobManager, tail
-from .models import DeployRequest, JobAnswer, MigrationOptions
+from .models import DeployRequest, FolderRequest, JobAnswer, MigrationOptions, PickRequest
 from .settings import PROJECT_ROOT, Settings
 
 
@@ -121,12 +122,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            picker.cancel()  # an open folder dialog does not outlive the server
             manager.close()
 
     app = FastAPI(title="FRM local migration API", version=__version__, lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url="/api/openapi.json")
+    picker = FolderPicker(settings.folder_dialog_command or None)
 
     @app.exception_handler(JobError)
+    @app.exception_handler(FolderError)
     async def job_error(request, exc):
         return JSONResponse({"detail": str(exc)}, status_code=exc.status)
 
@@ -153,6 +157,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "cors_origins": settings.cors_origins,
                 "cors_headers": settings.cors_headers,
                 "cors_allow_credentials": settings.cors_allow_credentials,
+                "folders": {"dialog": settings.folder_dialog, "limited": bool(settings.project_roots)},
                 "client_contract": {"mutation_header": {"X-Frm-Client": "local-ui"},
                                     "authorization": "accepted_but_not_validated",
                                     "response_format": "plain_json"}}
@@ -314,6 +319,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/batches/{batch_id}/deploy")
     def deploy_batch(batch_id: str, request: DeployRequest):
         return manager().batch_deploy(batch_id, request.project, request.layout, request.dry_run, request.force)
+
+    # Choosing the project folders without typing paths ("Tallózás…"). POST: only the local UI may ask (X-Frm-Client).
+    @app.post("/api/fs/folders")
+    def folders(request: FolderRequest):
+        return list_folders(request.path, settings.project_roots)
+
+    @app.post("/api/fs/pick")
+    def pick_folder(request: PickRequest):
+        # Blocks until the developer closes the dialog (a worker thread, not the event loop).
+        if not settings.folder_dialog:
+            raise FolderError("A mappaválasztó ablak ki van kapcsolva (FRM_FOLDER_DIALOG=false); a böngészőben tallózz.", 501)
+        return picker.pick(request.title, request.initial, settings.project_roots)
+
+    @app.post("/api/fs/pick/cancel")
+    def cancel_pick():
+        return {"cancelled": picker.cancel()}
 
     @app.get("/api/batches/{batch_id}")
     def batch_report(batch_id: str):

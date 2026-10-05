@@ -263,8 +263,9 @@ __CHECKBOX__    if (value === null || value === undefined || value === '') retur
             # The queried record as the backend sent it (ROWID and hidden keys too): the original of the save chain.
             form_case = ('      default:\n        this.originals[block] = rows[0] ? { ...rows[0] } : null;\n'
                          '        this.showRecord(block, mapped[0] ?? {});\n        this.markPristine(block);\n')
-        result.append('''  /** Forms EXECUTE_QUERY a blokk generált keresés/lista végpontján. false: nincs hozzá végpont. */
-  public __OVERRIDE__executeQuery(block: string): boolean {
+        result.append('''  /** Forms EXECUTE_QUERY a blokk generált keresés/lista végpontján. false: nincs hozzá végpont.
+   *  done: a sorok megjelenítése után (képernyőpont: utána folytatódik a gomb kódja). */
+  public __OVERRIDE__executeQuery(block: string, done?: () => void): boolean {
 __ACTIVE_QUERY__
     const query = this.queries[block];
     if (!query) return false;
@@ -279,6 +280,7 @@ __CASES__      default: return false;
         this.showRows(block, page.rows ?? []);
         if (!page.rows?.length) this.toast.warning('Nincs találat', 'A lekérdezés nem adott vissza rekordot.', true, TOAST_LIFE.warning);
         if (page.messages?.length) this.toast.warning('Üzenet', page.messages.join(' '), true, TOAST_LIFE.warning);
+        done?.();
       },
       error: () => undefined, // WFF.err már jelezte
     });
@@ -286,7 +288,8 @@ __CASES__      default: return false;
   }'''.replace('__CASES__', cases).replace('__PAGE__', 'NivaPage' if runtime else p + 'Page').replace('__OVERRIDE__', 'override ' if runtime else '')
         .replace('__CONTEXT__', 'c.context ? this.requestContext([])[c.context] ?? null : ' if w['actions'] or w.get('commit') else '')
         .replace('__ACTIVE_QUERY__',
-            '    const action = this.activeQueryActions[block];\n    if (action) return this.runAction(action);'
+            '    const action = this.activeQueryActions[block];\n    if (action) return this.runAction(action'
+            + (', [], 0, done' if runtime else '') + ');'
             if w.get('query_actions') else ''))
         result.append('''  __SHOW_ROWS__showRows(block: string, rows: readonly Record<string, unknown>[]): void {
     this.changeDetector.markForCheck();

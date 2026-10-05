@@ -1,4 +1,16 @@
-# NIVA Forms Migrator 4.14.0 — használat
+# NIVA Forms Migrator 4.15.0 — használat
+
+**4.15 – javítások egy valódi felmérés alapján:**
+
+- **Képernyőpont:** a gomb kódjának közepén álló `EXECUTE_QUERY`, `CLEAR_BLOCK`, `CREATE_RECORD` … után a kód a
+  képernyő új értékeivel folytatódik.
+- **Helyi csomagok:** az inicializáló résszel rendelkező csomagok és a csomagtagba ágyazott alprogramok is
+  beágyazódnak.
+- **Felmérés:** a nem generálható indítási végpont oka és a takart okok is látszanak; a billentyű-triggerek
+  kettébontva jelennek meg.
+- A `niva-forms-screen.ts` fájlt cserélni kell (2-es változat).
+
+Részletek és átállás: [JAVITASOK_4_15_HU.md](JAVITASOK_4_15_HU.md).
 
 **4.14 – kevesebb kód, kevesebb kézi munka:** a felmérés mintáit utánzó formon minden végpont működik
 (20 / 20). A generált képernyőkomponens harmadával, a DPS ServiceImpl a több működő végpont ellenére is

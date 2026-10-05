@@ -60,14 +60,20 @@ akkor tiltott, ha a `schema.json` kifejezetten tiltja.
   | Szerveroldali mezővalidáció (WHEN-VALIDATE-ITEM, POST-CHANGE) | mentéskor fut, nem a mező elhagyásakor |
   | Szerveroldali rekordvalidáció (WHEN-VALIDATE-RECORD) | mentéskor fut, nem a rekord elhagyásakor |
   | Saját logikájú adat-billentyű (KEY-COMMIT, KEY-EXEQRY, KEY-CREREC, KEY-DELREC …) | az eszköztár gombja az alapműveletet hívja, a trigger logikája nem fut |
-  | Egyéb saját logikájú billentyű-trigger (KEY-NEXT-ITEM, KEY-Fn …) | nincs webes megfelelője |
-  | Képernyőlépés a kód közepén (EXECUTE_QUERY, CLEAR_BLOCK …) | a gomb vagy trigger kézi feladat |
+  | Saját logikájú billentyű-trigger webes megfelelővel (KEY-NEXT-ITEM, KEY-Fn, KEY-LISTVAL, KEY-CLRBLK …) | nem fut |
+  | A Forms-felület billentyűi (KEY-HELP, KEY-ENTQRY, KEY-EXIT, KEY-CLRFRM, KEY-OTHERS …) | nem fut; többnyire nincs teendő, a súgót és a kilépést a host alkalmazás adja |
+  | Mezőesemény, amely nem fut (vezérlőblokk WHEN-VALIDATE-ITEM / POST-CHANGE, WHEN-*-CHANGED) | nincs végpont, amely futtatná |
+  | Képernyőesemény, amely nem fut (WHEN-NEW-BLOCK/RECORD/ITEM-INSTANCE, WHEN-WINDOW-* …) | legfeljebb a mezőállapot-szabályok jönnek át |
+  | Képernyőlépés a kód közepén (EXECUTE_QUERY, CLEAR_BLOCK …) | 4.15-től képernyőpont; ami így sem követhető (ciklus, átnyúló helyi változó …), az kézi feladat |
   | Saját hiba- és üzenetkezelés (ON-ERROR, ON-MESSAGE) | nem fut |
   | POST-QUERY többsoros blokkon | működik, de soronként egy adatbázis-hívás |
 
   Az a billentyű-trigger, amely csak a billentyű saját műveletét végzi (például `KEY-NXTBLK`:
   `NEXT_BLOCK;`), nem számít eltérésnek. A keretrendszeri (`qms$…`) triggereket sem számolja.
   A webes felületen az „Eltérések a Forms-működéstől” panel mutatja a talált sorokat.
+- **Indítási végpont** (4.15): ha a PRE-FORM / WHEN-NEW-FORM-INSTANCE kódjából nem készülhet indítási
+  végpont, az tiltott „gomb / indítás” végpontként számít, `STARTUP` kóddal és az okkal (korábban a riport
+  ezt nem mutatta). A trigger-táblában is ez az ok szerepel.
 - **Átültetendő triggerek:** eseményenként és okonként, a bennük lévő Forms-hívásokkal és
   SQL-szerkezetekkel.
 - **Szerkezetek:** hány végpontot tiltó trigger tartalmazza az egyes elemeket (pl. `SET_BLOCK_PROPERTY`,

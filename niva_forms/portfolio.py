@@ -149,13 +149,19 @@ def catalog_prefixes(options) -> tuple:
 TRIGGER_ID = re.compile(r'^[A-Za-z0-9_$#.]+:[A-Z][A-Z0-9-]*: ')
 
 
+PASSTHROUGH_REASON = 'Átfuttatás az adatbázisban sem lehetséges: '
+
+
 def normalize(text: str) -> str:
     """One template per reason: identifiers, literals and numbers removed."""
     text = TRIGGER_ID.sub('', ' '.join(str(text).split()))
     token = re.match(r"(Nem támogatott token a\(z\) )\d+(\. karakternél: )'(.)", text)
     if token:
-        # The first unparsed character is the actionable part (e.g. '&' or '@').
-        return token.group(1) + 'N' + token.group(2) + repr(token.group(3)) + '…'
+        # The first unparsed character is the actionable part (e.g. '&' or '@'); the reason why the
+        # database passthrough failed too (the real cause) stays after it.
+        head = token.group(1) + 'N' + token.group(2) + repr(token.group(3)) + '…'
+        rest = text.find(PASSTHROUGH_REASON)
+        return head + (' ' + normalize(text[rest:]) if rest >= 0 else '')
     text = re.sub(r"'(?:[^']|'')*'", "'…'", text)
     text = re.sub(r'"[^"]*"', '"…"', text)
     text = re.sub(r':[A-Za-z_][\w$#]*(?:\.[A-Za-z_][\w$#]*)?', ':<bind>', text)

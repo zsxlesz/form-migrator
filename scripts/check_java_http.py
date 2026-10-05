@@ -17,7 +17,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from niva_forms.cli import main as migrate
+from frm_forms.cli import main as migrate
 
 DEPENDENCIES = [
     ('org.springframework', artifact, '6.2.11') for artifact in
@@ -59,7 +59,7 @@ def main():
     with ThreadPoolExecutor(max_workers=6) as executor:
         jars = list(executor.map(artifact, DEPENDENCIES))
     classpath = os.pathsep.join(str(jar) for jar in jars)
-    with tempfile.TemporaryDirectory(prefix='niva-spring-check-') as temp:
+    with tempfile.TemporaryDirectory(prefix='frm-spring-check-') as temp:
         folder = Path(temp)
         module = folder / 'customer'
         with contextlib.redirect_stdout(io.StringIO()):

@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from niva_forms.cli import main
-from niva_forms.presentation import output_name
+from frm_forms.cli import main
+from frm_forms.presentation import output_name
 ROOT=Path(__file__).resolve().parents[1]
 
 class PresentationTests(unittest.TestCase):

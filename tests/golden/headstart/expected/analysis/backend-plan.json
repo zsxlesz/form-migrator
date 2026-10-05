@@ -51,13 +51,13 @@
     {
       "block": "CALENDAR",
       "dto": null,
-      "reason": "Keretrendszer-blokk (niva_forms/data/framework-catalog.json): Headstart naptár-segédablak: a dátummezők natív naptárvezérlője váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.CALENDAR.table értékét.",
+      "reason": "Keretrendszer-blokk (frm_forms/data/framework-catalog.json): Headstart naptár-segédablak: a dátummezők natív naptárvezérlője váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.CALENDAR.table értékét.",
       "fields": []
     },
     {
       "block": "QMS$TRANS_ERRORS",
       "dto": null,
-      "reason": "Keretrendszer-blokk (niva_forms/data/framework-catalog.json): Headstart tranzakciós hibakonzol: a fogadó alkalmazás hibakezelése váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.QMS$TRANS_ERRORS.table értékét.",
+      "reason": "Keretrendszer-blokk (frm_forms/data/framework-catalog.json): Headstart tranzakciós hibakonzol: a fogadó alkalmazás hibakezelése váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.QMS$TRANS_ERRORS.table értékét.",
       "fields": []
     }
   ],
@@ -126,11 +126,11 @@
   "skipped_blocks": [
     {
       "block": "CALENDAR",
-      "reason": "Keretrendszer-blokk (niva_forms/data/framework-catalog.json): Headstart naptár-segédablak: a dátummezők natív naptárvezérlője váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.CALENDAR.table értékét."
+      "reason": "Keretrendszer-blokk (frm_forms/data/framework-catalog.json): Headstart naptár-segédablak: a dátummezők natív naptárvezérlője váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.CALENDAR.table értékét."
     },
     {
       "block": "QMS$TRANS_ERRORS",
-      "reason": "Keretrendszer-blokk (niva_forms/data/framework-catalog.json): Headstart tranzakciós hibakonzol: a fogadó alkalmazás hibakezelése váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.QMS$TRANS_ERRORS.table értékét."
+      "reason": "Keretrendszer-blokk (frm_forms/data/framework-catalog.json): Headstart tranzakciós hibakonzol: a fogadó alkalmazás hibakezelése váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.QMS$TRANS_ERRORS.table értékét."
     }
   ],
   "skipped_actions": [

@@ -6,14 +6,14 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from niva_forms.backend_lovs import lov_plans
-from niva_forms.cli import main
-from niva_forms.dictionary import dictionary_import, dictionary_sql
-from niva_forms import framework
-from niva_forms.plsql import Unsupported, flatten, parse
-from niva_forms.portfolio import normalize
-from niva_forms.rules import analyze, strip_framework
-from niva_forms.xmlmodel import parse_xml
+from frm_forms.backend_lovs import lov_plans
+from frm_forms.cli import main
+from frm_forms.dictionary import dictionary_import, dictionary_sql
+from frm_forms import framework
+from frm_forms.plsql import Unsupported, flatten, parse
+from frm_forms.portfolio import normalize
+from frm_forms.rules import analyze, strip_framework
+from frm_forms.xmlmodel import parse_xml
 
 NL = '&amp;#10;'
 CATALOG = framework.load({})

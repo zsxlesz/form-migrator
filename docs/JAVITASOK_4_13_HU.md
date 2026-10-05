@@ -18,7 +18,7 @@ Az egyetlen tiltott végpont egy `DO_KEY('COMMIT_FORM')` gomb, mert a form sajá
 A saját formjaidon így mérheted újra:
 
 ```bash
-python -m niva_forms survey formok/ --out felmeres-4.13
+python -m frm_forms survey formok/ --out felmeres-4.13
 ```
 
 ## 1. Ami már nem tilt végpontot
@@ -38,7 +38,7 @@ python -m niva_forms survey formok/ --out felmeres-4.13
 
 A gomb és az indítási kód PL/SQL-je továbbra is változatlanul fut az Oracle-ben. Ami Forms-hívás, az nem
 utasítja el a triggert: a blokk elején generált helyi eljárások **felületi utasításként** rögzítik,
-a képernyő pedig a válasz után sorban végrehajtja (`niva_forms/forms_emulation.py`, `screen_emulation.py`).
+a képernyő pedig a válasz után sorban végrehajtja (`frm_forms/forms_emulation.py`, `screen_emulation.py`).
 
 | Forms | A webes megfelelő |
 |---|---|

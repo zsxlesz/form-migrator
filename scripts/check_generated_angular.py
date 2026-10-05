@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
-from niva_forms.cli import main as migrate
+from frm_forms.cli import main as migrate
 
 HOST='''import { Component, Input, Output, EventEmitter, TemplateRef } from '@angular/core';
 import { FormGroup } from '@angular/forms';
@@ -39,7 +39,7 @@ export const environment={baseUrl:'http://localhost:9555/gateway/'};
 def main():
     web=ROOT/'web-ui'; compiler=web/'node_modules/@angular/compiler-cli/bundles/src/bin/ngc.js'
     if not compiler.is_file():raise SystemExit('Előbb: cd web-ui && npm ci')
-    with tempfile.TemporaryDirectory(prefix='niva-ui-check-',dir=web/'node_modules') as tmp:
+    with tempfile.TemporaryDirectory(prefix='frm-ui-check-',dir=web/'node_modules') as tmp:
         stage=Path(tmp);(stage/'host.ts').write_text(HOST)
         profile={'emit_imports':True,'optimus_import_path':'@test/host','optimus_form_block_symbol':'HostFormBlock',
                  'form_block_type_import_path':'@test/host','environment_import_path':'@test/host','table_import_path':'@openng/optimus-ui/table','table_symbol':'TableModule'}

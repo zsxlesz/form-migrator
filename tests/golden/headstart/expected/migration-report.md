@@ -40,8 +40,8 @@ A „kész, MODULE_REVIEWED-re vár” műveleteknek nincs saját tiltása; a DP
 
 Backend nélküli blokkok (nincs adatforrás):
 
-- CALENDAR: Keretrendszer-blokk (niva_forms/data/framework-catalog.json): Headstart naptár-segédablak: a dátummezők natív naptárvezérlője váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.CALENDAR.table értékét.
-- QMS$TRANS_ERRORS: Keretrendszer-blokk (niva_forms/data/framework-catalog.json): Headstart tranzakciós hibakonzol: a fogadó alkalmazás hibakezelése váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.QMS$TRANS_ERRORS.table értékét.
+- CALENDAR: Keretrendszer-blokk (frm_forms/data/framework-catalog.json): Headstart naptár-segédablak: a dátummezők natív naptárvezérlője váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.CALENDAR.table értékét.
+- QMS$TRANS_ERRORS: Keretrendszer-blokk (frm_forms/data/framework-catalog.json): Headstart tranzakciós hibakonzol: a fogadó alkalmazás hibakezelése váltja ki. DatabaseDataBlock=true, de nincs QueryDataSourceName/DMLDataTargetName: nincs mit lekérdezni vagy menteni, ezért nem készül backend-végpont. Valódi táblánál add meg a schema.json blocks.QMS$TRANS_ERRORS.table értékét.
 
 ## Triggerek
 

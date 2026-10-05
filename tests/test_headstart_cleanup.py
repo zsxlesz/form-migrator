@@ -7,11 +7,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from niva_forms.cli import main
-from niva_forms.generate import initial_values
-from niva_forms.plsql import Unsupported, parse
-from niva_forms.rules import analyze, finalize_capabilities
-from niva_forms.xmlmodel import parse_xml
+from frm_forms.cli import main
+from frm_forms.generate import initial_values
+from frm_forms.plsql import Unsupported, parse
+from frm_forms.rules import analyze, finalize_capabilities
+from frm_forms.xmlmodel import parse_xml
 
 NL = '&amp;#10;'  # Forms2XML writes a line break inside an attribute like this.
 

@@ -13,14 +13,14 @@ import tempfile
 import unittest
 
 from java_support import COMPANY_IMPORTS
-from niva_forms import forms_emulation as emu
-from niva_forms.cli import main
-from niva_forms.plsql_passthrough import Rewriter, prepare, sql_expression
-from niva_forms.plsql_structure import prune
+from frm_forms import forms_emulation as emu
+from frm_forms.cli import main
+from frm_forms.plsql_passthrough import Rewriter, prepare, sql_expression
+from frm_forms.plsql_structure import prune
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
-TEMPLATE = ROOT / 'niva_forms' / 'templates' / 'CommonMigrateTools.java.tpl'
+TEMPLATE = ROOT / 'frm_forms' / 'templates' / 'CommonMigrateTools.java.tpl'
 
 
 class HelperTests(unittest.TestCase):
@@ -33,7 +33,7 @@ class HelperTests(unittest.TestCase):
                     prefixes=(), other_blocks=True, parameters=True, transaction=True, ui=True, form='F')
         java = sql_expression(r)
         self.assertIn('FormsPlsql.MSG + FormsPlsql.CMD', java)
-        self.assertNotIn('PROCEDURE niva_cmd', java)
+        self.assertNotIn('PROCEDURE frm_cmd', java)
         self.assertNotIn('+ ""', java)  # no empty literal between the parts
         self.assertIn(emu.HELPERS['CMD'], r['sql'])  # the evidence and the database get the whole block
 
@@ -64,7 +64,7 @@ class PruneTests(unittest.TestCase):
 class ReplicaTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')
+        os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')
         cls.temp = tempfile.TemporaryDirectory()
         root = Path(cls.temp.name)
         config = root / 'config.json'
@@ -80,8 +80,8 @@ class ReplicaTests(unittest.TestCase):
         cls.temp.cleanup()
 
     def test_helpers_are_not_repeated(self):
-        self.assertNotIn('PROCEDURE niva_cmd(', self.service)
-        self.assertNotIn('PROCEDURE niva_msg(', self.service)
+        self.assertNotIn('PROCEDURE frm_cmd(', self.service)
+        self.assertNotIn('PROCEDURE frm_msg(', self.service)
         self.assertIn('import hu.company.features.cl.CommonMigrateTools.FormsPlsql;', self.service)
 
     def test_guard_is_one_set_and_unused_request_maps_are_not_declared(self):

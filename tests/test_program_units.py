@@ -7,11 +7,11 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from niva_forms.cli import main
-from niva_forms.discovery import build_map
-from niva_forms.inheritance import resolve_inputs
-from niva_forms.inputs import InputIssues, load_inputs
-from niva_forms.xmlmodel import get, props, tag
+from frm_forms.cli import main
+from frm_forms.discovery import build_map
+from frm_forms.inheritance import resolve_inputs
+from frm_forms.inputs import InputIssues, load_inputs
+from frm_forms.xmlmodel import get, props, tag
 
 
 ROOT = Path(__file__).resolve().parents[1]

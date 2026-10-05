@@ -12,7 +12,7 @@
     "full_project_suite": "Not a full-suite pass: example-dependent tests need source files absent from the supplied project"
   },
   "commands": {
-    "core": "NIVA_JAVA_IMPORT_MAP=- PYTHONPATH=tests python3 -m unittest test_automation test_plsql_and_states test_forms_runtime test_company_backend test_trigger_noise test_normal_mode test_company_cl test_query_actions test_forms_keys -v",
+    "core": "FRM_JAVA_IMPORT_MAP=- PYTHONPATH=tests python3 -m unittest test_automation test_plsql_and_states test_forms_runtime test_company_backend test_trigger_noise test_normal_mode test_company_cl test_query_actions test_forms_keys -v",
     "screen_style": "test_java_style plus all test_screen/test_screen_windows methods without references to the missing examples directory"
   },
   "missing_example_tests_observed": [

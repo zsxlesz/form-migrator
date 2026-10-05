@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from niva_forms.web.file_io import atomic_json
-from niva_forms.web.worker import run
+from frm_forms.web.file_io import atomic_json
+from frm_forms.web.worker import run
 
 
 def locked():
@@ -27,7 +27,7 @@ class WindowsProgressTests(unittest.TestCase):
                     self.assertEqual(json.loads(path.read_text()), {'phase': 'old'})
                     raise locked()
                 real_replace(source, target)
-            with patch('niva_forms.web.file_io.os.replace', side_effect=replace), patch('niva_forms.web.file_io.time.sleep'):
+            with patch('frm_forms.web.file_io.os.replace', side_effect=replace), patch('frm_forms.web.file_io.time.sleep'):
                 atomic_json(path, {'phase': 'new'})
             self.assertEqual(json.loads(path.read_text()), {'phase': 'new'})
             self.assertEqual(len(calls), 3)
@@ -37,7 +37,7 @@ class WindowsProgressTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'job.json'
             atomic_json(path, {'status': 'old'})
-            with patch('niva_forms.web.file_io.os.replace', side_effect=locked()) as replace, patch('niva_forms.web.file_io.time.sleep'):
+            with patch('frm_forms.web.file_io.os.replace', side_effect=locked()) as replace, patch('frm_forms.web.file_io.time.sleep'):
                 with self.assertRaises(PermissionError):
                     atomic_json(path, {'status': 'new'})
             self.assertEqual(replace.call_count, 7)
@@ -52,5 +52,5 @@ class WindowsProgressTests(unittest.TestCase):
                 on_progress('parse')
                 on_progress('generate')
                 return 3
-            with patch('niva_forms.web.worker.migration', side_effect=migrate), patch('niva_forms.web.worker.atomic_json', side_effect=locked()), patch('sys.stderr'):
+            with patch('frm_forms.web.worker.migration', side_effect=migrate), patch('frm_forms.web.worker.atomic_json', side_effect=locked()), patch('sys.stderr'):
                 self.assertEqual(run(root), 3)

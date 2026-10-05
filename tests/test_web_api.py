@@ -11,14 +11,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 try:
     from fastapi.testclient import TestClient
-    from niva_forms.web.app import create_app
-    from niva_forms.web.settings import Settings
+    from frm_forms.web.app import create_app
+    from frm_forms.web.settings import Settings
     WEB_AVAILABLE = True
 except ImportError:
     WEB_AVAILABLE = False
 
 ROOT = Path(__file__).resolve().parents[1]
-HEADERS = {'Origin': 'http://localhost:4200', 'X-Niva-Client': 'local-ui'}
+HEADERS = {'Origin': 'http://localhost:4200', 'X-Frm-Client': 'local-ui'}
 
 
 @unittest.skipUnless(WEB_AVAILABLE, 'Web API tesztekhez: pip install -r requirements-test.txt')
@@ -160,10 +160,10 @@ class WebTests(unittest.TestCase):
         self.fail('A feladat nem ért célállapotba: ' + str(job))
 
     def test_cors_preflight_exact_localhost_origin_and_headers(self):
-        response = self.client.options('/api/jobs', headers={'Origin': 'http://localhost:4200', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'X-Niva-Client, Content-Type'})
+        response = self.client.options('/api/jobs', headers={'Origin': 'http://localhost:4200', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'X-Frm-Client, Content-Type'})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['access-control-allow-origin'], 'http://localhost:4200')
-        self.assertIn('x-niva-client', response.headers['access-control-allow-headers'].lower())
+        self.assertIn('x-frm-client', response.headers['access-control-allow-headers'].lower())
         response = self.client.get('/api/health', headers={'Origin': 'http://localhost:4200'})
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['local_only'])
@@ -372,7 +372,7 @@ class WebTests(unittest.TestCase):
     def test_persistence_restart_recovery_and_process_lock(self):
         response = self.submit()
         job = self.wait_job(response.json()['id'])
-        with self.assertRaisesRegex(RuntimeError, 'másik NIVA'):
+        with self.assertRaisesRegex(RuntimeError, 'másik FRM'):
             with TestClient(create_app(self.settings), base_url='http://localhost:8000'):
                 pass
         other_dir = self.root / 'restart-data'

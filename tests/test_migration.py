@@ -7,12 +7,12 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from niva_forms.cli import main
-from niva_forms.common import MigrationError, digest, unique_names
-from niva_forms.generate import initial_values
-from niva_forms.plsql import flatten, parse, Unsupported
-from niva_forms.rules import analyze, finalize_capabilities
-from niva_forms.xmlmodel import parse_xml
+from frm_forms.cli import main
+from frm_forms.common import MigrationError, digest, unique_names
+from frm_forms.generate import initial_values
+from frm_forms.plsql import flatten, parse, Unsupported
+from frm_forms.rules import analyze, finalize_capabilities
+from frm_forms.xmlmodel import parse_xml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,7 +41,7 @@ class MigrationTests(unittest.TestCase):
 
     def test_sample_end_to_end_and_archive(self):
         out = self.dir / 'generated'
-        with patch('niva_forms.ollama.opener', side_effect=AssertionError('AI off must not use network')), contextlib.redirect_stdout(io.StringIO()):
+        with patch('frm_forms.ollama.opener', side_effect=AssertionError('AI off must not use network')), contextlib.redirect_stdout(io.StringIO()):
             code = main(['migrate', str(ROOT / 'examples/customer_fmb.xml'), '--out', str(out), '--module', 'customer', '--schema', str(ROOT / 'examples/schema.json'), '--zip', '--strict'])
         self.assertEqual(code, 0)
         info = json.loads((out / 'analysis/summary.json').read_text())

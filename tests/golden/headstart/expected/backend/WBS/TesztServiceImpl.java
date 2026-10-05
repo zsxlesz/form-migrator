@@ -27,12 +27,12 @@ public class TesztServiceImpl extends ModuleServiceBase<WbsLogHelper> implements
     private final TesztRestClient client;
 
     public TesztServiceImpl(RestTemplateBuilder builder,
-            @Value("${niva.teszt.dps-base-url:}") String configuredUrl) {
+            @Value("${frm.teszt.dps-base-url:}") String configuredUrl) {
         String url = configuredUrl == null || configuredUrl.isBlank() ? GENERATED_DPS_URL : configuredUrl.trim();
         URI uri = URI.create(url);
         if (!("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) || uri.getHost() == null
                 || uri.getRawUserInfo() != null || uri.getRawQuery() != null || uri.getRawFragment() != null) {
-            throw new IllegalArgumentException("Állítsd be: niva.teszt.dps-base-url");
+            throw new IllegalArgumentException("Állítsd be: frm.teszt.dps-base-url");
         }
         this.client = new TesztRestClientImpl(builder.build(), url.replaceAll("/+$", ""));
     }

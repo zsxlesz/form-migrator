@@ -2,7 +2,7 @@
 
 The button stops at the commit point (its work rolled back), the screen saves - the commit endpoint
 runs the code up to the point again in the commit's transaction and checks the state - and the
-button resumes after the point (NIVA.RESUME).
+button resumes after the point (FRM.RESUME).
 """
 import contextlib
 import io
@@ -16,10 +16,10 @@ import tempfile
 import unittest
 
 from java_support import COMPANY_IMPORTS, write_stubs
-from niva_forms.cli import main
-from niva_forms.commit_points import transform
-from niva_forms.plsql import Unsupported
-from niva_forms.plsql_passthrough import prepare
+from frm_forms.cli import main
+from frm_forms.commit_points import transform
+from frm_forms.plsql import Unsupported
+from frm_forms.plsql_passthrough import prepare
 from screen_support import RUNTIME_GLOBALS, screen_method, screen_source
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,56 +42,56 @@ def button(source, keys=(KEY_COMMIT,), **options):
 
 class TransformTests(unittest.TestCase):
     def test_branches_to_the_point_are_taken_again_and_earlier_statements_skipped(self):
-        body, count = transform("BEGIN\n  :a := 1;\n  IF x THEN\n    niva_commit_form(NIVA_POINT);\n    y := 2;\n  END IF;\nEND;")
+        body, count = transform("BEGIN\n  :a := 1;\n  IF x THEN\n    frm_commit_form(FRM_POINT);\n    y := 2;\n  END IF;\nEND;")
         self.assertEqual(count, 1)
-        self.assertIn('IF niva_resume NOT IN (1) THEN\n  :a := 1;\n  END IF;', body)
-        self.assertIn('IF (niva_resume IN (1) OR (niva_resume NOT IN (1) AND (x))) THEN', body)
-        self.assertIn('niva_commit_form(1);\n    y := 2;', body)
+        self.assertIn('IF frm_resume NOT IN (1) THEN\n  :a := 1;\n  END IF;', body)
+        self.assertIn('IF (frm_resume IN (1) OR (frm_resume NOT IN (1) AND (x))) THEN', body)
+        self.assertIn('frm_commit_form(1);\n    y := 2;', body)
 
     def test_points_in_sequence_and_in_else_branches_get_their_own_numbers(self):
-        body, count = transform('BEGIN IF a THEN niva_commit_form(NIVA_POINT); ELSIF b THEN NULL; ELSE niva_commit_form(NIVA_POINT);'
-                                ' END IF; z := 1; niva_commit_form(NIVA_POINT); w := 2; END;')
+        body, count = transform('BEGIN IF a THEN frm_commit_form(FRM_POINT); ELSIF b THEN NULL; ELSE frm_commit_form(FRM_POINT);'
+                                ' END IF; z := 1; frm_commit_form(FRM_POINT); w := 2; END;')
         self.assertEqual(count, 3)
-        self.assertIn('ELSIF (niva_resume NOT IN (1, 2) AND (b)) THEN', body)
-        self.assertIn('ELSE niva_commit_form(2);', body)
-        self.assertIn('IF niva_resume NOT IN (3) THEN\nz := 1;\nEND IF;', body)
+        self.assertIn('ELSIF (frm_resume NOT IN (1, 2) AND (b)) THEN', body)
+        self.assertIn('ELSE frm_commit_form(2);', body)
+        self.assertIn('IF frm_resume NOT IN (3) THEN\nz := 1;\nEND IF;', body)
 
     def test_enclosing_handlers_let_the_point_through(self):
-        body, _ = transform('BEGIN BEGIN niva_commit_form(NIVA_POINT); EXCEPTION WHEN OTHERS THEN NULL; END; END;')
-        self.assertIn('EXCEPTION\n  WHEN niva_commit_pending THEN\n    RAISE; WHEN OTHERS', body)
+        body, _ = transform('BEGIN BEGIN frm_commit_form(FRM_POINT); EXCEPTION WHEN OTHERS THEN NULL; END; END;')
+        self.assertIn('EXCEPTION\n  WHEN frm_commit_pending THEN\n    RAISE; WHEN OTHERS', body)
 
     def test_refused_where_the_continuation_cannot_be_followed(self):
         for source, reason in [
-            ('BEGIN FOR r IN (SELECT 1 FROM dual) LOOP niva_commit_form(NIVA_POINT); END LOOP; END;', 'ciklusban'),
-            ('BEGIN NULL; EXCEPTION WHEN OTHERS THEN niva_commit_form(NIVA_POINT); END;', 'kivételkezelőben'),
-            ('DECLARE v NUMBER; BEGIN v := 1; niva_commit_form(NIVA_POINT); log(v); END;', 'V helyi változó'),
-            ('BEGIN GOTO x; niva_commit_form(NIVA_POINT); END;', 'GOTO'),
+            ('BEGIN FOR r IN (SELECT 1 FROM dual) LOOP frm_commit_form(FRM_POINT); END LOOP; END;', 'ciklusban'),
+            ('BEGIN NULL; EXCEPTION WHEN OTHERS THEN frm_commit_form(FRM_POINT); END;', 'kivételkezelőben'),
+            ('DECLARE v NUMBER; BEGIN v := 1; frm_commit_form(FRM_POINT); log(v); END;', 'V helyi változó'),
+            ('BEGIN GOTO x; frm_commit_form(FRM_POINT); END;', 'GOTO'),
         ]:
             with self.subTest(reason=reason), self.assertRaisesRegex(Unsupported, reason):
                 transform(source)
         # A constant and a variable first set after the point are fine.
-        transform('DECLARE c CONSTANT NUMBER := 1; v NUMBER; BEGIN niva_commit_form(NIVA_POINT); v := c; log(v); END;')
+        transform('DECLARE c CONSTANT NUMBER := 1; v NUMBER; BEGIN frm_commit_form(FRM_POINT); v := c; log(v); END;')
 
 
 class PrepareTests(unittest.TestCase):
     def test_do_key_embeds_the_key_trigger_and_its_commit_form_is_a_commit_point(self):
         r = button("do_key('COMMIT_FORM');")
         self.assertEqual(r['commit_points'], 1)
-        self.assertIn("IF (niva_resume IN (1) OR (niva_resume NOT IN (1) AND (nv_", r['sql'])
-        self.assertIn('niva_commit_form(1);', r['sql'])
-        self.assertIn("NIVA.RESUME", [b['source'] for b in r['binds']])
-        self.assertIn("niva_cmd('NIVA_COMMIT', TO_CHAR(niva_commit_at), niva_commit_state);", r['sql'])
-        self.assertIn('IF niva_commit_mode IS NULL THEN\n      ROLLBACK TO SAVEPOINT niva_start;', r['sql'])
+        self.assertIn("IF (frm_resume IN (1) OR (frm_resume NOT IN (1) AND (nv_", r['sql'])
+        self.assertIn('frm_commit_form(1);', r['sql'])
+        self.assertIn("FRM.RESUME", [b['source'] for b in r['binds']])
+        self.assertIn("frm_cmd('FRM_COMMIT', TO_CHAR(frm_commit_at), frm_commit_state);", r['sql'])
+        self.assertIn('IF frm_commit_mode IS NULL THEN\n      ROLLBACK TO SAVEPOINT frm_start;', r['sql'])
         self.assertTrue(any('F:KEY-COMMIT saját kódja beágyazva' in n for n in r['notes']))
         # The state compares the item values (numbers in a fixed format), never the request context.
-        state = re.search(r'niva_commit_state := SUBSTR\((.*), 1, 32000\);', r['sql'])[1]
+        state = re.search(r'frm_commit_state := SUBSTR\((.*), 1, 32000\);', r['sql'])[1]
         self.assertIn("TO_CHAR(", state)
-        self.assertNotIn(re.search(r'(nv_\w+) VARCHAR2\(32767\) := \?; -- NIVA.RESUME', r['sql'])[1], state)
+        self.assertNotIn(re.search(r'(nv_\w+) VARCHAR2\(32767\) := \?; -- FRM.RESUME', r['sql'])[1], state)
 
     def test_commit_form_last_stays_a_screen_command(self):
         r = button("do_key('COMMIT_FORM');", keys=[{**KEY_COMMIT, 'source': "message('Mentés'); commit_form;"}])
         self.assertEqual(r['commit_points'], 0)
-        self.assertIn("niva_cmd('COMMIT_FORM')", r['sql'])
+        self.assertIn("frm_cmd('COMMIT_FORM')", r['sql'])
         # The same KEY trigger with code after DO_KEY: its COMMIT_FORM is no longer last.
         r = button("do_key('COMMIT_FORM'); :CTRL.X := 'kész';", keys=[{**KEY_COMMIT, 'source': "commit_form;"}])
         self.assertEqual(r['commit_points'], 1)
@@ -145,7 +145,7 @@ class PreludeJavaTests(unittest.TestCase):
             root = Path(temp)
             tools = root / 'src' / 'CommonMigrateTools.java'
             tools.parent.mkdir()
-            template = (ROOT / 'niva_forms/templates/CommonMigrateTools.java.tpl').read_text(encoding='utf-8')
+            template = (ROOT / 'frm_forms/templates/CommonMigrateTools.java.tpl').read_text(encoding='utf-8')
             tools.write_text(template.replace('@@PACKAGE@@', 'hu.test.cl'), encoding='utf-8')
             check = root / 'src' / 'PreludeCheck.java'
             check.write_text('''import hu.test.cl.CommonMigrateTools.PlsqlValues;
@@ -153,11 +153,11 @@ import java.util.List;
 import java.util.Map;
 public class PreludeCheck {
     public static void main(String[] args) {
-        var commands = List.of(List.of("GO_BLOCK", "B"), List.of("NIVA_COMMIT", "1", "7\\u001dL"));
-        var kept = PlsqlValues.prelude(commands, Map.of("NIVA.COMMIT_POINT", "1", "NIVA.COMMIT_STATE", "7\\u001dL"));
+        var commands = List.of(List.of("GO_BLOCK", "B"), List.of("FRM_COMMIT", "1", "7\\u001dL"));
+        var kept = PlsqlValues.prelude(commands, Map.of("FRM.COMMIT_POINT", "1", "FRM.COMMIT_STATE", "7\\u001dL"));
         if (!kept.equals(List.of(List.of("GO_BLOCK", "B")))) throw new AssertionError(kept.toString());
-        for (var parameters : List.of(Map.of("NIVA.COMMIT_POINT", "1", "NIVA.COMMIT_STATE", "8\\u001dL"),
-                                      Map.of("NIVA.COMMIT_POINT", "2", "NIVA.COMMIT_STATE", "7\\u001dL"))) {
+        for (var parameters : List.of(Map.of("FRM.COMMIT_POINT", "1", "FRM.COMMIT_STATE", "8\\u001dL"),
+                                      Map.of("FRM.COMMIT_POINT", "2", "FRM.COMMIT_STATE", "7\\u001dL"))) {
             try {
                 PlsqlValues.prelude(commands, parameters);
                 throw new AssertionError("an other state must be refused: " + parameters);
@@ -166,7 +166,7 @@ public class PreludeCheck {
             }
         }
         try {
-            PlsqlValues.prelude(List.of(List.of("GO_BLOCK", "B")), Map.of("NIVA.COMMIT_POINT", "1"));
+            PlsqlValues.prelude(List.of(List.of("GO_BLOCK", "B")), Map.of("FRM.COMMIT_POINT", "1"));
             throw new AssertionError("a run that never reached the point must be refused");
         } catch (org.springframework.web.server.ResponseStatusException expected) {
             // the code did not arrive at the commit point this time
@@ -187,7 +187,7 @@ public class PreludeCheck {
 class ReplicaFlowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')
+        os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')
         cls.temp = tempfile.TemporaryDirectory()
         cls.root = Path(cls.temp.name)
         config = cls.root / 'config.json'
@@ -198,7 +198,7 @@ class ReplicaFlowTests(unittest.TestCase):
             code = main(['migrate', str(REPLICA), '--out', str(cls.out), '--screen', '--module', 'rendeles', '--config', str(config)])
         assert code == 0, code
         cls.service = (cls.out / 'backend/DPS/RendelesServiceImpl.java').read_text(encoding='utf-8')
-        cls.screen = screen_source(cls.out)  # the component and niva-forms-screen.ts
+        cls.screen = screen_source(cls.out)  # the component and frm-forms-screen.ts
 
     @classmethod
     def tearDownClass(cls):
@@ -208,12 +208,12 @@ class ReplicaFlowTests(unittest.TestCase):
         commit = self.service[self.service.index('public CommitResult commitForm'):]
         prelude = commit.index('runOnCtrlPbMent(actionValues, actionParameters')
         self.assertLess(prelude, commit.index('changesRendeles()'))
-        self.assertIn('actionParameters.put("NIVA.COMMIT", "POST");', commit)
+        self.assertIn('actionParameters.put("FRM.COMMIT", "POST");', commit)
         self.assertIn('commands.addAll(PlsqlValues.prelude(actionCommands, actionParameters));', commit)
         self.assertIn('public String action;', (self.out / 'backend/CL/RendelesDtos.java').read_text(encoding='utf-8'))
 
     def method(self, name):
-        source = screen_method(self.out, name)  # the component's override, else niva-forms-screen.ts
+        source = screen_method(self.out, name)  # the component's override, else frm-forms-screen.ts
         self.assertIsNotNone(source, name)
         return source
 
@@ -271,7 +271,7 @@ __METHODS__
 const screen = new Screen();
 // 1. The button reaches COMMIT_FORM: its work was rolled back, the values of that moment come back.
 screen.actionReplies.push({blocks: {RENDELES: {ID: '7', STATUSZ: 'L', VEVO: 'V1'}, CTRL: {UTOLSO: null}}, messages: [],
-                           commands: [['NIVA_COMMIT', '1', '7\\u001dL\\u001dV1\\u001d']], globals: {}});
+                           commands: [['FRM_COMMIT', '1', '7\\u001dL\\u001dV1\\u001d']], globals: {}});
 // 3. Resumed after the point: the code after COMMIT_FORM ran.
 screen.actionReplies.push({blocks: {CTRL: {UTOLSO: 'L'}}, messages: [], commands: [], globals: {}});
 assert.equal(screen.runAction('CTRL.PB_MENT'), true);
@@ -280,12 +280,12 @@ assert.equal(screen.commits.length, 1);
 const commit = screen.commits[0];
 assert.equal(commit.action, 'CTRL.PB_MENT');
 assert.deepEqual(commit.actionBlocks.RENDELES, {ID: '7', STATUSZ: 'N', VEVO: 'V1'});
-assert.equal(commit.actionParameters['NIVA.COMMIT_POINT'], '1');
-assert.equal(commit.actionParameters['NIVA.COMMIT_STATE'], '7\\u001dL\\u001dV1\\u001d');
+assert.equal(commit.actionParameters['FRM.COMMIT_POINT'], '1');
+assert.equal(commit.actionParameters['FRM.COMMIT_STATE'], '7\\u001dL\\u001dV1\\u001d');
 assert.deepEqual(commit.changesRendeles.updated[0].value, {id: '7', statusz: 'L', vevo: 'V1'});
 assert.equal(screen.actions.length, 2);
-assert.equal(screen.actions[0].parameters['NIVA.RESUME'], undefined);
-assert.equal(screen.actions[1].parameters['NIVA.RESUME'], '1');
+assert.equal(screen.actions[0].parameters['FRM.RESUME'], undefined);
+assert.equal(screen.actions[1].parameters['FRM.RESUME'], '1');
 assert.equal(screen.formValues.CTRL.utolso, 'L');
 console.log('typescript commit-point OK');
 '''.replace('__METHODS__', methods).replace('__RUNTIME_GLOBALS__', RUNTIME_GLOBALS))

@@ -7,14 +7,14 @@ import subprocess
 import sys
 import tempfile
 from check_generated_angular import ROOT, HOST
-from niva_forms.cli import main as migrate
+from frm_forms.cli import main as migrate
 
 
 def main():
     web = ROOT/'web-ui'; compiler = web/'node_modules/@angular/compiler-cli/bundles/src/bin/ngc.js'
     if not compiler.is_file(): raise SystemExit('Előbb: cd web-ui && npm ci')
     source = Path(sys.argv[1]).resolve() if len(sys.argv)>1 else ROOT/'examples/review_fmb.xml'
-    with tempfile.TemporaryDirectory(prefix='niva-scaffold-check-', dir=web/'node_modules') as temp:
+    with tempfile.TemporaryDirectory(prefix='frm-scaffold-check-', dir=web/'node_modules') as temp:
         stage = Path(temp); (stage/'host.ts').write_text(HOST)
         profile = {'emit_imports':True, 'optimus_import_path':'@test/host','optimus_form_block_symbol':'HostFormBlock',
             'form_block_type_import_path':'@test/host','environment_import_path':'@test/host','table_import_path':'@openng/optimus-ui/table','table_symbol':'TableModule'}

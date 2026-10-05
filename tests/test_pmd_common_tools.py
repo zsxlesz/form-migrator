@@ -12,12 +12,12 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from niva_forms.action_scaffold import action_plan
-from niva_forms.cli import DEFAULTS, configuration, main
-from niva_forms.common import MigrationError, name
-from niva_forms.contracts import validate_common_migrate_tools_package
-from niva_forms.discovery import build_map
-from niva_forms.service_inline import mask
+from frm_forms.action_scaffold import action_plan
+from frm_forms.cli import DEFAULTS, configuration, main
+from frm_forms.common import MigrationError, name
+from frm_forms.contracts import validate_common_migrate_tools_package
+from frm_forms.discovery import build_map
+from frm_forms.service_inline import mask
 from java_support import COMPANY_IMPORTS, write_stubs
 from test_company_cl import CL_IMPORTS
 from test_forms_runtime import fixture
@@ -186,8 +186,8 @@ class CommonToolsOptionTests(unittest.TestCase):
 
     def test_web_options_round_trip_and_server_defaults_preserve_the_package(self):
         try:
-            from niva_forms.web.models import MigrationOptions
-            from niva_forms.web.settings import Settings
+            from frm_forms.web.models import MigrationOptions
+            from frm_forms.web.settings import Settings
             from pydantic import ValidationError
         except ImportError:
             self.skipTest('Pydantic 2 required')
@@ -203,7 +203,7 @@ class CommonToolsOptionTests(unittest.TestCase):
 
     def test_web_option_is_used_by_the_generator(self):
         try:
-            from niva_forms.web.models import MigrationOptions
+            from frm_forms.web.models import MigrationOptions
         except ImportError:
             self.skipTest('Pydantic 2 required')
         with tempfile.TemporaryDirectory() as temp:

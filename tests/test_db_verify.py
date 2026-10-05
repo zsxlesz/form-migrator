@@ -14,9 +14,9 @@ import unittest
 from unittest import mock
 
 from java_support import COMPANY_IMPORTS
-from niva_forms import db_verify
-from niva_forms.cli import main
-from niva_forms.common import MigrationError
+from frm_forms import db_verify
+from frm_forms.cli import main
+from frm_forms.common import MigrationError
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
@@ -95,7 +95,7 @@ class HelperTests(unittest.TestCase):
 class ReplicaTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')
+        os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')
         cls.temp = tempfile.TemporaryDirectory()
         cls.root = Path(cls.temp.name)
         config = cls.root / 'config.json'
@@ -128,17 +128,17 @@ class ReplicaTests(unittest.TestCase):
         # ON-INSERT replaces the INSERT of RENDELES: its generated INSERT is not run, so it is not checked either
         self.assertNotIn('RENDELES beszúrás', self.sources())
         keres = self.sources()['CTRL.PB_KERES / WHEN-BUTTON-PRESSED']['sql']
-        self.assertIn('niva_cmd', keres)  # the whole block, the shared FormsPlsql helpers included
+        self.assertIn('frm_cmd', keres)  # the whole block, the shared FormsPlsql helpers included
         self.assertIn('?', keres)
 
     def test_cli_writes_the_reports_and_fails_on_errors(self):
         connection = FakeConnection({'statusz_kodtar': 'ORA-00942: table or view does not exist'})
         report = self.root / 'DB.md'
         stdout = io.StringIO()
-        with mock.patch.dict(os.environ, {'NIVA_TEST_DB_PW': 'titok'}), \
+        with mock.patch.dict(os.environ, {'FRM_TEST_DB_PW': 'titok'}), \
                 mock.patch.object(db_verify, 'connect_oracle', return_value=connection) as connect, \
                 contextlib.redirect_stdout(stdout):
-            code = main(['verify-db', str(self.out), '--dsn', 'db:1521/ORCL', '--user', 'app', '--password-env', 'NIVA_TEST_DB_PW',
+            code = main(['verify-db', str(self.out), '--dsn', 'db:1521/ORCL', '--user', 'app', '--password-env', 'FRM_TEST_DB_PW',
                          '--report', str(report)])
         self.assertEqual(code, 3)
         connect.assert_called_once_with('db:1521/ORCL', 'app', 'titok')
@@ -165,7 +165,7 @@ class ReplicaTests(unittest.TestCase):
 
     def test_a_batch_folder_is_walked_and_a_clean_run_exits_zero(self):
         connection = FakeConnection()
-        with mock.patch.dict(os.environ, {'NIVA_DB_PASSWORD': 'x'}), \
+        with mock.patch.dict(os.environ, {'FRM_DB_PASSWORD': 'x'}), \
                 mock.patch.object(db_verify, 'connect_oracle', return_value=connection), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(['verify-db', str(self.root), '--dsn', 'd', '--user', 'u']), 0)
@@ -174,7 +174,7 @@ class ReplicaTests(unittest.TestCase):
     def test_the_password_comes_from_the_environment_only(self):
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(db_verify, 'connect_oracle') as connect:
             with self.assertRaises(MigrationError):
-                db_verify.run(mock.Mock(password_env='NIVA_DB_PASSWORD', outputs=[self.out], dsn='d', user='u', report=None))
+                db_verify.run(mock.Mock(password_env='FRM_DB_PASSWORD', outputs=[self.out], dsn='d', user='u', report=None))
         connect.assert_not_called()
 
     def test_folders_without_statements_are_an_error(self):

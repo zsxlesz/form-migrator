@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from niva_forms.cli import main
+from frm_forms.cli import main
 
 ROOT = Path(__file__).resolve().parents[1]
 

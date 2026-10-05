@@ -6,10 +6,10 @@ from pathlib import Path
 import unittest
 from xml.etree import ElementTree as ET
 
-from niva_forms.cli import main
-from niva_forms.common import MigrationError
-from niva_forms.screen_layout import spans
-from niva_forms.screen_overrides import fingerprint, validate
+from frm_forms.cli import main
+from frm_forms.common import MigrationError
+from frm_forms.screen_layout import spans
+from frm_forms.screen_overrides import fingerprint, validate
 import test_screen
 
 ROOT = test_screen.ROOT

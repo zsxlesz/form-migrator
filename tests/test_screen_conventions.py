@@ -7,8 +7,8 @@ import re
 import tempfile
 import unittest
 
-from niva_forms.cli import main
-from niva_forms import framework
+from frm_forms.cli import main
+from frm_forms import framework
 
 HEADSTART = Path(__file__).with_name('golden') / 'headstart' / 'input.xml'
 

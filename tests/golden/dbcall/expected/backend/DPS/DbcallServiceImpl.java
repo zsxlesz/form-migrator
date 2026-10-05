@@ -291,7 +291,7 @@ public class DbcallServiceImpl extends ModuleServiceBase<DpsLogHelper> implement
     private void trigger2B(BRow row, RuleContext context) {
         // Az eredeti PL/SQL fut az adatbázisban (névtelen blokk); a mezők kötött változók.
         Object[] out = DbCalls.call(jdbc, "DECLARE\n"
-                + "  niva_messages VARCHAR2(32767);\n"
+                + "  frm_messages VARCHAR2(32767);\n"
                 + "  nv_d87d6c3974 NUMBER := ?; -- B.ID\n"
                 + "  nv_d87d6c3974_o NUMBER; -- B.ID (védett)\n" + FormsPlsql.MSG + "BEGIN\n"
                 + "  nv_d87d6c3974_o := nv_d87d6c3974;\n"
@@ -301,7 +301,7 @@ public class DbcallServiceImpl extends ModuleServiceBase<DpsLogHelper> implement
                 + "    RAISE_APPLICATION_ERROR(-20998, 'B.ID: a trigger módosította, de ebben az eseményben nem "
                 + "írható vissza.');\n"
                 + "  END IF;\n"
-                + "  ? := niva_messages;\n"
+                + "  ? := frm_messages;\n"
                 + "END;",
                 DbCalls.in(row.id, Types.NUMERIC),
                 DbCalls.out(Types.VARCHAR));

@@ -6,7 +6,7 @@ They do not substitute for a real host-framework or Oracle integration build.
 from pathlib import Path
 import os
 
-os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
 
 
 # Imports of the company classes above, for generator configs in compile tests.

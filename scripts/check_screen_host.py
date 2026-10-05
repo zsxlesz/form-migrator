@@ -15,8 +15,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from niva_forms.cli import main as migrate
-from niva_forms.common import MigrationError, read_json
+from frm_forms.cli import main as migrate
+from frm_forms.common import MigrationError, read_json
 
 
 def check(args):
@@ -45,7 +45,7 @@ console.log(JSON.stringify({compiler:resolve(dirname(path),bin),version:pkg.vers
         (p for p in [host / 'src/app', host / 'src', host] if p.is_dir()))
     if not component_dir.is_dir() or not component_dir.is_relative_to(host):
         raise MigrationError('HOST_COMPONENT_DIR: meglévő, host projekten belüli célmappa szükséges.')
-    with tempfile.TemporaryDirectory(prefix='.niva-screen-check-', dir=host) as temp:
+    with tempfile.TemporaryDirectory(prefix='.frm-screen-check-', dir=host) as temp:
         stage = Path(temp)
         command = ['migrate', str(args.source.resolve()), '--screen', '--frontend-only', '--module', 'hostCheck',
                    '--config', str(args.profile.resolve()), '--out', str(stage / 'generated')]
@@ -56,7 +56,7 @@ console.log(JSON.stringify({compiler:resolve(dirname(path),bin),version:pkg.vers
         generated = list((stage / 'generated/frontend').rglob('*.component.ts'))
         if len(generated) != 1: raise MigrationError('HOST_SOURCE: pontosan egy generált screen komponens szükséges.')
         # Relative imports are interpreted at the intended component location.
-        with tempfile.NamedTemporaryFile(prefix='.niva-screen-check-', suffix='.component.ts', dir=component_dir,
+        with tempfile.NamedTemporaryFile(prefix='.frm-screen-check-', suffix='.component.ts', dir=component_dir,
                                          delete=False) as stream:
             source = Path(stream.name)
         try:

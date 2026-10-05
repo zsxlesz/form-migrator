@@ -6,7 +6,7 @@ mérhetővé válik a hátralévő munka, és a legnagyobb tételek automatikusa
 ## 1. Tömeges futtatás és összesítő
 
 ```bash
-python -m niva_forms batch formok/ --olb olb/qmsolb65_olb.xml --out build/portfolio
+python -m frm_forms batch formok/ --olb olb/qmsolb65_olb.xml --out build/portfolio
 ```
 
 - A mappában minden `.fmb` és FormModule XML formot generál (a `*_olb.xml` / `*_mmb.xml`
@@ -25,10 +25,10 @@ python -m niva_forms batch formok/ --olb olb/qmsolb65_olb.xml --out build/portfo
 ## 2. Adatszótár: kulcsok, oszlopok, eljárás-aláírások
 
 ```bash
-python -m niva_forms dictionary-sql build/portfolio --out dictionary.sql
+python -m frm_forms dictionary-sql build/portfolio --out dictionary.sql
 # a DBA futtatja (csak olvas: ALL_TAB_COLUMNS, ALL_CONSTRAINTS, ALL_ARGUMENTS):
 #   sqlplus -s felhasznalo/jelszo@adatbazis @dictionary.sql   -> dictionary.txt
-python -m niva_forms dictionary-import dictionary.txt --out schema-kozos.json
+python -m frm_forms dictionary-import dictionary.txt --out schema-kozos.json
 ```
 
 A közös séma csak `tables` és `procedures` szakaszt tartalmaz, így minden formhoz
@@ -171,7 +171,7 @@ Bekapcsolva a generált végpontok azonnal működnek. A `MODULE_REVIEWED` kapcs
 `true`, az írás engedélyezett (hacsak a `schema.json` `writable: false`-t nem mond), és a
 WHERE-rel szűrt blokk írása ellenőrizendő jelzés, nem tiltás. Egyetlen kapcsoló
 (`MODULE_REVIEWED = false`) továbbra is mindent letilt. A webes felületen alapból be van
-kapcsolva (`NIVA_BACKEND_LIVE`), parancssorból a konfigurációban: `"backend_live": true`.
+kapcsolva (`FRM_BACKEND_LIVE`), parancssorból a konfigurációban: `"backend_live": true`.
 
 ## 4. LOV-végpontok
 
@@ -207,7 +207,7 @@ tests/golden/<eset>/expected/        az elfogadott kimenet
 ```
 
 ```bash
-NIVA_UPDATE_GOLDEN=1 python -m unittest tests.test_golden   # elvárt kimenet (újra)generálása
+FRM_UPDATE_GOLDEN=1 python -m unittest tests.test_golden   # elvárt kimenet (újra)generálása
 python -m unittest tests.test_golden                          # eltérésnél olvasható diff
 ```
 
@@ -290,7 +290,7 @@ JSON-fájl adja meg: egyszerű osztálynév → teljes Java-név.
 
 - **Hol van:** alapból a migrátor gyökerében, `java-imports.json` néven. Kiindulásnak a
   `java-imports.example.json` másolható. Más útvonalat a `java_import_map` beállítás (CLI/szerver
-  config, a config fájlhoz képest) vagy a `NIVA_JAVA_IMPORT_MAP` környezeti változó ad meg;
+  config, a config fájlhoz képest) vagy a `FRM_JAVA_IMPORT_MAP` környezeti változó ad meg;
   a `-` érték kikapcsolja. Az `_`-sal kezdődő kulcsok megjegyzések.
 - **Mikor olvassa:** minden generáláskor újra, így a fájl módosítása a következő modultól érvényes.
 - **Mit csinál:** minden generált backend-fájlba (CL, DPS, WBS), amelyben a név a kódban

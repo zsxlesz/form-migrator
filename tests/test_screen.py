@@ -5,8 +5,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from niva_forms.cli import main
-from niva_forms.screen_model import display_text
+from frm_forms.cli import main
+from frm_forms.screen_model import display_text
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -88,7 +88,7 @@ class ScreenTests(unittest.TestCase):
     HEADSTART = "/* CGLY$WHEN_BUTTON_PRESSED */&amp;#10;BEGIN&amp;#10;  go_item('B.CODE');&amp;#10;  do_key('List_values');&amp;#10;  copy ('0', 'GLOBAL.save_mouse_record');&amp;#10;END;"
 
     def test_list_opener_recognises_only_pure_list_triggers(self):
-        from niva_forms.screen_model import list_opener
+        from frm_forms.screen_model import list_opener
         self.assertEqual(list_opener("BEGIN go_item('B.CODE'); do_key('List_values'); END;")['target'], 'B.CODE')
         self.assertEqual(list_opener("go_item('CODE'); LIST_VALUES(NO_RESTRICT);")['target'], 'CODE')
         self.assertEqual(list_opener("/* x */ go_item('B.X');&#10;-- note&#10;list_values; null;")['target'], 'B.X')
@@ -206,7 +206,7 @@ class ScreenTests(unittest.TestCase):
         self.assertNotIn('FILTER.TECH', source)
         hidden = next(h for h in plan['hidden_items'] if h['owner'] == 'FILTER.TECH')
         self.assertIn('kitöltetlen sablon', hidden['reason'])
-        from niva_forms import framework
+        from frm_forms import framework
         catalog = framework.load({})
         self.assertTrue(framework.empty_hint('Adja meg a(z) értékét', catalog))
         self.assertFalse(framework.empty_hint('Adatlap megnevezés', catalog))

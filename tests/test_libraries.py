@@ -7,10 +7,10 @@ import tempfile
 import time
 import unittest
 
-from niva_forms.cli import main
-from niva_forms.common import MigrationError
-from niva_forms.framework import load
-from niva_forms.libraries import attach, decode, library_name, load_libraries, parse_pld
+from frm_forms.cli import main
+from frm_forms.common import MigrationError
+from frm_forms.framework import load
+from frm_forms.libraries import attach, decode, library_name, load_libraries, parse_pld
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / 'tests/fixtures/felmeres_replika_fmb.xml'
@@ -95,7 +95,7 @@ class AttachTests(unittest.TestCase):
         m = model(triggers=["BEGIN ank_ctrl.set_title('X'); END;"],
                   units=[('P', 'Procedure', 'PROCEDURE p IS BEGIN naplo_init(1); END;')])
         report = attach(m, self.libraries(), load({}))
-        added = {(u['name'], u['programunittype']) for u in m['program_units'] if u.get('niva_library')}
+        added = {(u['name'], u['programunittype']) for u in m['program_units'] if u.get('frm_library')}
         self.assertEqual(added, {('ANK_CTRL', 'Package Spec'), ('ANK_CTRL', 'Package Body'), ('NAPLO_INIT', 'Procedure')})
         self.assertNotIn('NEM_HASZNALT', json.dumps(report['libraries'][0]['used_units']))
         self.assertEqual(report['scope'], ['ANKLIB', 'QMSLIB65'])
@@ -106,7 +106,7 @@ class AttachTests(unittest.TestCase):
         m = model(triggers=["naplo_init('A'); qms$event_form('X');"],
                   units=[('NAPLO_INIT', 'Procedure', 'PROCEDURE naplo_init(p VARCHAR2) IS BEGIN NULL; END;')])
         attach(m, self.libraries(text), load({}))
-        self.assertEqual([u.get('niva_library') for u in m['program_units']], [None])
+        self.assertEqual([u.get('frm_library') for u in m['program_units']], [None])
 
     def test_library_of_another_form_is_out_of_scope(self):
         m = model(libraries=(), triggers=["naplo_init('A');"])
@@ -152,7 +152,7 @@ class LibraryMigrationTests(unittest.TestCase):
         service = (out / 'backend/DPS/PeldaServiceImpl.java').read_text(encoding='utf-8')
         self.assertIn('PlsqlUnits.ANK_CTRL_UI', service)
         self.assertIn('NAPLO_INIT (procedure, csatolt könyvtár: ANKLIB)', service)
-        self.assertIn("niva_cmd('SET_WINDOW_PROPERTY', 'FORMS_MDI_WINDOW', 'TITLE', p_title);", service)
+        self.assertIn("frm_cmd('SET_WINDOW_PROPERTY', 'FORMS_MDI_WINDOW', 'TITLE', p_title);", service)
         self.assertNotIn('NEM_HASZNALT', service.upper())
         # ANK_MENU is in no given library: the database still resolves it.
         self.assertIn('Az adatbázis oldja fel futáskor: ANK_MENU.INIT. A formhoz csatolt könyvtár(ak): QMSLIB65', service)
@@ -172,8 +172,8 @@ class LibraryMigrationTests(unittest.TestCase):
 
 try:
     from fastapi.testclient import TestClient
-    from niva_forms.web.app import create_app
-    from niva_forms.web.settings import Settings
+    from frm_forms.web.app import create_app
+    from frm_forms.web.settings import Settings
     WEB_AVAILABLE = True
 except ImportError:
     WEB_AVAILABLE = False
@@ -181,7 +181,7 @@ except ImportError:
 
 @unittest.skipUnless(WEB_AVAILABLE, 'Web API tesztekhez: pip install -r requirements-test.txt')
 class LibraryUploadTests(unittest.TestCase):
-    HEADERS = {'Origin': 'http://localhost:4200', 'X-Niva-Client': 'local-ui'}
+    HEADERS = {'Origin': 'http://localhost:4200', 'X-Frm-Client': 'local-ui'}
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory()

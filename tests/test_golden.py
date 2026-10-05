@@ -6,7 +6,7 @@ A case is a folder: tests/golden/<eset>/input.xml, optionally with
   expected/     the accepted output (created by the update mode)
 
 Accept an intended change (then review the diff in version control):
-  NIVA_UPDATE_GOLDEN=1 python -m unittest tests.test_golden
+  FRM_UPDATE_GOLDEN=1 python -m unittest tests.test_golden
 """
 import contextlib
 import difflib
@@ -18,15 +18,15 @@ import shutil
 import tempfile
 import unittest
 
-from niva_forms.cli import main
+from frm_forms.cli import main
 
-os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
 
 GOLDEN = Path(__file__).with_name('golden')
 DEFAULT_ARGS = ['--screen', '--module', 'golden']
 DEFAULT_FILES = ['backend/**/*.java', 'frontend/**/*.ts', 'frontend/**/*.md', 'analysis/backend-plan.json',
                  'analysis/backend-evidence.md', 'migration-report.md', 'BACKEND_TASKS.md']
-UPDATE = os.environ.get('NIVA_UPDATE_GOLDEN') == '1'
+UPDATE = os.environ.get('FRM_UPDATE_GOLDEN') == '1'
 
 
 def cases():
@@ -67,14 +67,14 @@ class GoldenTests(unittest.TestCase):
             expected = ({p.relative_to(expected_root).as_posix(): p for p in expected_root.rglob('*') if p.is_file()}
                         if expected_root.is_dir() else {})
             self.assertEqual(sorted(actual), sorted(expected),
-                             case.name + ': a kimeneti fájlok listája változott. Szándékos változásnál: NIVA_UPDATE_GOLDEN=1')
+                             case.name + ': a kimeneti fájlok listája változott. Szándékos változásnál: FRM_UPDATE_GOLDEN=1')
             for relative in sorted(actual):
                 new = actual[relative].read_text(encoding='utf-8')
                 old = expected[relative].read_text(encoding='utf-8')
                 if new != old:
                     diff = list(difflib.unified_diff(old.splitlines(True), new.splitlines(True),
                                                      'expected/' + relative, 'actual/' + relative))
-                    self.fail(f'{case.name}: {relative} eltér (szándékos változásnál: NIVA_UPDATE_GOLDEN=1)\n' + ''.join(diff[:80]))
+                    self.fail(f'{case.name}: {relative} eltér (szándékos változásnál: FRM_UPDATE_GOLDEN=1)\n' + ''.join(diff[:80]))
 
 
 if __name__ == '__main__':

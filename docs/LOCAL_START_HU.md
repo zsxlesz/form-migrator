@@ -1,4 +1,4 @@
-# NIVA Migration Studio — helyi indítás, lépésről lépésre
+# FRM Migration Studio — helyi indítás, lépésről lépésre
 
 A 4.2-es csomag a migrátort, egy Python HTTP API-t és egy magyar Angular kezelőfelületet tartalmaz. A felületen FMB/XML fájlt tölthetsz fel, elindíthatod a generálást, megtekintheted a riportot és a forrásokat, majd letöltheted a teljes modult vagy külön az Angular/Java részt. Az új, alapértelmezett Képernyőváz mód használata: [FRONTEND_SCREEN_HU.md](FRONTEND_SCREEN_HU.md).
 
@@ -6,7 +6,7 @@ A 4.2-es csomag a migrátort, egy Python HTTP API-t és egy magyar Angular kezel
 
 ## 1. Csomagold ki
 
-Nyiss terminált a `niva-forms-migrator` mappában. Itt legyen a `niva_forms`, `web-ui`, `web-dist`, `examples` mappa és a `requirements-web.txt` fájl.
+Nyiss terminált a `frm-forms-migrator` mappában. Itt legyen a `frm_forms`, `web-ui`, `web-dist`, `examples` mappa és a `requirements-web.txt` fájl.
 
 Szükséges:
 
@@ -20,7 +20,7 @@ Szükséges:
 **Windows / PowerShell:**
 
 ```powershell
-cd C:\munka\niva-forms-migrator
+cd C:\munka\frm-forms-migrator
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-web.txt
 ```
@@ -30,7 +30,7 @@ A `py -3.12` helyére a telepített, legalább 3.10-es Pythonod parancsa kerülh
 **Linux / macOS:**
 
 ```bash
-cd /sajat/mappa/niva-forms-migrator
+cd /sajat/mappa/frm-forms-migrator
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-web.txt
 ```
@@ -42,13 +42,13 @@ Az első függőségtelepítés csomagletöltést igényel. A működő alkalmaz
 **Windows:**
 
 ```powershell
-.\.venv\Scripts\python.exe -m niva_forms.web --port 8000
+.\.venv\Scripts\python.exe -m frm_forms.web --port 8000
 ```
 
 **Linux / macOS:**
 
 ```bash
-.venv/bin/python -m niva_forms.web --port 8000
+.venv/bin/python -m frm_forms.web --port 8000
 ```
 
 Hagyd nyitva ezt a terminált. Leállítás: **Ctrl+C**.
@@ -114,14 +114,14 @@ A formblokkokat, p-table táblázatot, tabokat, 1/0 checkboxot és LOV-deklarác
   amelyeket eddig is meg kellett adni.
 - **Tömeges futtatás:** több `.fmb`/`.xml` jelölhető ki vagy húzható be egyszerre.
   - Formonként külön feladat indul, közös kiegészítőkkel (OLB, séma, szabályok).
-  - Ha a feladatsor megtelt, a felület kivárja a szabad helyet; a korlát a `NIVA_MAX_PENDING` változóval állítható, alapértéke 50.
+  - Ha a feladatsor megtelt, a felület kivárja a szabad helyet; a korlát a `FRM_MAX_PENDING` változóval állítható, alapértéke 50.
   - A Feladatok fülön a tömeges futtatás összesítője mutatja, mely okok tiltják a legtöbb végpontot.
   - Egyetlen ZIP-ben letölthető minden modul és a `PORTFOLIO_HU.md`.
 - **Több képernyős form:** nem kell előre beírni a főablak nevét.
   - Ha a form több egyenrangú ablakból áll, a feladat „Döntésre vár” állapotba kerül, és a felület lenyíló listában megkérdezi, melyik legyen a fő képernyő.
   - A választás után ugyanaz a feladat folytatódik.
 - **Azonnal éles backend:** alapból bekapcsolva. A generált végpontok azonnal működnek, a
-  triggerek PL/SQL-je az adatbázisban fut. `NIVA_BACKEND_LIVE=false` esetén az új feladatok
+  triggerek PL/SQL-je az adatbázisban fut. `FRM_BACKEND_LIVE=false` esetén az új feladatok
   ellenőrzésig HTTP 501-et adnak.
 - **Előnézet:** a feladat Előnézet fülén a generált képernyők láthatók; több képernyőnél mindegyik megnyitható.
 - **API:**
@@ -138,7 +138,7 @@ A lefordított felület (`web-dist`) a saját Angular-projektből épül: a fris
 1. Telepítsd vagy használd a Forms-verziótokhoz tartozó Oracle Forms2XML környezetet azon a gépen, ahol a Python backend fut.
 2. A `frmf2xml` / `frmf2xml.bat` legyen elérhető a backend termináljának PATH-jában, vagy állíts be `export_command` argumentumlistát egy szerveroldali JSON configban.
 3. A szükséges Oracle környezeti változókat, CLASSPATH-ot, natív könyvtárakat és `FORMS_PATH`-ot a backend indítása előtt állítsd be. A feltöltött FMB a helyi feladatmappába kerül; a kapcsolódó PLL/OLB és más függőségeknek az Oracle számára elérhető helyen kell lenniük.
-4. Indítsd a backendet a configgal: `python -m niva_forms.web --port 8000 --config config.json` — a saját `.venv` Python parancsoddal.
+4. Indítsd a backendet a configgal: `python -m frm_forms.web --port 8000 --config config.json` — a saját `.venv` Python parancsoddal.
 5. A felületen húzd be vagy válaszd ki a `.fmb` fájlt.
 6. Ha rendelkezésre áll, töltsd fel a DB-mapping `schema.json` és a felülvizsgált szabályok `rules.json` fájlját is.
 7. A cím alapú fájlnevet a generátor képezi. Állítsd be szükség esetén a céges FormBlock selectorait/típusait, majd indítsd a generálást. A teljes profil leírása: [COMPANY_PROFILE_HU.md](COMPANY_PROFILE_HU.md).
@@ -181,20 +181,20 @@ A webes felületen az AI bekapcsolása után add meg az **Ollama alap URL** mez�
 **Windows / PowerShell:**
 
 ```powershell
-$env:NIVA_OLLAMA_URL = "http://xx:11434"
-$env:NIVA_OLLAMA_MODEL = "niva-model"
-.\.venv\Scripts\python.exe -m niva_forms.web --port 8000
+$env:FRM_OLLAMA_URL = "http://xx:11434"
+$env:FRM_OLLAMA_MODEL = "frm-model"
+.\.venv\Scripts\python.exe -m frm_forms.web --port 8000
 ```
 
 **Linux / macOS:**
 
 ```bash
-export NIVA_OLLAMA_URL="http://xx:11434"
-export NIVA_OLLAMA_MODEL="niva-model"
-.venv/bin/python -m niva_forms.web --port 8000
+export FRM_OLLAMA_URL="http://xx:11434"
+export FRM_OLLAMA_MODEL="frm-model"
+.venv/bin/python -m frm_forms.web --port 8000
 ```
 
-Az `xx` a saját belső hostneved legyen. Ha az Ollama ugyanazon a gépen fut, használj `http://localhost:11434` címet. Ezután a teljes rendszer az adott gépen működik. Az alapértékek az általad megadott `http://xx:11434` és `niva-model`; a program `.env` fájlt nem olvas automatikusan. A webes feladatnál az általad megadott Ollama URL és modell felülírja a szerver környezeti alapértékét. A teljes Ollama-kapcsolat továbbra is a Python backendből történik. Az Angular közvetlenül nem hívja az Ollamát, így ahhoz nem kell böngészős CORS-t állítanod.
+Az `xx` a saját belső hostneved legyen. Ha az Ollama ugyanazon a gépen fut, használj `http://localhost:11434` címet. Ezután a teljes rendszer az adott gépen működik. Az alapértékek az általad megadott `http://xx:11434` és `frm-model`; a program `.env` fájlt nem olvas automatikusan. A webes feladatnál az általad megadott Ollama URL és modell felülírja a szerver környezeti alapértékét. A teljes Ollama-kapcsolat továbbra is a Python backendből történik. Az Angular közvetlenül nem hívja az Ollamát, így ahhoz nem kell böngészős CORS-t állítanod.
 
 Gyenge gépre a felület alapbeállításai: maximum 3 hívás/feladat, 2048-as kontextus, 256 kimeneti token, 120 másodperc/kérés, maximum 1200 karakteres trigger és 3200 bájtos teljes prompt. Kezdhetsz **1 hívással**. Egyszerre egy migráció és azon belül egy AI-kérés fut. Az AI beállításainál a kontextus, válaszhossz, timeout, forráshossz, promptméret, think mód és cache-verzió is módosítható. Nincs automatikus újrapróbálási ciklus; a hibás kérés is fogyasztja a keretet.
 
@@ -212,22 +212,22 @@ Az AI itt **review-javaslatot** készít, nem ellenőrizetlen végrehajtható k�
 
 Alapértelmezett adatmappa: `local-data/`. A feladatok a `local-data/jobs/<azonosító>/`, a cache a `local-data/cache/` alatt találhatók. Az alkalmazás megőrzi a kész feladatokat újraindítás után. A megszakadt futásokat `interrupted` állapotúként tölti vissza; nem indítja őket újra automatikusan.
 
-Egyedi adatmappa: `python -m niva_forms.web --data-dir D:/niva-data`. Az `--data-dir`, `--config` és `--port` együtt is használható. Ugyanazt az adatmappát egyszerre egy backend használhatja. A normál Ctrl+C leállítás a worker leállítását is elindítja. Kényszerített operációs rendszeres kilövésnél szükség lehet a hátramaradt Oracle/worker folyamat külön leállítására. A kliens megszakítása az Ollama szerveroldali inferenciájának azonnali leállását nem garantálja.
+Egyedi adatmappa: `python -m frm_forms.web --data-dir D:/frm-data`. Az `--data-dir`, `--config` és `--port` együtt is használható. Ugyanazt az adatmappát egyszerre egy backend használhatja. A normál Ctrl+C leállítás a worker leállítását is elindítja. Kényszerített operációs rendszeres kilövésnél szükség lehet a hátramaradt Oracle/worker folyamat külön leállítására. A kliens megszakítása az Ollama szerveroldali inferenciájának azonnali leállását nem garantálja.
 
 | Környezeti változó | Alapérték / szerep |
 |---|---|
-| `NIVA_API_PORT` | `8000`; a `--port` felülírja |
-| `NIVA_WORK_DIR` | A projekt `local-data` mappája; a `--data-dir` felülírja |
-| `NIVA_SERVER_CONFIG` | Opcionális helyi JSON config; a `--config` felülírja |
-| `NIVA_JOB_TIMEOUT` | `1800` másodperc, teljes feladat időkorlátja |
-| `NIVA_OLLAMA_URL` | `http://xx:11434` |
-| `NIVA_OLLAMA_MODEL` | `niva-model` |
+| `FRM_API_PORT` | `8000`; a `--port` felülírja |
+| `FRM_WORK_DIR` | A projekt `local-data` mappája; a `--data-dir` felülírja |
+| `FRM_SERVER_CONFIG` | Opcionális helyi JSON config; a `--config` felülírja |
+| `FRM_JOB_TIMEOUT` | `1800` másodperc, teljes feladat időkorlátja |
+| `FRM_OLLAMA_URL` | `http://xx:11434` |
+| `FRM_OLLAMA_MODEL` | `frm-model` |
 
 Feltöltési limit: 32 MiB FMB/XML, külön-külön 1 MiB schema/rules JSON. A kapcsolódó limitet a felület is kijelzi. A JSON-formátumok és a generátor részletes támogatási határai: [README_HU.md](README_HU.md), [SEMANTICS_HU.md](docs/SEMANTICS_HU.md).
 
 ## 9. API és CORS
 
-A Python szerver kizárólag `127.0.0.1` címen figyel. A CORS pontos originlistát használ, nem `*`-ot. A módosító kérésekhez `X-Niva-Client: local-ui` fejléc kell; az Angular service ezt automatikusan hozzáadja. A `Content-Disposition` letöltési fejléc olvasható a böngészőből. A CORS nem felhasználóazonosítás: ez egy helyi, egyfelhasználós eszköz. [FastAPI CORS dokumentáció](https://fastapi.tiangolo.com/tutorial/cors/).
+A Python szerver kizárólag `127.0.0.1` címen figyel. A CORS pontos originlistát használ, nem `*`-ot. A módosító kérésekhez `X-Frm-Client: local-ui` fejléc kell; az Angular service ezt automatikusan hozzáadja. A `Content-Disposition` letöltési fejléc olvasható a böngészőből. A CORS nem felhasználóazonosítás: ez egy helyi, egyfelhasználós eszköz. [FastAPI CORS dokumentáció](https://fastapi.tiangolo.com/tutorial/cors/).
 
 | Metódus és útvonal | Feladat |
 |---|---|
@@ -256,7 +256,7 @@ A beépített Swagger/ReDoc felület nincs bekapcsolva, hogy a böngésző ne t�
 | Hibás XML / nem várt Forms-dialektus | Nyisd meg a naplót. Angol nevű Forms2XML export kell; az eredeti forrást a feladat bemeneti mappája megőrzi. |
 | JSON elutasítva | Schema: `{"blocks": {...}}`; rules: `{"replacements": {...}}`. Teljes szerver-configot ne a schema/rules feltöltőbe adj. |
 | AI időtúllépés / csonka válasz | Ellenőrizd az Ollama címet és modellt; csökkentsd a hívások számát, vagy óvatosan emeld a timeoutot/válaszhosszt. A szabályalapú eredmény megmarad. |
-| Lock-hiba | Ugyanazt az adatmappát másik NIVA backend használja; ne indíts több Uvicorn workert. |
+| Lock-hiba | Ugyanazt az adatmappát másik FRM backend használja; ne indíts több Uvicorn workert. |
 | API JSON jelenik meg a kész UI helyett | Ellenőrizd, hogy a `web-dist/browser/index.html` megvan-e; fordítsd le a frontendet, majd indítsd újra a backendet. |
 
 Fejlesztői ellenőrzés, a projekt gyökerében a virtuális környezet Pythonjával:

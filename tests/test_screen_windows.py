@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import unittest
 
-from niva_forms.cli import main
+from frm_forms.cli import main
 import test_screen
 
 ROOT = test_screen.ROOT

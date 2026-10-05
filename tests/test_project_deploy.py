@@ -22,7 +22,7 @@ import unittest
 from java_support import COMPANY_IMPORTS
 from frm_forms.cli import main
 from frm_forms.common import MigrationError
-from frm_forms.project_deploy import MANIFEST, deploy, map_project, markdown, parse_layout
+from frm_forms.project_deploy import MANIFEST, deploy, folder_package, layout_packages, map_project, markdown, parse_layout
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
@@ -36,6 +36,17 @@ def company_project(root: Path, name='rendszer') -> Path:
     (ui / 'node_modules/some-lib/src/main/java').mkdir(parents=True)  # never a candidate
     (ui / 'angular.json').write_text(json.dumps({'projects': {name: {'projectType': 'application', 'sourceRoot': 'src'}}}))
     return root
+
+
+def module_folders(root: Path, name='rendszer') -> dict:
+    """The module's own folders in a company project (as the developer chooses them with "Tallózás…")."""
+    folders = {'CL': root / f'{name}-cl/src/main/java/hu/ceg/{name}/cl/modules/rendeles',
+               'DPS': root / f'{name}-dps/src/main/java/hu/ceg/{name}/dps/rendeles',
+               'WBS': root / f'{name}-wbs/src/main/java/hu/ceg/{name}/wbs/rendeles',
+               'frontend': root / f'{name}-ui/src/app/pages/rendeles'}
+    for folder in folders.values():
+        folder.mkdir(parents=True, exist_ok=True)
+    return {key: str(folder) for key, folder in folders.items()}
 
 
 def generate(out: Path, extra=None, awu='1234') -> Path:
@@ -82,13 +93,14 @@ class MappingTests(unittest.TestCase):
         elsewhere = company_project(Path(self.temp.name) / 'mashol', 'masik')
         mapped = map_project(None, {'CL': str(self.root / 'rendszer-cl'),  # a Java project folder: its src/main/java
                                     'DPS': str(elsewhere / 'masik-dps/src/main/java'),
-                                    'WBS': str(self.root / 'rendszer-wbs/src/main/java/hu/company'),  # a package in it
+                                    'WBS': str(self.root / 'rendszer-wbs/src/main/java/hu/company'),  # the module's own
                                     'frontend': str(elsewhere / 'masik-ui')})  # the Angular project: its screens folder
         self.assertIsNone(mapped['root'])
         self.assertEqual(mapped['CL'], self.root / 'rendszer-cl/src/main/java')
         self.assertEqual(mapped['DPS'], elsewhere / 'masik-dps/src/main/java')
-        self.assertEqual(mapped['WBS'], self.root / 'rendszer-wbs/src/main/java')
+        self.assertEqual(mapped['WBS'], self.root / 'rendszer-wbs/src/main/java/hu/company')  # exactly there, not cut
         self.assertEqual(mapped['frontend'], elsewhere / 'masik-ui/src/app')
+        self.assertEqual(mapped['exact'], {'CL': False, 'DPS': False, 'WBS': True, 'frontend': False})
         self.assertEqual(mapped['home'], {'CL': self.root / 'rendszer-cl', 'DPS': elsewhere / 'masik-dps',
                                           'WBS': self.root / 'rendszer-wbs', 'frontend': elsewhere / 'masik-ui'})
         only_dps = map_project(None, {'DPS': str(elsewhere / 'masik-dps')})
@@ -108,11 +120,24 @@ class MappingTests(unittest.TestCase):
         with self.assertRaisesRegex(MigrationError, 'nem létezik'):
             map_project(None, {'DPS': str(self.root / 'rendszer-dps/uj')})  # a Java part is never created
         with self.assertRaisesRegex(MigrationError, 'nem létezik'):
-            map_project(None, {'frontend': str(self.root / 'nincs/kepernyok')})
-        # a new screens folder in the Angular project: the first deploy creates it
-        new = map_project(None, {'frontend': str(self.root / 'rendszer-ui/src/app/kepernyok')})
-        self.assertEqual(new['frontend'], self.root / 'rendszer-ui/src/app/kepernyok')
-        self.assertEqual(new['home']['frontend'], self.root / 'rendszer-ui')
+            map_project(None, {'frontend': str(self.root / 'rendszer-ui/src/app/kepernyok')})  # no folder is invented
+        own = map_project(None, {'frontend': str(self.root / 'rendszer-ui/src/app/meglevo')})
+        self.assertEqual(own['frontend'], self.root / 'rendszer-ui/src/app/meglevo')
+        self.assertTrue(own['exact']['frontend'])
+        self.assertEqual(own['home']['frontend'], self.root / 'rendszer-ui')
+
+    def test_the_module_folders_give_the_packages(self):
+        folders = module_folders(self.root)
+        self.assertEqual(layout_packages(folders), {'CL': 'hu.ceg.rendszer.cl.modules.rendeles',
+                                                    'DPS': 'hu.ceg.rendszer.dps.rendeles', 'WBS': 'hu.ceg.rendszer.wbs.rendeles'})
+        # a project folder or source root: the files go by their package, nothing is derived
+        self.assertEqual(layout_packages({'DPS': str(self.root / 'rendszer-dps'),
+                                          'WBS': str(self.root / 'rendszer-wbs/src/main/java')}), {})
+        # outside src/main/java: from the "hu" folder on
+        self.assertEqual(folder_package(Path(self.temp.name) / 'forras/hu/ceg/x/dps'), 'hu.ceg.x.dps')
+        (Path(self.temp.name) / 'mas/modul').mkdir(parents=True)
+        with self.assertRaisesRegex(MigrationError, 'nem állapítható meg a Java-csomag'):
+            layout_packages({'DPS': str(Path(self.temp.name) / 'mas/modul')})
 
     def test_company_classes_tell_a_layer_without_a_telling_folder_name(self):
         other = Path(self.temp.name) / 'egyeb'
@@ -156,15 +181,21 @@ class DeployTests(unittest.TestCase):
         self.assertTrue((dps / 'RendelesServiceBase.java').is_file())
         self.assertTrue((self.root / 'rendszer-wbs/src/main/java/hu/company/features/rendeles/wbs/RendelesServiceImpl.java').is_file())
         self.assertTrue((self.root / 'rendszer-cl/src/main/java/hu/company/features/rendeles/cl/RendelesConstants.java').is_file())
-        self.assertTrue((self.root / 'rendszer-cl/src/main/java/hu/company/features/cl/CommonMigrateTools.java').is_file())
         app = self.root / 'rendszer-ui/src/app'
-        self.assertTrue((app / 'frm-forms-screen.ts').is_file())
         self.assertTrue((app / 'rendeles/rendeles.component.ts').is_file())
+        # the shared helpers are never deployed: downloaded once and kept in the project
+        self.assertFalse(list(self.root.rglob('CommonMigrateTools.java')))
+        self.assertFalse(list(self.root.rglob('frm-forms-screen.ts')))
+        self.assertEqual({h['name']: h['status'] for h in report['helpers']},
+                         {'CommonMigrateTools.java': 'missing', 'frm-forms-screen.ts': 'missing'})
+        self.assertEqual({h['name']: h['expected'] for h in report['helpers']},
+                         {'CommonMigrateTools.java': str(self.root / 'rendszer-cl/src/main/java/hu/company/features/cl/CommonMigrateTools.java'),
+                          'frm-forms-screen.ts': str(app / 'frm-forms-screen.ts')})
         self.assertFalse(list(self.root.rglob('*.md')))  # reports and notes stay in the output
         # the last deploy's hashes: in each part's project folder
         self.assertFalse((self.root / MANIFEST).exists())
         ui = json.loads((self.root / 'rendszer-ui' / MANIFEST).read_text(encoding='utf-8'))
-        self.assertIn('src/app/frm-forms-screen.ts', ui['files'])
+        self.assertIn('src/app/rendeles/rendeles.component.ts', ui['files'])
         dps_manifest = json.loads((self.root / 'rendszer-dps' / MANIFEST).read_text(encoding='utf-8'))
         self.assertIn('src/main/java/hu/company/features/rendeles/dps/RendelesServiceImpl.java', dps_manifest['files'])
         files = {f['source']: f for f in report['files']}
@@ -212,18 +243,70 @@ class DeployTests(unittest.TestCase):
     def test_parts_chosen_one_by_one_get_their_files_without_a_main_folder(self):
         elsewhere = company_project(Path(self.work.name) / 'mashol', 'masik')
         layout = {'CL': str(self.root / 'rendszer-cl'), 'DPS': str(elsewhere / 'masik-dps'),
-                  'WBS': str(self.root / 'rendszer-wbs/src/main/java'), 'frontend': str(elsewhere / 'masik-ui/src/app/kepernyok')}
+                  'WBS': str(self.root / 'rendszer-wbs/src/main/java'), 'frontend': str(elsewhere / 'masik-ui')}
         report = deploy([self.output], None, layout)
         self.assertIsNone(report['project'])
         self.assertEqual(set(report['counts']), {'new'})
         self.assertTrue((elsewhere / 'masik-dps/src/main/java/hu/company/features/rendeles/dps/RendelesServiceImpl.java').is_file())
         self.assertTrue((self.root / 'rendszer-wbs/src/main/java/hu/company/features/rendeles/wbs/RendelesServiceImpl.java').is_file())
-        self.assertTrue((elsewhere / 'masik-ui/src/app/kepernyok/rendeles/rendeles.component.ts').is_file())
+        self.assertTrue((elsewhere / 'masik-ui/src/app/rendeles/rendeles.component.ts').is_file())
         self.assertFalse((self.root / 'rendszer-dps/src/main/java/hu/company/features/rendeles').exists())
-        ui = json.loads((elsewhere / 'masik-ui' / MANIFEST).read_text(encoding='utf-8'))
-        self.assertIn('src/app/kepernyok/frm-forms-screen.ts', ui['files'])
         self.assertNotIn('Fő projektmappa', markdown(report))
         self.assertEqual(set(deploy([self.output], None, layout)['counts']), {'unchanged'})
+
+    def test_the_module_folders_get_exactly_the_files_with_their_packages(self):
+        folders = module_folders(self.root)
+        tools = self.root / 'rendszer-cl/src/main/java/hu/ceg/common/CommonMigrateTools.java'
+        tools.parent.mkdir(parents=True)
+        tools.write_text('package hu.ceg.common;\npublic final class CommonMigrateTools { static final String VERSION = "4"; }\n')
+        runtime = self.root / 'rendszer-ui/src/app/shared/frm-forms-screen.ts'
+        runtime.parent.mkdir(parents=True)
+        runtime.write_text("export const FRM_FORMS_SCREEN_VERSION = '2';\n")
+        report = deploy([self.output], None, folders)  # generated with the default packages: the deploy fits them
+        self.assertEqual(set(report['counts']), {'new'})
+        dps, wbs, cl, ui = (Path(folders[key]) for key in ('DPS', 'WBS', 'CL', 'frontend'))
+        self.assertEqual(sorted(p.name for p in dps.iterdir()), sorted(
+            ['RendelesController.java', 'RendelesControllerBase.java', 'RendelesControllerImpl.java', 'RendelesService.java',
+             'RendelesServiceBase.java', 'RendelesServiceImpl.java']))  # straight in, no package folders invented
+        self.assertFalse((self.root / 'rendszer-dps/src/main/java/hu/company/features/rendeles').exists())
+        service = (dps / 'RendelesServiceImpl.java').read_text(encoding='utf-8')
+        self.assertTrue(service.startswith('package hu.ceg.rendszer.dps.rendeles;\n'))
+        self.assertIn('import hu.ceg.rendszer.cl.modules.rendeles.RendelesConstants;', service)
+        self.assertIn('import hu.ceg.common.CommonMigrateTools.SqlValues;', service)  # the project's own copy
+        self.assertNotIn('hu.company.features', service)
+        self.assertTrue((wbs / 'RendelesServiceImpl.java').read_text(encoding='utf-8').startswith('package hu.ceg.rendszer.wbs.rendeles;'))
+        self.assertTrue((cl / 'RendelesConstants.java').is_file())
+        self.assertFalse((cl / 'CommonMigrateTools.java').exists())
+        self.assertEqual(sorted(p.name for p in ui.iterdir()), ['rendeles.component.ts'])  # no <module> folder
+        self.assertIn("from '../../shared/frm-forms-screen'", (ui / 'rendeles.component.ts').read_text(encoding='utf-8'))
+        helpers = {h['name']: h for h in report['helpers']}
+        self.assertEqual((helpers['CommonMigrateTools.java']['status'], helpers['CommonMigrateTools.java']['found']),
+                         ('outdated', str(tools)))
+        self.assertEqual((helpers['frm-forms-screen.ts']['status'], helpers['frm-forms-screen.ts']['found']), ('ok', str(runtime)))
+        self.assertIn('régebbi változat', markdown(report))
+        self.assertEqual(report['packages']['DPS'], 'hu.ceg.rendszer.dps.rendeles')
+        # one module per module folder
+        with self.assertRaisesRegex(MigrationError, 'egyszerre csak egy modul'):
+            deploy([self.output, self.empty_package], None, folders, dry_run=True)
+
+    def test_folders_chosen_before_the_generation_give_its_packages(self):
+        folders = module_folders(self.root)
+        tools = self.root / 'rendszer-cl/src/main/java/hu/ceg/common/CommonMigrateTools.java'
+        tools.parent.mkdir(parents=True)
+        tools.write_text('package hu.ceg.common;\npublic final class CommonMigrateTools {}\n')
+        out = generate(Path(self.work.name) / 'elore', {'java_empty_package': True, 'project_layout': folders})
+        service = (out / 'backend/DPS/RendelesServiceImpl.java').read_text(encoding='utf-8')
+        self.assertIn('import hu.ceg.rendszer.cl.modules.rendeles.RendelesConstants;', service)
+        self.assertIn('import hu.ceg.common.CommonMigrateTools.SqlValues;', service)
+        self.assertIn('package hu.ceg.common;', (out / 'backend/CL/CommonMigrateTools.java').read_text(encoding='utf-8'))
+        effective = json.loads((out / 'analysis/effective-config.json').read_text(encoding='utf-8'))['config']
+        self.assertEqual((effective['cl_package'], effective['dps_package'], effective['wbs_package']),
+                         ('hu.ceg.rendszer.cl.modules.rendeles', 'hu.ceg.rendszer.dps.rendeles', 'hu.ceg.rendszer.wbs.rendeles'))
+        before = (out / 'backend/WBS/RendelesServiceImpl.java').read_text(encoding='utf-8')
+        report = deploy([out], None, folders)
+        placed = (Path(folders['WBS']) / 'RendelesServiceImpl.java').read_text(encoding='utf-8')
+        self.assertEqual(placed, 'package hu.ceg.rendszer.wbs.rendeles;\n\n' + before)  # only the package line added
+        self.assertEqual(set(report['counts']), {'new'})
 
     def test_the_hashes_of_a_4_16_deploy_still_tell_our_files_from_changed_ones(self):
         deploy([self.output], self.root)
@@ -278,11 +361,12 @@ class DeployTests(unittest.TestCase):
         config.write_text(json.dumps({'java_company_imports': COMPANY_IMPORTS, 'backend_live': True,
                                       'screen_window_selection': 'all', 'screen_primary_window_auto': True,
                                       'project_layout': {'frontend': 'rendszer-ui/src/app/kepernyok'}}))
+        (self.root / 'rendszer-ui/src/app/kepernyok').mkdir()
         with contextlib.redirect_stdout(io.StringIO()):
             code = main(['migrate', str(REPLICA), '--out', str(Path(self.work.name) / 'kozvetlen'), '--screen',
                          '--module', 'rendeles', '--config', str(config), '--awu-azon', '1234', '--project', str(self.root)])
         self.assertEqual(code, 0)
-        self.assertTrue((self.root / 'rendszer-ui/src/app/kepernyok/rendeles/rendeles.component.ts').is_file())
+        self.assertTrue((self.root / 'rendszer-ui/src/app/kepernyok/rendeles.component.ts').is_file())  # the module's own folder
         self.assertTrue((self.root / 'rendszer-dps/src/main/java/hu/company/features/rendeles/dps/RendelesServiceBase.java').is_file())
 
     def test_cli_deploy_into_chosen_parts_without_project(self):
@@ -324,8 +408,8 @@ class WebDeployTests(unittest.TestCase):
         self.client.__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)
 
-    def completed_job(self):
-        options = {'module': 'rendeles', 'screen_window_selection': 'all', 'screen_primary_window_auto': True}
+    def completed_job(self, **extra):
+        options = {'module': 'rendeles', 'screen_window_selection': 'all', 'screen_primary_window_auto': True, **extra}
         files = {'file': ('felmeres_replika_fmb.xml', REPLICA.read_bytes(), 'application/octet-stream')}
         response = self.client.post('/api/jobs', files=files, data={'options': json.dumps(options)}, headers=HEADERS)
         self.assertEqual(response.status_code, 202, response.text)
@@ -367,6 +451,40 @@ class WebDeployTests(unittest.TestCase):
         self.assertEqual(set(done.json()['counts']), {'new'})
         self.assertTrue(any(f['display'].startswith('DPS: src/main/java/') for f in done.json()['files']))
         self.assertTrue((self.project / 'rendszer-ui/src/app/rendeles/rendeles.component.ts').is_file())
+
+    def test_folders_chosen_before_the_generation(self):
+        folders = module_folders(self.project)
+        job = self.completed_job(project_layout=folders)
+        self.assertEqual(job['options']['project_layout'], folders)
+        url = '/api/jobs/' + job['id'] + '/deploy'
+        done = self.client.post(url, json={'layout': job['options']['project_layout'], 'dry_run': False}, headers=HEADERS)
+        self.assertEqual(done.status_code, 200, done.text)
+        self.assertEqual(set(done.json()['counts']), {'new'})
+        service = (Path(folders['DPS']) / 'RendelesServiceImpl.java').read_text(encoding='utf-8')
+        self.assertTrue(service.startswith('package hu.ceg.rendszer.dps.rendeles;'))
+        self.assertIn('import hu.ceg.rendszer.cl.modules.rendeles.RendelesConstants;', service)
+        self.assertTrue((Path(folders['frontend']) / 'rendeles.component.ts').is_file())
+        self.assertEqual([h['status'] for h in done.json()['helpers']], ['missing', 'missing'])
+        # the helpers: downloaded separately
+        tools = self.client.get('/api/jobs/' + job['id'] + '/helpers/CommonMigrateTools.java')
+        self.assertEqual(tools.status_code, 200)
+        self.assertIn('attachment', tools.headers['content-disposition'])
+        self.assertIn('class CommonMigrateTools', tools.text)
+        runtime = self.client.get('/api/jobs/' + job['id'] + '/helpers/frm-forms-screen.ts')
+        self.assertIn('FRM_FORMS_SCREEN_VERSION', runtime.text)
+        self.assertEqual(self.client.get('/api/jobs/' + job['id'] + '/helpers/masik.ts').status_code, 422)
+
+    def test_wrong_folders_are_refused_when_the_job_is_created(self):
+        files = {'file': ('felmeres_replika_fmb.xml', REPLICA.read_bytes(), 'application/octet-stream')}
+        for layout in ({'DPS': 'relativ/mappa'}, {'DPS': str(self.project / 'nincs')}, {'X': str(self.project)},
+                       {'DPS': str(Path(self.temp.name))}):  # no package can be read from the last one
+            options = {'module': 'rendeles', 'project_layout': layout}
+            response = self.client.post('/api/jobs', files=files, data={'options': json.dumps(options)}, headers=HEADERS)
+            self.assertEqual(response.status_code, 422, (layout, response.text))
+        self.settings.project_roots = [str(Path(self.temp.name) / 'mas')]
+        options = {'module': 'rendeles', 'project_layout': module_folders(self.project)}
+        response = self.client.post('/api/jobs', files=files, data={'options': json.dumps(options)}, headers=HEADERS)
+        self.assertEqual(response.status_code, 403, response.text)
 
     def test_relative_paths_and_folders_outside_the_allowed_roots_are_refused(self):
         job = self.completed_job()

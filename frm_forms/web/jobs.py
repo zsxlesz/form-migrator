@@ -236,6 +236,18 @@ class JobManager:
             raise JobError("Ehhez a feladathoz nem készült képernyő-előnézet.", 404)
         return path
 
+    def helper_path(self, job_id: str, name: str) -> Path:
+        """A shared helper of a generated module (CommonMigrateTools.java, frm-forms-screen.ts)."""
+        job = self.get(job_id)
+        if job["status"] != "completed":
+            raise JobError("A segédfájl a generálás befejezése után tölthető le.", 409)
+        relative = {"CommonMigrateTools.java": "backend/CL/CommonMigrateTools.java",
+                    "frm-forms-screen.ts": "frontend/frm-forms-screen.ts"}[name]
+        path = self.root / job_id / "module" / relative
+        if not path.is_file():
+            raise JobError("Ehhez a feladathoz nem készült " + name + ".", 404)
+        return path
+
     def batch_jobs(self, batch: str) -> list[dict]:
         if not BATCH_ID.fullmatch(batch or ""):
             raise JobError("Hibás tömeges futtatás-azonosító.", 422)

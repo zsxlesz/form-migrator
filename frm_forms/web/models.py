@@ -68,6 +68,29 @@ class MigrationOptions(BaseModel):
     # Generated endpoints live at once: MODULE_REVIEWED = true and writes allowed unless schema.json forbids them.
     backend_live: bool = True
     backend_lov_endpoints: bool = True
+    # The module's own folders in the project (chosen before the generation): CL / DPS / WBS / frontend -> full
+    # path. The Java folders give the packages (cl_package, dps_package, wbs_package); the deploy writes there.
+    project_layout: dict[str, str] = Field(default_factory=dict, max_length=4)
+
+    @field_validator("project_layout", mode="before")
+    @classmethod
+    def valid_layout(cls, value):
+        from pathlib import Path
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("project_layout: {\"CL\": \"…\", \"DPS\": \"…\", \"WBS\": \"…\", \"frontend\": \"…\"} objektum kell.")
+        result = {}
+        for key, folder in value.items():
+            if key not in ("CL", "DPS", "WBS", "frontend") or not isinstance(folder, str):
+                raise ValueError("project_layout: csak CL, DPS, WBS és frontend mappa adható meg.")
+            folder = folder.strip()
+            if not folder:
+                continue
+            if len(folder) > 1000 or not Path(folder).expanduser().is_absolute():
+                raise ValueError(f"project_layout: a(z) {key} mappát teljes útvonallal add meg.")
+            result[key] = folder
+        return result
 
     @field_validator("AWU_AZON", mode="before")
     @classmethod

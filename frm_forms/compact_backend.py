@@ -9,7 +9,7 @@ from textwrap import indent, wrap
 
 from .action_scaffold import comment_lines
 from .common import jstr, name, write_json, java_text_block
-from .java_imports import cl_package
+from .java_imports import cl_package, layer_package
 from .discovery import source_view
 from .generate import block_values, row_declarations, rule_methods, template, write
 
@@ -660,7 +660,7 @@ def generate(model, output: Path, config, module, package, discovery, actions):
         folder.mkdir(parents=True, exist_ok=True)
     imports = f'import {cl}.{cls}Dtos.*;\nimport {cl}.{cls}Constants;\nimport java.util.List;\n'
     def emit(layer, suffix, body, extra=''):
-        write(folders[layer]/f'{cls}{suffix}.java', f'package {cl if layer == "CL" else package + "." + layer.lower()};\n\n'+extra+'\n'+body+'\n')
+        write(folders[layer]/f'{cls}{suffix}.java', f'package {layer_package(config, package, layer)};\n\n'+extra+'\n'+body+'\n')
 
     dto_rows, selections = [], []
     for b in model['blocks']:
@@ -803,7 +803,7 @@ import org.springframework.web.server.ResponseStatusException;
         controller_base = config['java_controller_base_' + layer.lower()]
         emit(layer, 'ControllerImpl', f'''/** CREATE_ONCE: --regenerate preserves host customizations. Every endpoint runs in log1x. */
 @XSlf4j
-@RestController({jstr(package+'.'+layer.lower()+'.'+cls+'Controller')})
+@RestController({jstr(layer_package(config, package, layer)+'.'+cls+'Controller')})
 @RequestMapping({cls}Constants.BASE_PATH)
 public class {cls}ControllerImpl extends {controller_base} implements {cls}Controller {{
     private final {cls}Service service;

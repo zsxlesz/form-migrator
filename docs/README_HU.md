@@ -1,4 +1,15 @@
-# FRM Forms Migrator 4.17.0 — használat
+# FRM Forms Migrator 4.18.0 — használat
+
+**4.18 – célmappák a generálás elején, pontosan oda:**
+
+- **Célmappák az űrlapon:** a modul CL, DPS, WBS és frontend mappája már a generálás előtt kitallózható. A
+  Java-mappák útvonalából lesz a csomag (a CL package mező megszűnt), ezzel készülnek a package sorok és az
+  importok.
+- **Pontosan oda:** a fájlok a kiválasztott mappába kerülnek, új csomag- vagy modulmappa nem készül.
+- **Segédfájlok külön:** a `CommonMigrateTools.java` és a `frm-forms-screen.ts` nem kerül a projektbe; a feladatnál
+  külön letölthető. A telepítés megkeresi a projektben lévő példányt, és arra igazítja az importokat.
+
+Részletek: [JAVITASOK_4_18_HU.md](JAVITASOK_4_18_HU.md).
 
 **4.17 – a mappák kitallózása, részenként:**
 

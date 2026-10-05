@@ -8,13 +8,15 @@ def guide(module, package, config, frontend_name=None):
     wbs = config['wbs_base_url'] or '<a WBS alap URL-je>'
     dps = config['dps_base_url'] or '<a DPS alap URL-je>'
     api = config['api_prefix'].rstrip('/') + '/' + module
+    from .java_imports import layer_package
+    cl_pkg, dps_pkg, wbs_pkg = (layer_package(config, package, layer) for layer in ('CL', 'DPS', 'WBS'))
     return f'''# {module} beépítése — Angular 22 / CL / DPS / WBS
 
 A frontend pontosan egy fájl: `frontend/{frontend_name}/{frontend_name}.component.ts`. A backendben csak a `CL`, `DPS`, `WBS` mappa van, bennük Java-forrásokkal. Teljes célalkalmazás és buildprojekt nem generálódik.
 
 ## 1. CL / CommonLib
 
-Másold a `backend/CL/*.java` fájlokat a CommonLib projekt megfelelő package-mappájába: `{package}.cl`.
+Másold a `backend/CL/*.java` fájlokat a CommonLib projekt megfelelő package-mappájába: `{cl_pkg}`.
 
 - Modulonként **4 fájl**: `{cls}Dtos`, `{cls}Constants`, `{cls}RestClient`, `{cls}RestClientImpl`. Több blokk és gombesemény sem növeli a fájlszámot.
 - A Dtos egyetlen fájlban tartalmazza a végpontokhoz szükséges rekordtípusokat és közös PageResult/RowResult/UpdateRequest burkolókat. A rejtett kulcsok, a szabályokhoz szükséges mezők, a Required/MaximumLength, az igazolt NUMBER precision/scale és a DATE másodpercei megmaradnak. A sima vezérlőblokkokhoz nem készül használatlan Row DTO. A kiválasztás indoka: `analysis/backend-plan.json`.
@@ -25,7 +27,7 @@ Másold a `backend/CL/*.java` fájlokat a CommonLib projekt megfelelő package-m
 
 ## 2. DPS / adatbázis és üzleti logika
 
-Másold a `backend/DPS/*.java` fájlokat a DPS projekt `{package}.dps` package-ébe. A DPS függjön a CL-től, és biztosítson web/JDBC/validation függőségeket, Oracle drivert, DataSource-t és tranzakciókezelőt.
+Másold a `backend/DPS/*.java` fájlokat a DPS projekt `{dps_pkg}` package-ébe. A DPS függjön a CL-től, és biztosítson web/JDBC/validation függőségeket, Oracle drivert, DataSource-t és tranzakciókezelőt.
 
 Modulonként **4 fájl**: `{cls}Controller`, `{cls}ControllerImpl`, `{cls}Service`, `{cls}ServiceImpl`. A publikus ServiceImpl- és ControllerImpl-belépési pontok `log1x(log, {cls}Constants.<METÓDUS>_NAME, user, null, () -> ...)` hívásban futnak (céges alaposztály, `UserDto`); a tranzakciók a DPS ServiceImpl publikus metódusain vannak. Az SQL, a Forms-triggerek, a ténylegesen hívott helyi eljárások (`PlsqlUnits`) és a JDBC-segédek **közvetlenül a DPS ServiceImpl-ben** találhatók. Nincs külön Data, domain vagy repository réteg. A PL/SQL többsoros Java szövegblokk, az értékek típusos IN/OUT bindeken érkeznek. Az eredeti forrás: `analysis/backend-evidence.md`.
 
@@ -37,7 +39,7 @@ A ServiceImpl és ControllerImpl **CREATE_ONCE**: `--regenerate` az SQL/PLSQL-be
 
 ## 3. WBS / közvetítő réteg
 
-Másold a `backend/WBS/*.java` fájlokat a WBS projekt `{package}.wbs` package-ébe. A WBS is a CL-től függ; **nem függ a DPS Java-kódjától**, és nem kap repositoryt.
+Másold a `backend/WBS/*.java` fájlokat a WBS projekt `{wbs_pkg}` package-ébe. A WBS is a CL-től függ; **nem függ a DPS Java-kódjától**, és nem kap repositoryt.
 
 Modulonként ugyanaz a **4 fájl** készül, mint a DPS-ben. A WBS ServiceImpl a CL RestClienten keresztül továbbít, és a kapott RestTemplateBuilderből létrehozza a modul HTTP-kliensét. Nincs külön ServiceBase vagy Configuration fájl.
 

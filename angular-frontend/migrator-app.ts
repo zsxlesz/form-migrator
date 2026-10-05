@@ -52,7 +52,9 @@ interface Options {
   screen_window_selection?: 'all' | 'ask'; screen_primary_window_auto?: boolean;
   backend_live: boolean;
   screen_button_label_property: 'labelText' | 'btnLabel'; screen_fold_list_buttons: boolean;
-  module: string | null; AWU_AZON: string; cl_package: string; api_prefix: string; angular_selector_prefix: string;
+  module: string | null; AWU_AZON: string; cl_package?: string; api_prefix: string; angular_selector_prefix: string;
+  // The module's own folders in the project: the Java folders give the packages, the deploy writes there.
+  project_layout?: Partial<Record<PartKey, string>>;
   common_migrate_tools_package: string;
   wbs_base_url: string; dps_base_url: string; ollama_url: string;
   html_selectors: { form_block: string; button: string; table: string };
@@ -102,12 +104,20 @@ interface DeployFile {
   source: string; part: string | null; target: string | null; display: string | null; status: string; policy: string;
   reason?: string;
 }
+interface DeployHelper {
+  name: HelperName; source: string; version: string | null; found: string | null; found_version: string | null;
+  status: 'ok' | 'outdated' | 'newer' | 'missing' | 'unknown'; expected?: string;
+}
 interface DeployReport {
   project: string | null; dry_run: boolean; force: boolean; layout: Record<string, string | null>;
+  exact?: Record<string, boolean>; packages?: Record<string, string>; helpers?: DeployHelper[];
   counts: Record<string, number>; files: DeployFile[]; markdown: string;
 }
 type DeployTarget = { kind: 'job' | 'batch'; id: string };
-type DeployKey = 'project' | 'CL' | 'DPS' | 'WBS' | 'frontend';
+type PartKey = 'CL' | 'DPS' | 'WBS' | 'frontend';
+// generate: the module's folders chosen before the generation; deploy: the folders of a job's deploy.
+type FolderScope = 'generate' | 'deploy';
+type HelperName = 'CommonMigrateTools.java' | 'frm-forms-screen.ts';
 type FolderKind = 'java' | 'angular' | null;
 interface FolderEntry { name: string; path: string; kind: FolderKind }
 interface FolderListing {
@@ -135,10 +145,10 @@ const API_KEY = 'frm-api-url-v2';
 // v5: the gap default changed (fields fill their row); older saved settings would bring gaps back.
 // v6: the UI offers no choices any more; stale saved choices must not stay active unseen.
 const OPTIONS_KEY = 'frm-options-v6';
-// 4.16 kept only the main project folder; 4.17 keeps every chosen folder (the main one and the parts).
-const PROJECT_KEY = 'frm-project-root-v1';
-const LAYOUT_KEY = 'frm-project-layout-v1';
-const DEPLOY_KEYS: readonly DeployKey[] = ['project', 'CL', 'DPS', 'WBS', 'frontend'];
+// The module folders chosen for each module name: choosing the same module again fills them in.
+const FOLDERS_KEY = 'frm-module-folders-v1';
+const PART_KEYS: readonly PartKey[] = ['CL', 'DPS', 'WBS', 'frontend'];
+const HELPERS: readonly HelperName[] = ['CommonMigrateTools.java', 'frm-forms-screen.ts'];
 const URL_PATTERN = /^https?:\/\/[^\s]+$/;
 
 // Every explanation lives in a tooltip, next to the control it explains.
@@ -166,8 +176,8 @@ const HELP = {
   fold: 'A csak go_item + LIST_VALUES triggerű gomb beolvad a mező saját lenyitó gombjába.',
   tolerance: 'Sorillesztési tolerancia a kisebb mezőmagasság arányában. 0: csak azonos Y-koordináta; alapérték: 0,25.',
   buttonLabel: 'Melyik FormBlock property hordozza a gombfeliratot: labelText (önálló gomb) vagy btnLabel (inputGroup gomb).',
-  clPackage: 'A modul CL-osztályainak (DTO-k, …Constants, …RestClient) Java package-e: ahová a generált CL-fájlokat másolod, például hu.company.cl.pages.modules.xymodul. A DPS és a WBS innen importálja őket. Tömeges futtatásnál a {module} helyére a modul neve kerül. A generált Java-fájlok package sora üres marad: az IntelliJ a bemásolás helyén felajánlja a helyeset.',
-  commonToolsPackage: 'A közös CommonMigrateTools osztály Java package-e, például hu.ceg.common.cl. Az osztálynevet és az import szót ne írd bele. Üresen: a szerver alapértelmezése. Minden modul ugyaninnen importálja a közös segédeket; a kapott CommonMigrateTools.java fájlt csak egyszer kell a közös CL-projektbe tenni.',
+  folders: 'A modul saját mappái a projektben (CL, DPS, WBS, frontend), a „Tallózás…” gombbal. A fájlok pontosan ide kerülnek, új mappa nem készül. A Java-mappák útvonalából lesz a csomag (a src/main/java utáni rész, például hu.ceg.rendszer.cl.modules.rendeles): ezzel generálódnak a package sorok és az importok. A CommonMigrateTools.java és a frm-forms-screen.ts nem kerül a projektbe: a feladatnál külön letölthető. Üresen hagyva a fájlok csak a ZIP-ben vannak.',
+  commonToolsPackage: 'A közös CommonMigrateTools osztály Java package-e, például hu.ceg.common.cl. Az osztálynevet és az import szót ne írd bele. Üresen: ha a célmappák meg vannak adva, a projektben már meglévő CommonMigrateTools.java csomagja, különben a szerver alapértelmezése. Minden modul ugyaninnen importálja a közös segédeket; a CommonMigrateTools.java fájlt csak egyszer kell a közös CL-projektbe tenni (a feladatnál külön letölthető).',
   dps: 'A WBS RestClient célcíme. Generáláskor nem kapcsolódunk hozzá.',
   imports: 'Import-sorok generálása a céges útvonalakkal. Bekapcsolva az útvonalakat meg kell adni.',
   ai: 'Csak ahol a szabályok már nem elegendők. Az ismeretlen triggerek rövid részletei a megadott Ollama szerverhez kerülhetnek; a válasz ellenőrizendő javaslat.',
@@ -196,20 +206,27 @@ function apiUrl(value: string): string {
   return parsed.href.replace(/\/+$/, '');
 }
 
-function storedLayout(): Record<DeployKey, string> {
-  const folders: Record<DeployKey, string> = { project: '', CL: '', DPS: '', WBS: '', frontend: '' };
+function storedModuleFolders(): Record<string, Partial<Record<PartKey, string>>> {
   try {
-    const saved: unknown = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? 'null');
-    if (saved && typeof saved === 'object') {
-      for (const key of DEPLOY_KEYS) {
-        const value = (saved as Record<string, unknown>)[key];
-        if (typeof value === 'string') folders[key] = value;
-      }
-    } else {
-      folders.project = localStorage.getItem(PROJECT_KEY) ?? '';
+    const saved: unknown = JSON.parse(localStorage.getItem(FOLDERS_KEY) ?? '{}');
+    return saved && typeof saved === 'object' ? (saved as Record<string, Partial<Record<PartKey, string>>>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** A mappa Java-csomagja: a src/main/java utáni rész, különben a „hu” mappától kezdve (mint a szerveren). */
+function folderPackage(path: string): string | null {
+  const parts = path.split(/[\\/]+/).filter((part) => part && !/^[A-Za-z]:$/.test(part));
+  let rest: string[] = [];
+  for (let i = parts.length - 3; i >= 0; i--) {
+    if (parts[i] === 'src' && parts[i + 1] === 'main' && parts[i + 2] === 'java') {
+      rest = parts.slice(i + 3);
+      break;
     }
-  } catch { /* privát mód vagy sérült érték: üres mezők */ }
-  return folders;
+  }
+  if (!rest.length && parts.includes('hu')) rest = parts.slice(parts.indexOf('hu'));
+  return rest.length && rest.every((part) => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(part)) ? rest.join('.') : null;
 }
 
 function storedBase(): string {
@@ -1410,26 +1427,47 @@ function highlight(text: string, lang: CodeLang): string {
                       }
                     </div>
 
+                    @if (files().length <= 1) {
+                      <div class="flex flex-col gap-2">
+                        <span class="text-sm font-medium cursor-help" [pTooltip]="help.folders"
+                        >Célmappák a projektben <span class="opacity-60">ⓘ</span></span
+                        >
+                        <span class="text-xs opacity-70"
+                        >A modul saját mappái: a fájlok pontosan ide kerülnek, a Java-mappák útvonalából lesz a
+                          csomag. Üresen hagyva a fájlok csak a ZIP-ben vannak.</span
+                        >
+                        <div class="nm-deploy-grid">
+                          @for (part of parts; track part.key) {
+                            <span class="nm-deploy-label text-sm font-medium">{{ part.label }}</span>
+                            <div class="flex min-w-0 flex-col gap-1">
+                              <input
+                                pInputText
+                                class="min-w-0"
+                                [placeholder]="part.hint"
+                                [attr.aria-label]="part.label + ' célmappa'"
+                                [formControl]="generateFolders[part.key]"
+                                (input)="foldersFromMemory = false"
+                              />
+                              @if (part.key !== 'frontend' && generateFolders[part.key].value.trim()) {
+                                <small [class.text-red-600]="!packageOf(generateFolders[part.key].value)" class="opacity-80"
+                                >{{ packageText(generateFolders[part.key].value) }}</small
+                                >
+                              }
+                            </div>
+                            <p-button
+                              label="Tallózás…"
+                              size="small"
+                              severity="secondary"
+                              variant="outlined"
+                              [disabled]="!!picking() || uploading()"
+                              (onClick)="browseFolder('generate', part.key)"
+                            />
+                          }
+                        </div>
+                      </div>
+                    }
+
                     <div class="grid gap-4 md:grid-cols-2">
-                      <label class="flex flex-col gap-2"
-                      ><span class="text-sm font-medium cursor-help" [pTooltip]="help.clPackage"
-                      >CL package (modul) <span class="opacity-60">ⓘ</span></span
-                      >
-                        <input
-                          pInputText
-                          name="cl_package"
-                          formControlName="cl_package"
-                          maxlength="200"
-                          placeholder="pl. hu.company..."
-                          class="w-full"
-                        />
-                        @if (form.controls.cl_package.invalid && form.controls.cl_package.touched) {
-                          <small class="text-red-600"
-                          >Java package szükséges (kisbetűs részek pontokkal elválasztva), vagy
-                            üres.</small
-                          >
-                        }
-                      </label>
                       <label class="flex flex-col gap-2"
                       ><span
                         class="text-sm font-medium cursor-help"
@@ -2133,9 +2171,6 @@ function highlight(text: string, lang: CodeLang): string {
               (onClick)="saveText(b.markdown, 'PORTFOLIO_HU.md')"
             />
           </div>
-          @if (b.counts['completed']) {
-<ng-container *ngTemplateOutlet="deployPanel; context: { $implicit: { kind: 'batch', id: b.batch } }"></ng-container>
-          }
           <div class="nm-survey-bar">
             <span class="font-medium">Felmérés</span>
             <span class="text-sm opacity-70"
@@ -2374,28 +2409,27 @@ function highlight(text: string, lang: CodeLang): string {
       </div>
     </p-dialog>
 
-    <!-- Deploy into the project: the panel of a job and of a batch -------------------------->
+    <!-- Deploy into the project: the panel of a completed job ------------------------------>
     <ng-template #deployPanel let-target>
       <section class="nm-deploy" aria-label="Telepítés a projektbe">
         <div class="flex flex-wrap items-center gap-2">
           <span class="font-semibold">Telepítés a projektbe</span>
           <span class="text-sm opacity-70"
-          >Tallózd ki, hova kerüljenek a fájlok: a részek mappáit egyenként, vagy csak a fő projektmappát,
-            amelyben a migrátor megkeresi őket. A CREATE_ONCE fájlok (ServiceImpl, ControllerImpl, komponens) csak
-            akkor íródnak, ha még nincsenek meg.</span
+          >A fájlok pontosan a modul kiválasztott mappáiba kerülnek, új mappa nem készül. A CREATE_ONCE fájlok
+            (ServiceImpl, ControllerImpl, komponens) csak akkor íródnak, ha még nincsenek meg.</span
           >
         </div>
         <div class="nm-deploy-grid">
-          @for (part of deployParts; track part.key) {
+          @for (part of parts; track part.key) {
             <span class="nm-deploy-label text-sm font-medium cursor-help" [pTooltip]="part.help"
             >{{ part.label }} <span class="opacity-60">ⓘ</span></span
             >
             <input
               pInputText
               class="min-w-0"
-              [placeholder]="deployPlaceholder(part.key, target)"
+              [placeholder]="part.hint"
               [attr.aria-label]="part.label"
-              [formControl]="deployControls[part.key]"
+              [formControl]="deployFolders[part.key]"
             />
             <p-button
               label="Tallózás…"
@@ -2403,7 +2437,7 @@ function highlight(text: string, lang: CodeLang): string {
               severity="secondary"
               variant="outlined"
               [disabled]="!!picking() || !!deploying()"
-              (onClick)="browseFolder(part.key)"
+              (onClick)="browseFolder('deploy', part.key)"
             />
           }
         </div>
@@ -2427,6 +2461,24 @@ function highlight(text: string, lang: CodeLang): string {
             (onClick)="runDeploy(target, false)"
           /></span>
         </div>
+        <div class="flex flex-wrap items-center gap-2 text-sm">
+          <span class="font-medium">Segédfájlok</span>
+          <span class="opacity-70"
+          >Nem kerülnek a projektbe: elég egyszer letölteni, és új változatnál lecserélni.</span
+          >
+          <span class="flex-1"></span>
+          @for (name of helpers; track name) {
+            <p-button
+              [label]="name"
+              size="small"
+              severity="secondary"
+              variant="text"
+              [loading]="downloading() === name"
+              [disabled]="!!downloading()"
+              (onClick)="downloadHelper(target.id, name)"
+            />
+          }
+        </div>
         @if (deployResultFor(target); as r) {
           <dl class="nm-deploy-layout" aria-label="Célmappák">
             @for (entry of deployLayout(r); track entry.key) {
@@ -2434,8 +2486,20 @@ function highlight(text: string, lang: CodeLang): string {
               <dd>
                 @if (entry.value) {
                   {{ entry.value }}
+                  @if (r.packages?.[entry.key]; as pkg) {
+                    <span class="opacity-70">(csomag: {{ pkg }})</span>
+                  }
                 } @else {
-                  <p-tag value="nincs kiválasztva, és nem található: a fájljai kimaradnak" severity="warn" />
+                  <p-tag value="nincs kiválasztva: a fájljai kimaradnak" severity="warn" />
+                }
+              </dd>
+            }
+            @for (helper of r.helpers ?? []; track helper.name) {
+              <dt class="font-medium">{{ helper.name }}</dt>
+              <dd>
+                <p-tag [value]="helperStatus(helper)" [severity]="helperSeverity(helper)" />
+                @if (helper.found ?? helper.expected; as where) {
+                  <span class="opacity-70"> {{ where }}</span>
                 }
               </dd>
             }
@@ -2483,7 +2547,7 @@ function highlight(text: string, lang: CodeLang): string {
     >
       <div class="flex flex-col gap-4">
         <p class="m-0 text-sm">
-          Megnyílt a mappaválasztó ablak: válaszd ki benne a(z) <b>{{ deployPart(picking())?.label }}</b> mappáját.
+          Megnyílt a mappaválasztó ablak: válaszd ki benne a(z) <b>{{ part(picking()?.key)?.label }}</b> mappáját.
           Ha nem látod, a tálcán találod.
         </p>
         <div class="flex flex-wrap justify-end gap-2">
@@ -2505,7 +2569,7 @@ function highlight(text: string, lang: CodeLang): string {
       [modal]="true"
       [draggable]="false"
       [style]="{ width: 'min(46rem, 96vw)' }"
-      [header]="deployPart(browserFor())?.title ?? 'Mappa kiválasztása'"
+      [header]="part(browserFor()?.key)?.title ?? 'Mappa kiválasztása'"
     >
       <div class="flex flex-col gap-3">
         @if (browser()?.path) {
@@ -2618,13 +2682,6 @@ export class Migrator implements OnInit, OnDestroy {
       [Validators.pattern(/^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/), Validators.maxLength(70)],
     ],
     AWU_AZON: [''],
-    cl_package: [
-      '',
-      [
-        Validators.pattern(/^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|\{module\}))+$/),
-        Validators.maxLength(200),
-      ],
-    ],
     common_migrate_tools_package: [
       '',
       [Validators.pattern(/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/), Validators.maxLength(200)],
@@ -2861,30 +2918,31 @@ export class Migrator implements OnInit, OnDestroy {
 
   // Generated code: folder tree on the overview tab, highlighted viewer in its own dialog.
   readonly codeFilterControl = new FormControl('', { nonNullable: true });
-  // Telepítés a projektbe: a részek kitallózott mappái és a nem kötelező fő projektmappa (a böngészőben megjegyezve).
-  readonly deployParts: readonly { key: DeployKey; label: string; title: string; hint: string; help: string }[] = [
-    { key: 'project', label: 'Fő projektmappa', title: 'Válaszd ki a fő projektmappát',
-      hint: 'nem kötelező: a ki nem választott részeket itt keresi meg',
-      help: 'Ha a CL, DPS, WBS és frontend projekt egy közös mappában van, elég ezt kiválasztani: a migrátor megkeresi benne a részeket. A külön kiválasztott rész mindig elsőbbséget kap.' },
-    { key: 'CL', label: 'CL', title: 'Válaszd ki a CL projekt mappáját', hint: 'a CL Java-projekt mappája',
-      help: 'A CL Java-projekt mappája (vagy a src/main/java). A fájlok a csomagjuk szerint kerülnek alá.' },
-    { key: 'DPS', label: 'DPS', title: 'Válaszd ki a DPS projekt mappáját', hint: 'a DPS Java-projekt mappája',
-      help: 'A DPS Java-projekt mappája (vagy a src/main/java). A fájlok a csomagjuk szerint kerülnek alá.' },
-    { key: 'WBS', label: 'WBS', title: 'Válaszd ki a WBS projekt mappáját', hint: 'a WBS Java-projekt mappája',
-      help: 'A WBS Java-projekt mappája (vagy a src/main/java). A fájlok a csomagjuk szerint kerülnek alá.' },
-    { key: 'frontend', label: 'Frontend', title: 'Válaszd ki a frontend mappáját', hint: 'az Angular-projekt vagy a képernyők mappája',
-      help: 'Az Angular-projekt mappája (ahol az angular.json van), vagy közvetlenül a képernyők mappája. Projektmappánál a képernyők a korábbi telepítés helyére, különben a src/app alá kerülnek.' },
+  // A modul saját mappái a projektben: a generálás előtt (generate) és a feladat telepítésénél (deploy).
+  readonly parts: readonly { key: PartKey; label: string; title: string; hint: string; help: string }[] = [
+    { key: 'CL', label: 'CL', title: 'Válaszd ki a modul CL-mappáját', hint: 'pl. …/src/main/java/hu/ceg/…/cl/modules/xy',
+      help: 'A modul CL-mappája (DTO-k, Constants, RestClient). A fájlok pontosan ide kerülnek; a mappa útvonala a csomag.' },
+    { key: 'DPS', label: 'DPS', title: 'Válaszd ki a modul DPS-mappáját', hint: 'pl. …/src/main/java/hu/ceg/…/dps/xy',
+      help: 'A modul DPS-mappája. A fájlok pontosan ide kerülnek; a mappa útvonala a csomag.' },
+    { key: 'WBS', label: 'WBS', title: 'Válaszd ki a modul WBS-mappáját', hint: 'pl. …/src/main/java/hu/ceg/…/wbs/xy',
+      help: 'A modul WBS-mappája. A fájlok pontosan ide kerülnek; a mappa útvonala a csomag.' },
+    { key: 'frontend', label: 'Frontend', title: 'Válaszd ki a modul frontend-mappáját', hint: 'pl. …/src/app/pages/xy',
+      help: 'A modul képernyőjének mappája. A komponens közvetlenül ide kerül, modulnevű almappa nélkül.' },
   ];
-  readonly deployControls = Object.fromEntries(
-    Object.entries(storedLayout()).map(([key, value]) => [key, new FormControl(value, { nonNullable: true })]),
-  ) as Record<DeployKey, FormControl<string>>;
+  readonly helpers = HELPERS;
+  readonly generateFolders = this.folderControls();
+  readonly deployFolders = this.folderControls();
+  // A modulnévhez megjegyzett mappák; foldersFromMemory: a mezők egy másik modul emlékéből jöttek.
+  private folderMemory = storedModuleFolders();
+  foldersFromMemory = false;
+  private folderKey = '';
   readonly deploying = signal<'' | 'preview' | 'deploy'>('');
   private readonly deployResult = signal<{ key: string; folders: string; report: DeployReport } | null>(null);
   // Mappaválasztás: a gép saját mappaválasztó ablaka (a szerver nyitja meg), ha az nem nyílik, a beépített böngésző.
-  readonly picking = signal<DeployKey | ''>('');
+  readonly picking = signal<{ scope: FolderScope; key: PartKey } | null>(null);
   private folderDialogMissing = false;
   browserOpen = signal(false);
-  readonly browserFor = signal<DeployKey | ''>('');
+  readonly browserFor = signal<{ scope: FolderScope; key: PartKey } | null>(null);
   readonly browser = signal<FolderListing | null>(null);
   readonly browserLoading = signal(false);
   readonly browserError = signal('');
@@ -3025,6 +3083,7 @@ export class Migrator implements OnInit, OnDestroy {
   private readonly asked = new Set<string>();
 
   async ngOnInit(): Promise<void> {
+    this.form.controls.module.valueChanges.subscribe(() => this.syncModuleFolders());
     this.form.controls.ai_mode.valueChanges.subscribe((mode: AiMode) => {
       this.form.controls.ollama_url.setValidators(
         mode === 'off'
@@ -3171,6 +3230,7 @@ export class Migrator implements OnInit, OnDestroy {
       this.form.controls.AWU_AZON.setValue(
         this.files().length ? (this.batchAwu()[this.files()[0].name] ?? '') : '',
       );
+    this.syncModuleFolders();
   }
 
   clearSources(): void {
@@ -3178,6 +3238,7 @@ export class Migrator implements OnInit, OnDestroy {
     this.pld.set([]);
     this.batchAwu.set({});
     this.form.controls.AWU_AZON.setValue('');
+    this.syncModuleFolders();
   }
 
   removeLibrary(library: File): void {
@@ -3224,6 +3285,7 @@ export class Migrator implements OnInit, OnDestroy {
         rejected.join(', '),
       );
     if (this.files().length > 1) this.screenOverrides.set(null);
+    this.syncModuleFolders();
   }
 
   onFile(event: Event, kind: Upload): void {
@@ -3342,13 +3404,16 @@ export class Migrator implements OnInit, OnDestroy {
           : {}),
       };
       if (sources.length === 1 && !survey) {
+        // A modul saját mappái: a Java-csomagok ezekből, a telepítés ide.
+        const layout = this.generationLayout();
         const job = await firstValueFrom(
           this.http.post<Job>(
             this.url('/jobs'),
-            this.jobBody(sources[0], options, null),
+            this.jobBody(sources[0], { ...options, project_layout: layout }, null),
             this.mutation,
           ),
         );
+        this.rememberModuleFolders(layout);
         this.jobs.update((jobs) => [job, ...jobs]);
         this.view.set('jobs');
         await this.openJob(job);
@@ -3635,37 +3700,85 @@ export class Migrator implements OnInit, OnDestroy {
     }
   }
 
-  // ------------------------------------------------------------ deploy into the project --
-  deployPart(key: string): { key: DeployKey; label: string; title: string; hint: string; help: string } | undefined {
-    return this.deployParts.find((part) => part.key === key);
+  // ------------------------------------------------------------ project folders --
+  private folderControls(): Record<PartKey, FormControl<string>> {
+    return Object.fromEntries(PART_KEYS.map((key) => [key, new FormControl('', { nonNullable: true })])) as Record<
+      PartKey,
+      FormControl<string>
+    >;
   }
 
-  /** A kérés mappái: a fő projektmappa (vagy null) és a kiválasztott részek. */
-  private deployFolders(): { project: string | null; layout: Record<string, string> } {
-    const value = (key: DeployKey) => this.deployControls[key].value.trim();
-    const layout: Record<string, string> = {};
-    for (const key of DEPLOY_KEYS) if (key !== 'project' && value(key)) layout[key] = value(key);
-    return { project: value('project') || null, layout };
+  part(key: PartKey | undefined): { key: PartKey; label: string; title: string; hint: string; help: string } | undefined {
+    return this.parts.find((part) => part.key === key);
+  }
+
+  packageOf(path: string): string | null {
+    return folderPackage(path.trim());
+  }
+
+  packageText(path: string): string {
+    const pkg = this.packageOf(path);
+    return pkg ? 'csomag: ' + pkg : 'Ebből az útvonalból nem állapítható meg a csomag: a src/main/java alatti modulmappát válaszd.';
+  }
+
+  /** A kiválasztott mappák (csak a kitöltöttek). */
+  private layoutOf(controls: Record<PartKey, FormControl<string>>): Partial<Record<PartKey, string>> {
+    const layout: Partial<Record<PartKey, string>> = {};
+    for (const key of PART_KEYS) if (controls[key].value.trim()) layout[key] = controls[key].value.trim();
+    return layout;
+  }
+
+  /** A modulnév (vagy az egyetlen forrás) a megjegyzett mappák kulcsa. */
+  private moduleKey(): string {
+    const files = this.files();
+    return (this.form.controls.module.value.trim() || (files.length === 1 ? files[0].name.replace(/\.[^.]+$/, '') : '')).toLowerCase();
+  }
+
+  /** Másik modul: az ő megjegyzett mappái; ha nincs ilyen, egy másik modul emlékéből jött mappák törlődnek. */
+  syncModuleFolders(): void {
+    const key = this.moduleKey();
+    if (key === this.folderKey) return;
+    this.folderKey = key;
+    const remembered = key ? this.folderMemory[key] : undefined;
+    if (remembered) {
+      for (const part of PART_KEYS) this.generateFolders[part].setValue(remembered[part] ?? '');
+      this.foldersFromMemory = true;
+    } else if (this.foldersFromMemory) {
+      for (const part of PART_KEYS) this.generateFolders[part].setValue('');
+      this.foldersFromMemory = false;
+    }
+  }
+
+  private rememberModuleFolders(layout: Partial<Record<PartKey, string>>): void {
+    const key = this.moduleKey();
+    if (!key || !Object.keys(layout).length) return;
+    this.folderMemory = { ...this.folderMemory, [key]: layout };
+    try { localStorage.setItem(FOLDERS_KEY, JSON.stringify(this.folderMemory)); } catch { /* privát mód */ }
+  }
+
+  /** A generálás célmappái a kérésbe (egy form esetén). */
+  generationLayout(): Partial<Record<PartKey, string>> {
+    return this.layoutOf(this.generateFolders);
+  }
+
+  // ------------------------------------------------------------ deploy into the project --
+  private openDeploy(job: Job): void {
+    const layout = job.options.project_layout ?? {};
+    for (const key of PART_KEYS) this.deployFolders[key].setValue(layout[key] ?? '');
+    this.deployResult.set(null);
   }
 
   deployChosen(): boolean {
-    const folders = this.deployFolders();
-    return !!folders.project || Object.keys(folders.layout).length > 0;
+    return Object.keys(this.layoutOf(this.deployFolders)).length > 0;
   }
 
   deployHint(): string {
-    const folders = this.deployFolders();
-    if (!folders.project && !Object.keys(folders.layout).length)
-      return 'Tallózd ki legalább egy rész mappáját, vagy a fő projektmappát.';
-    const missing = DEPLOY_KEYS.filter((key) => key !== 'project' && !folders.layout[key]);
-    if (!missing.length || folders.project) return '';
-    return 'Nincs kiválasztva: ' + missing.map((key) => this.deployPart(key)?.label ?? key).join(', ')
-      + ' – ezek fájljai kimaradnak.';
-  }
-
-  deployPlaceholder(key: DeployKey, target: DeployTarget): string {
-    const found = key === 'project' ? null : this.deployResultFor(target)?.layout[key];
-    return found ? 'felismerve: ' + found : this.deployPart(key)?.hint ?? '';
+    const layout = this.layoutOf(this.deployFolders);
+    if (!Object.keys(layout).length) return 'Tallózd ki a modul mappáit.';
+    const missing = PART_KEYS.filter((key) => !layout[key]);
+    return missing.length
+      ? 'Nincs kiválasztva: ' + missing.map((key) => this.part(key)?.label ?? key).join(', ') + ' – ezek fájljai kimaradnak.'
+      : '';
   }
 
   deployResultFor(target: DeployTarget): DeployReport | null {
@@ -3677,11 +3790,11 @@ export class Migrator implements OnInit, OnDestroy {
   deployReady(target: DeployTarget): boolean {
     const result = this.deployResult();
     return !!result && result.key === target.kind + ':' + target.id && result.report.dry_run
-      && result.folders === JSON.stringify(this.deployFolders());
+      && result.folders === JSON.stringify(this.layoutOf(this.deployFolders));
   }
 
   deployLayout(report: DeployReport): { key: string; label: string; value: string | null }[] {
-    return Object.entries(report.layout).map(([key, value]) => ({ key, label: this.deployPart(key)?.label ?? key, value }));
+    return Object.entries(report.layout).map(([key, value]) => ({ key, label: this.part(key as PartKey)?.label ?? key, value }));
   }
 
   deployCounts(report: DeployReport): { key: string; label: string; value: number; severity: 'success' | 'info' | 'warn' | 'danger' | 'secondary' }[] {
@@ -3701,23 +3814,45 @@ export class Migrator implements OnInit, OnDestroy {
     }[status] ?? status;
   }
 
-  private saveDeployFolders(): void {
-    const folders = Object.fromEntries(DEPLOY_KEYS.map((key) => [key, this.deployControls[key].value.trim()]));
-    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(folders)); } catch { /* privát mód: csak ebben a munkamenetben */ }
+  helperStatus(helper: DeployHelper): string {
+    return {
+      ok: 'megvan a projektben',
+      outdated: `régebbi változat (${helper.found_version}) van a projektben: töltsd le az újat (${helper.version}), és cseréld le`,
+      newer: `újabb változat (${helper.found_version}) van a projektben, mint amit ez a generálás vár (${helper.version})`,
+      missing: 'nincs a projektben: töltsd le, és tedd ide',
+      unknown: 'a rész nincs kiválasztva',
+    }[helper.status];
+  }
+
+  helperSeverity(helper: DeployHelper): 'success' | 'warn' | 'danger' | 'secondary' {
+    return ({ ok: 'success', outdated: 'warn', newer: 'warn', missing: 'danger', unknown: 'secondary' } as const)[helper.status];
+  }
+
+  async downloadHelper(jobId: string, name: HelperName): Promise<void> {
+    if (this.downloading()) return;
+    this.downloading.set(name);
+    try {
+      const blob = await firstValueFrom(
+        this.http.get(this.url(`/jobs/${jobId}/helpers/${encodeURIComponent(name)}`), { responseType: 'blob' }),
+      );
+      this.saveBlob(blob, name);
+    } catch (error) {
+      this.error.set(this.errorText(error));
+    } finally {
+      this.downloading.set('');
+    }
   }
 
   async runDeploy(target: DeployTarget, dryRun: boolean): Promise<void> {
-    const folders = this.deployFolders();
-    if (!this.deployChosen() || this.deploying()) return;
-    this.saveDeployFolders();
+    const layout = this.layoutOf(this.deployFolders);
+    if (!Object.keys(layout).length || this.deploying()) return;
     this.deploying.set(dryRun ? 'preview' : 'deploy');
     this.error.set('');
     try {
-      const path = target.kind === 'job' ? `/jobs/${target.id}/deploy` : `/batches/${encodeURIComponent(target.id)}/deploy`;
       const report = await firstValueFrom(
-        this.http.post<DeployReport>(this.url(path), { ...folders, dry_run: dryRun, force: false }, this.mutation),
+        this.http.post<DeployReport>(this.url(`/jobs/${target.id}/deploy`), { layout, dry_run: dryRun, force: false }, this.mutation),
       );
-      this.deployResult.set({ key: target.kind + ':' + target.id, folders: JSON.stringify(folders), report });
+      this.deployResult.set({ key: target.kind + ':' + target.id, folders: JSON.stringify(layout), report });
     } catch (error) {
       this.error.set(this.errorText(error));
     } finally {
@@ -3730,28 +3865,34 @@ export class Migrator implements OnInit, OnDestroy {
     return kind === 'java' ? 'Java-projekt' : kind === 'angular' ? 'Angular-projekt' : '';
   }
 
-  /** Honnan induljon a tallózás: a rész eddigi mappája, a fő projektmappa, vagy egy másik rész mellől. */
-  private browseStart(key: DeployKey): string | null {
-    const own = this.deployControls[key].value.trim() || this.deployControls.project.value.trim();
+  private controlsOf(scope: FolderScope): Record<PartKey, FormControl<string>> {
+    return scope === 'generate' ? this.generateFolders : this.deployFolders;
+  }
+
+  /** Honnan induljon a tallózás: a rész eddigi mappája, különben egy másik rész mellől. */
+  private browseStart(scope: FolderScope, key: PartKey): string | null {
+    const controls = this.controlsOf(scope);
+    const own = controls[key].value.trim();
     if (own) return own;
-    const other = DEPLOY_KEYS.map((k) => this.deployControls[k].value.trim()).find((value) => value);
+    const other = PART_KEYS.map((k) => controls[k].value.trim()).find((value) => value)
+      ?? Object.values(this.folderMemory).flatMap((layout) => Object.values(layout)).find((value) => value);
     return other ? other.replace(/[\\/][^\\/]+[\\/]?$/, '') || other : null;
   }
 
-  private chooseFolder(key: DeployKey, path: string): void {
-    this.deployControls[key].setValue(path);
-    this.saveDeployFolders();
+  private chooseFolder(scope: FolderScope, key: PartKey, path: string): void {
+    this.controlsOf(scope)[key].setValue(path);
+    if (scope === 'generate') this.foldersFromMemory = false;
   }
 
-  async browseFolder(key: DeployKey): Promise<void> {
+  async browseFolder(scope: FolderScope, key: PartKey): Promise<void> {
     if (this.picking() || this.deploying()) return;
-    const initial = this.browseStart(key);
+    const initial = this.browseStart(scope, key);
     if (this.defaults()?.folders?.dialog !== false && !this.folderDialogMissing) {
-      this.picking.set(key);
+      this.picking.set({ scope, key });
       try {
         const picked = await firstValueFrom(this.http.post<{ path: string | null; cancelled: boolean }>(
-          this.url('/fs/pick'), { title: this.deployPart(key)?.title ?? 'Mappa kiválasztása', initial }, this.mutation));
-        if (picked.path) this.chooseFolder(key, picked.path);
+          this.url('/fs/pick'), { title: this.part(key)?.title ?? 'Mappa kiválasztása', initial }, this.mutation));
+        if (picked.path) this.chooseFolder(scope, key, picked.path);
         return;
       } catch (error) {
         if (!(error instanceof HttpErrorResponse && error.status === 501)) {
@@ -3760,25 +3901,25 @@ export class Migrator implements OnInit, OnDestroy {
         }
         this.folderDialogMissing = true;  // nincs mappaválasztó ablak ezen a gépen: innentől a beépített böngésző
       } finally {
-        this.picking.set('');
+        this.picking.set(null);
       }
     }
-    await this.openBrowser(key, initial);
+    await this.openBrowser(scope, key, initial);
   }
 
   /** A nyitva lévő mappaválasztó ablak bezárása; browser: helyette a beépített böngésző. */
   async cancelPick(browser: boolean): Promise<void> {
-    const key = this.picking();
-    if (!key) return;
-    this.picking.set('');
+    const picking = this.picking();
+    if (!picking) return;
+    this.picking.set(null);
     try {
       await firstValueFrom(this.http.post(this.url('/fs/pick/cancel'), {}, this.mutation));
     } catch { /* már bezárult */ }
-    if (browser) await this.openBrowser(key, this.browseStart(key));
+    if (browser) await this.openBrowser(picking.scope, picking.key, this.browseStart(picking.scope, picking.key));
   }
 
-  async openBrowser(key: DeployKey, initial: string | null): Promise<void> {
-    this.browserFor.set(key);
+  async openBrowser(scope: FolderScope, key: PartKey, initial: string | null): Promise<void> {
+    this.browserFor.set({ scope, key });
     this.browser.set(null);
     this.browserPath = '';
     this.browserOpen.set(true);
@@ -3804,10 +3945,10 @@ export class Migrator implements OnInit, OnDestroy {
   }
 
   chooseBrowsed(): void {
-    const key = this.browserFor();
+    const target = this.browserFor();
     const path = this.browser()?.path;
-    if (!key || !path) return;
-    this.chooseFolder(key, path);
+    if (!target || !path) return;
+    this.chooseFolder(target.scope, target.key, path);
     this.browserOpen.set(false);
   }
 
@@ -3830,6 +3971,7 @@ export class Migrator implements OnInit, OnDestroy {
   async openJob(job: Job): Promise<void> {
     this.selectedId.set(job.id);
     this.clearDetails();
+    this.openDeploy(job);
     this.error.set('');
     this.detailOpen.set(true);
     if (job.status === 'needs_input') {

@@ -244,6 +244,7 @@ A Python szerver kizárólag `127.0.0.1` címen figyel. A CORS pontos originlist
 | `GET /api/jobs/{id}/download?kind=all` | Teljes ZIP; további érték: `frontend`, `backend` |
 | `DELETE /api/cache` | Közös AI-cache törlése, üres sor mellett |
 | `POST /api/jobs/{id}/deploy`, `POST /api/batches/{id}/deploy` | Telepítés a projektbe (`project`, `layout`, `dry_run`) |
+| `GET /api/jobs/{id}/helpers/{név}` | A közös segédfájl letöltése: `CommonMigrateTools.java` vagy `frm-forms-screen.ts` |
 | `POST /api/fs/folders` | Egy mappa almappái a beépített mappaböngészőnek (`path`; üresen: meghajtók és a saját mappa) |
 | `POST /api/fs/pick`, `POST /api/fs/pick/cancel` | A gép saját mappaválasztó ablaka (megvárja a választást) / bezárása |
 | `GET /api/openapi.json` | Géppel olvasható API-séma |

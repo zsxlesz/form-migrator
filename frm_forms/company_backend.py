@@ -8,7 +8,7 @@ from .java_dto import bean_source
 
 
 def generate(output, config, package, cls, blocks, ops, contract):
-    from .java_imports import cl_package
+    from .java_imports import cl_package, layer_package
     cl = cl_package(config, package)  # the module's CL package (cl_package setting)
     names = contract['dto_types']
     missing = set(contract['missing_company_imports'])
@@ -32,7 +32,7 @@ def generate(output, config, package, cls, blocks, ops, contract):
 
     def emit(layer, suffix, body, extra):
         write(output / 'backend' / layer / (cls + suffix + '.java'),
-              f'package {package}.{layer.lower()};\n\n{extra}\n{body}\n')
+              f'package {layer_package(config, package, layer)};\n\n{extra}\n{body}\n')
 
     # Convert only Java identifiers/accesses. SQL, text blocks and comments are masked.
     service_file = output / 'backend' / 'DPS' / (cls + 'ServiceImpl.java')

@@ -190,6 +190,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if any(part in RESERVED for part in selected.java_package.split(".")):
                 raise ValueError("A Java package fenntartott szót tartalmaz.")
             validate_company_config(selected.engine_overrides())
+            if selected.project_layout:
+                # The chosen folders must exist and give the packages; checked now, not when the job runs.
+                from frm_forms.project_deploy import layout_packages
+                layout_packages(selected.project_layout)
+                allowed = [Path(root).expanduser().resolve() for root in settings.project_roots]
+                if allowed and not all(any(Path(folder).expanduser().resolve().is_relative_to(root) for root in allowed)
+                                       for folder in selected.project_layout.values()):
+                    raise HTTPException(403, "Egy célmappa nincs az engedélyezett mappák között (FRM_PROJECT_ROOTS).")
         except (ValueError, ValidationError, MigrationError) as exc:
             raise HTTPException(422, str(exc)) from exc
         incoming = Path(tempfile.mkdtemp(prefix="upload-", dir=settings.data_dir))
@@ -293,6 +301,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def logs(job_id: str):
         manager().get(job_id)
         return {"text": tail(settings.data_dir / "jobs" / job_id / "worker.log")}
+
+    @app.get("/api/jobs/{job_id}/helpers/{name}")
+    def helper(job_id: str, name: Literal["CommonMigrateTools.java", "frm-forms-screen.ts"]):
+        # The shared helpers are not deployed with a module: downloaded once and kept in the project.
+        return FileResponse(manager().helper_path(job_id, name), filename=name,
+                            media_type="text/plain; charset=utf-8")
 
     @app.get("/api/jobs/{job_id}/download")
     def download(job_id: str, kind: Literal["all", "frontend", "backend"] = "all"):

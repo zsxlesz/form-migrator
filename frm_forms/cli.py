@@ -58,6 +58,10 @@ DEFAULTS = {"java_package": "hu.company.features", "api_prefix": "/api/forms", "
             "java_import_map": "",
             # The module's CL package (DTOs, Constants, RestClient); {module} = module name. "" = <java_package>.<module>.cl.
             "cl_package": "",
+            # The module's DPS / WBS package ({module} allowed); empty: <java_package>.<module>.dps / .wbs. Chosen
+            # project folders (project_layout, --layout) set cl_package, dps_package and wbs_package from their paths.
+            "dps_package": "",
+            "wbs_package": "",
             # true: module Java files without package line (the IDE sets it where the files are copied). The web turns it on.
             "java_empty_package": False,
             # Forms CALL_FORM/OPEN_FORM/NEW_FORM target -> Angular route; default "/<form name in lower case>".
@@ -135,6 +139,11 @@ def configuration(args) -> dict:
         result["cl_package"] = validate_cl_package(result["cl_package"])
     except ValueError as exc:
         raise MigrationError(str(exc)) from exc
+    for key in ("dps_package", "wbs_package"):
+        try:
+            result[key] = validate_cl_package(result[key])
+        except ValueError as exc:
+            raise MigrationError(str(exc).replace("cl_package", key)) from exc
     if not isinstance(result["form_routes"], dict) or not all(
             isinstance(k, str) and isinstance(v, str) and v.strip() for k, v in result["form_routes"].items()):
         raise MigrationError('form_routes: {"FORMNEV": "/utvonal"} objektum szükséges.')
@@ -165,8 +174,16 @@ def configuration(args) -> dict:
     if result['screen_overrides'].get('items') and not getattr(args, 'screen', False):
         raise MigrationError('SCREEN_OVERRIDES: a felülbírálások csak --screen módban használhatók.')
     validate_ui_config(result, screen_mode=getattr(args, 'screen', False))
-    from .project_deploy import validate_layout
-    result["project_layout"] = validate_layout(result["project_layout"])
+    from .project_deploy import common_tools_in_project, layout_packages, parse_layout, validate_layout
+    result["project_layout"] = {**validate_layout(result["project_layout"]), **parse_layout(getattr(args, "layout", None))}
+    if result["project_layout"]:
+        # The module's own folders in the project: their paths give the packages, so the files compile there,
+        # and the imports point at the CommonMigrateTools the project already has.
+        root = getattr(args, "project", None)
+        for layer, package in layout_packages(result["project_layout"], root).items():
+            result[layer.lower() + "_package"] = package
+        if not result["common_migrate_tools_package"]:
+            result["common_migrate_tools_package"] = common_tools_in_project(result["project_layout"], root) or ""
     return result
 
 

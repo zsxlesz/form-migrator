@@ -22,8 +22,14 @@ QUALIFIED = re.compile(r'[a-z_][a-z0-9_]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+')
 
 def cl_package(config, package: str) -> str:
     """The module's CL package: the cl_package setting ({module} = the module name), else <package>.cl."""
-    value = (config.get('cl_package') or '').strip()
-    return value.replace('{module}', package.rsplit('.', 1)[-1]) if value else package + '.cl'
+    return layer_package(config, package, 'CL')
+
+
+def layer_package(config, package: str, layer: str) -> str:
+    """The module's package in a layer: the cl_package / dps_package / wbs_package setting ({module} = the module
+    name; set from the chosen project folders), else <package>.cl / .dps / .wbs."""
+    value = (config.get(layer.lower() + '_package') or '').strip()
+    return value.replace('{module}', package.rsplit('.', 1)[-1]) if value else package + '.' + layer.lower()
 
 
 def default_path() -> Path:

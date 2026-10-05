@@ -99,16 +99,19 @@ class ScreenRuntimeTests(unittest.TestCase):
         self.assertIn("tap((res) => WFF.debug(this.modName + '.rendelesList', res)),\n        catchError(", source)
         self.assertEqual(source.count('this.http.'), source.count('WFF.debug(this.modName'))
         runtime = (self.out / 'frontend' / RUNTIME).read_text(encoding='utf-8')
-        self.assertIn("get modName(): string {\n    return F.trim(this.router.url, '/');\n  }", runtime)
+        self.assertIn("get modName(): string {\n    return WFF.trim(this.router.url, '/');\n  }", runtime)
+        self.assertIn('ServiceBase, WFF (java-imports.json)', runtime)
         self.assertNotIn('inject(Router)', runtime)  # the router comes from ServiceBase
         self.assertNotIn("from '@angular/router'", runtime)
         self.assertNotIn('get modName', source)  # the runtime has it
         # without the runtime the component has its own modName
         listas = component(self.listas)
         self.assertFalse((self.listas / 'frontend' / RUNTIME).exists())
-        self.assertIn("get modName(): string {\n    return F.trim(this.router.url, '/');\n  }", listas)
+        self.assertIn("get modName(): string {\n    return WFF.trim(this.router.url, '/');\n  }", listas)
         self.assertIn("WFF.debug(this.modName + '.partnerList', res)", listas)
-        self.assertIn('ServiceBase, WFF, F (java-imports.json)', listas)
+        self.assertIn('ServiceBase, WFF (java-imports.json)', listas)
+        for text in (runtime, source, listas):
+            self.assertNotIn('F.trim', text.replace('WFF.trim', ''))
         for text in (source, listas, component(self.simple)):
             self.assertNotIn('inject(Router)', text)
             self.assertNotIn('AnkFormBlockComponent', text)
@@ -127,7 +130,7 @@ class ScreenRuntimeTests(unittest.TestCase):
                 for path in (work / 'frontend').rglob('*.ts'):
                     depth = len(path.relative_to(work / 'frontend').parts)
                     text = path.read_text(encoding='utf-8')
-                    names = [n for n in ('ServiceBase', 'WFF', 'F', 'ToastService', 'FormBlocksComponent', 'FormBlock')
+                    names = [n for n in ('ServiceBase', 'WFF', 'ToastService', 'FormBlocksComponent', 'FormBlock')
                              if re.search(r'\b' + n + r'\b', code(text))]  # used in code, not only in a TODO comment
                     if names:
                         text = 'import { ' + ', '.join(names) + " } from '" + '../' * depth + "company';\n" + text

@@ -477,14 +477,14 @@ export class XyComponent extends ServiceBase {
   maguk hívják a saját metódusukat. A mentés metódusai elkészülnek, bekötésük a fejlesztőé.
 - **Naplózás:** minden sikeres válasz legelőször a `WFF.debug(this.modName + '.<metódus>', res)` hívásba
   kerül (`tap`), ahol a `<metódus>` a végpontmetódus neve. A `modName` a modul útvonala
-  (`F.trim(this.router.url, '/')`): a `frm-forms-screen.ts`-ben van, futtató nélküli képernyőn a
+  (`WFF.trim(this.router.url, '/')`): a `frm-forms-screen.ts`-ben van, futtató nélküli képernyőn a
   komponensben. A `router` a `ServiceBase`-ből jön, a képernyő nem injektál saját routert.
 - **Hibák:** a `catchError` a `WFF.err('Hiba', error)` hívással jelez. Az üres találatot, a
   backend-üzeneteket és a sikeres műveletet a `ToastService` mutatja.
 - **Válaszboríték:** céges módban a válasz `RestResponseDto`-ban érkezik. Az adatot a `payload()`
   metódus veszi ki; a keresett mezőnevek listája ott, egy helyen igazítható.
 - **Be nem kötött gombok:** a kézzel átültetendő gombok az `onAction`-ben toasttal jeleznek.
-- **Importok:** a `ServiceBase`, a `WFF`, az `F`, a `ToastService` és a FormBlock-osztályok a
+- **Importok:** a `ServiceBase`, a `WFF`, a `ToastService` és a FormBlock-osztályok a
   `java-imports.json` `/`-es bejegyzéseiből kapnak importot (lásd AUTOMATIZALAS_HU.md). Ami nincs a
   térképben, arra TODO-sor és az `analysis/ts-imports.json` riport figyelmeztet.
 

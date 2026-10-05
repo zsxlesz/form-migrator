@@ -4,7 +4,7 @@
 import { ChangeDetectorRef, Directive, inject } from '@angular/core';
 import { FormGroup } from '@angular/forms';
 import { Observable } from 'rxjs';
-// TODO: importáld a saját csomagodból: ServiceBase, F (java-imports.json).
+// TODO: importáld a saját csomagodból: ServiceBase, WFF (java-imports.json).
 
 export const FRM_FORMS_SCREEN_VERSION = '3';
 
@@ -105,7 +105,7 @@ export abstract class FrmFormsScreen extends ServiceBase {
 
   /** A modul neve az útvonalából: a kérések naplójában (WFF.debug) ez áll a függvénynév előtt. */
   get modName(): string {
-    return F.trim(this.router.url, '/');
+    return WFF.trim(this.router.url, '/');
   }
 
   // A képernyő adatai: a generált képernyő felülírja őket.

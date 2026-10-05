@@ -6,7 +6,7 @@
   `AnkFormBlockComponent`).
 - **Kérésnaplózás:** minden sikeres HTTP-válasz legelőször a `WFF.debug(this.modName + '.<metódus>', res)`
   hívásba kerül.
-- **`frm-forms-screen.ts` 3-as változat:** új `modName` getter (`F.trim(this.router.url, '/')`); a saját
+- **`frm-forms-screen.ts` 3-as változat:** új `modName` getter (`WFF.trim(this.router.url, '/')`); a saját
   router-injektálás kikerült, a `router` a `ServiceBase`-ből jön.
 
 Részletek: [JAVITASOK_4_19_HU.md](JAVITASOK_4_19_HU.md).

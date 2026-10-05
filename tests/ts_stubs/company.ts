@@ -6,8 +6,8 @@ export class ServiceBase {
 export const WFF = {
   err(title: string, error: unknown): void { void title; void error; },
   debug(name: string, value: unknown): void { void name; void value; },
+  trim(value: string, chars?: string): string { void chars; return value; },
 };
-export const F = { trim(value: string, chars?: string): string { void chars; return value; } };
 export class ToastService {
   success(title: string, detail: string, history?: boolean, life?: number): void { void title; void detail; void history; void life; }
   warning(title: string, detail: string, history?: boolean, life?: number): void { void title; void detail; void history; void life; }

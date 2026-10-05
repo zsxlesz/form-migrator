@@ -344,7 +344,7 @@ def generate(resolution, ui, output, config, module, discovery):
         shared = ['FrmFormsScreen'] + (['FrmPage'] if wiring['queries'] or wiring.get('query_actions') else [])
         imports.append("import { " + ', '.join(shared) + " } from '" + screen_emulation.RUNTIME_IMPORT + "';")
     else:
-        imports.append('// TODO: importáld a saját csomagodból: ServiceBase' + (', WFF, F' if wiring else '') + ' (java-imports.json).')
+        imports.append('// TODO: importáld a saját csomagodból: ServiceBase' + (', WFF' if wiring else '') + ' (java-imports.json).')
     # The router comes from ServiceBase (this.router): the component injects none.
     life = config['toast_life_ms']
     declarations.append('/** Toast élettartamok (ms); a figyelmeztetés tovább marad. */\n'
@@ -744,7 +744,7 @@ __UPDATES__
         if not runtime:  # frm-forms-screen.ts has it
             fields.append('  /** A modul neve az útvonalából: a kérések naplójában (WFF.debug) ez áll a függvénynév előtt. */\n'
                           '  get modName(): string {\n'
-                          "    return F.trim(this.router.url, '/');\n"
+                          "    return WFF.trim(this.router.url, '/');\n"
                           '  }')
         if not has_lov:
             if not runtime:

@@ -1,7 +1,7 @@
 // CREATE_ONCE: szerkeszthető képernyőváz. Migrációs részletek: MIGRATION_NOTES.md.
 import { Component, OnDestroy, ChangeDetectorRef, inject } from '@angular/core';
 // TODO: importáld a saját csomagodból: ToastService (config: toast_service_import_path).
-// TODO: importáld a saját csomagodból: ServiceBase, WFF, F (java-imports.json).
+// TODO: importáld a saját csomagodból: ServiceBase, WFF (java-imports.json).
 import { HttpClient } from '@angular/common/http';
 import { Observable, catchError, tap } from 'rxjs';
 import { FormGroup, ValidatorFn, Validators } from '@angular/forms';
@@ -212,7 +212,7 @@ export class TesztComponent extends ServiceBase implements OnDestroy {
 
   /** A modul neve az útvonalából: a kérések naplójában (WFF.debug) ez áll a függvénynév előtt. */
   get modName(): string {
-    return F.trim(this.router.url, '/');
+    return WFF.trim(this.router.url, '/');
   }
 
   constructor() {

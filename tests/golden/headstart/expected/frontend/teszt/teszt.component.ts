@@ -71,6 +71,7 @@ export interface TesztLovChoice {
 export class TesztComponent extends ServiceBase implements OnDestroy {
   /** Hibák, figyelmeztetések és sikeres műveletek jelzése: toast.success / warning / danger(cím, részletek, mentés az előzményekbe = true, élettartam). */
   protected readonly toast = inject(ToastService);
+  protected readonly toastLife = TOAST_LIFE;
 
   private readonly actionSteps: Record<string, readonly TesztFormsStep[]> = {
     "CGNV$W01_1.PB_RESZLETEK": [{ op: "goBlock", block: "AIT" }, { op: "executeQuery" }],

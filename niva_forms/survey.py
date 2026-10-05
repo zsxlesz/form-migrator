@@ -6,7 +6,10 @@ The survey joins them per cause (issue code + message template) and counts
 - the endpoints a cause disables, and how many it disables alone ("egyedüli ok"): fix that
   one rule and exactly these endpoints open, so the causes are ranked by what a fix frees;
 - the triggers waiting for translation, with the Forms constructs they contain;
-- the queries (WHERE, LOV record groups) behind disabled reads.
+- the queries (WHERE, LOV record groups) behind disabled reads;
+- the approximations: what is generated and works, but not exactly as in Forms (multi-record
+  writable blocks, server validation at save, key triggers the toolbar does not run, screen steps
+  in the middle of the code, ON-ERROR, POST-QUERY per row), so the next fix can be chosen by count.
 
 Each cause carries a few code shapes: the trigger, WHERE clause or LOV query with names,
 literals, numbers and comments replaced by placeholders (N1, :B1.I2, '…'). The keywords,
@@ -25,10 +28,11 @@ import re
 from . import __version__
 from .common import write_json
 from .discovery import FORMS_BUILTINS
+from .forms_keys import KEY_EVENTS
 from .portfolio import TRIGGER_ID, load, normalize
-from .rules import BLOCKING_SCOPES, WRITE_APPROVAL
+from .rules import BLOCKING_SCOPES, DATA_KEYS, WRITE_APPROVAL
 
-SURVEY_VERSION = 1
+SURVEY_VERSION = 2
 MAX_EXAMPLES = 3
 MAX_LINES = 40
 MAX_CHARS = 2400
@@ -195,6 +199,137 @@ def constructs(text: str) -> set[str]:
     return found
 
 
+
+# --- approximations: generated and working, but not exactly as in Forms ----------------------
+
+# kind: (label, unit, what the web module does now, the fix that would remove the difference)
+APPROXIMATIONS = {
+    'multi_record_write': (
+        'Többsoros, írható adatbázis-blokk', 'blokk',
+        'A képernyő blokkonként egy aktuális rekordot szerkeszt; a táblázat sorai csak megjelennek.',
+        'Szerkeszthető táblázatsorok; a commitForm blokkonként több rekordot ment.'),
+    'item_validation': (
+        'Szerveroldali mezővalidáció (WHEN-VALIDATE-ITEM, POST-CHANGE)', 'trigger',
+        'Mentéskor fut, nem a mező elhagyásakor: a hibát a felhasználó csak mentéskor látja.',
+        'Mezőnkénti validáló végpont, amelyet a képernyő a mező elhagyásakor hív.'),
+    'record_validation': (
+        'Szerveroldali rekordvalidáció (WHEN-VALIDATE-RECORD)', 'trigger',
+        'Mentéskor fut, nem a rekord elhagyásakor.',
+        'Rekordváltáskor hívott validáló végpont (a táblázatos szerkesztéssel együtt).'),
+    'data_key': (
+        'Saját logikájú adat-billentyű (KEY-COMMIT, KEY-EXEQRY, KEY-CREREC, KEY-DELREC …)', 'trigger',
+        'Az eszköztár Mentés / Lekérdezés / Új rekord / Törlés gombja az alapműveletet hívja, a trigger saját logikája nem fut.',
+        'Az eszköztár gombja a KEY-trigger kódját futtatja (DO_KEY-beágyazás, mentési pont).'),
+    'other_key': (
+        'Egyéb saját logikájú billentyű-trigger (KEY-NEXT-ITEM, KEY-Fn, KEY-EXIT …)', 'trigger',
+        'Nincs webes megfelelője: a billentyűhöz kötött logika nem fut.',
+        'Billentyűparancs vagy gomb a képernyőn; a KEY-NEXT-ITEM logikája jellemzően mezőelhagyáskor futtatható.'),
+    'mid_code_step': (
+        'Képernyőlépés a kód közepén (EXECUTE_QUERY, CLEAR_BLOCK, CALL_FORM …)', 'trigger',
+        'Kézi feladat: a lépés után még kód fut, a képernyő viszont a lépést csak a kód végén hajtaná végre.',
+        'Képernyőpont: a kérés megáll, a képernyő végrehajtja a lépést, majd a kód folytatódik (a mentési pont általánosítása).'),
+    'on_error': (
+        'Saját hiba- és üzenetkezelés (ON-ERROR, ON-MESSAGE)', 'trigger',
+        'Nem fut: a képernyő a szerver üzenetét változatlanul mutatja.',
+        'Az üzenetkezelés a képernyő hibaüzenet-megjelenítésére képezve.'),
+    'post_query_rows': (
+        'POST-QUERY többsoros blokkon', 'trigger',
+        'Működik, de soronként külön adatbázis-hívás: egy 200 soros lap 200 hívás.',
+        'Az egyszerű kikeresés (SELECT … INTO :BLOKK.MEZŐ) a lekérdezésbe olvasztva (JOIN vagy skalár allekérdezés).'),
+}
+# A key trigger that does no more than the key's own built-in: the web control does the same.
+DEFAULT_KEY_BUILTINS = {event: {builtin} for builtin, event in KEY_EVENTS.items()}
+DEFAULT_KEY_BUILTINS['KEY-COMMIT'] = {'COMMIT_FORM', 'COMMIT'}
+QUIET_WORDS = frozenset({'BEGIN', 'END', 'NULL'})
+VALIDATION_EVENTS = {'WHEN-VALIDATE-ITEM': 'item_validation', 'POST-CHANGE': 'item_validation',
+                     'WHEN-VALIDATE-RECORD': 'record_validation'}
+# The generator's refusals of a screen step that is not the last step of the code.
+STEP_REASONS = (re.compile(r'\b([A-Z][A-Z_]+) után további adat- vagy mezőművelet következik'),
+                re.compile(r'\b([A-Z][A-Z_]+) a DO_KEY-val beágyazott KEY-trigger kódjában'),
+                re.compile(r'\b(COMMIT_FORM) a kód közepén'))
+
+
+def records_displayed(block: dict) -> int:
+    properties = block.get('properties', {})
+    for key in ('recordsdisplaycount', 'numberofrecordsdisplayed'):
+        try:
+            return max(1, int(str(properties.get(key) or '').strip()))
+        except ValueError:
+            continue
+    return 1
+
+
+def default_key(event: str, source: str) -> bool:
+    """Only the key's own built-in (KEY-NXTBLK: NEXT_BLOCK;), nothing else outside strings and comments."""
+    words = {m.group().upper() for m in TOKEN.finditer(html.unescape(source or '')) if m.lastgroup == 'name'}
+    defaults = DEFAULT_KEY_BUILTINS.get(event, set())
+    return bool(words & defaults) and words <= defaults | QUIET_WORDS
+
+
+def mid_code_steps(texts) -> set[str]:
+    """The screen steps the generator refused because more code follows them (from its reasons)."""
+    return {m.group(1) for text in texts if text for pattern in STEP_REASONS for m in pattern.finditer(text)}
+
+
+def approximation_rows() -> dict:
+    return {kind: {'count': 0, 'forms': set(), 'details': Counter(), 'examples': []} for kind in APPROXIMATIONS}
+
+
+def approximations(model: dict, form: str, names: bool, rows: dict, totals: Counter) -> None:
+    """Count one form's differences from Forms behaviour into rows (approximation_rows)."""
+    blocks = {b.get('name'): b for b in model.get('blocks', [])}
+    details = {(r.get('detaildatablock') or '').upper() for r in model.get('relations', [])}
+    for block in blocks.values():
+        if not block.get('database') or records_displayed(block) < 2:
+            continue
+        totals['multi_record_blocks'] += 1
+        allowed = [label for key, label in (('insert_allowed', 'beszúrás'), ('update_allowed', 'módosítás'),
+                                            ('delete_allowed', 'törlés')) if block.get(key)]
+        if not allowed:
+            continue
+        row = rows['multi_record_write']
+        row['count'] += 1
+        row['forms'].add(form)
+        row['details'].update(allowed + (['részletblokk'] if (block.get('name') or '').upper() in details else []))
+    init = model.get('init_plan') or {}
+    for trigger in model.get('triggers', []):
+        if trigger.get('status') == 'framework' or trigger.get('target') == 'noop':
+            continue
+        event, source = trigger.get('event') or '', trigger.get('source') or ''
+        block = blocks.get(trigger.get('block')) or {}
+        many = records_displayed(block) > 1
+        found = []
+        if event in VALIDATION_EVENTS and trigger.get('target') == 'backend':
+            found.append((VALIDATION_EVENTS[event], [event] + (['többsoros blokkon'] if many else [])))
+        elif event.startswith('KEY-') and not default_key(event, source):
+            found.append(('data_key' if event in DATA_KEYS else 'other_key', [event]))
+        elif event in ('ON-ERROR', 'ON-MESSAGE'):
+            found.append(('on_error', [event]))
+        elif event == 'POST-QUERY' and trigger.get('target') == 'backend' and many:
+            shape = constructs(source)
+            lookup = 'SELECT … INTO' in shape and not shape & {'INSERT', 'UPDATE', 'DELETE', 'MERGE'}
+            found.append(('post_query_rows', ['SELECT … INTO (kikeresés)' if lookup else 'egyéb kód']))
+        startup = init.get('reason') if init.get('status') == 'manual' and trigger.get('id') in init.get('triggers', []) else None
+        steps = mid_code_steps([trigger.get('reason'), trigger.get('commit_reason'), startup])
+        if steps:
+            found.append(('mid_code_step', sorted(steps)))
+        for kind, labels in found:
+            row = rows[kind]
+            row['count'] += 1
+            row['forms'].add(form)
+            row['details'].update(labels)
+            add_example(row, {'form': form, 'event': event, 'code': Shaper(names).shape(source)})
+
+
+def approximation_report(rows: dict) -> list[dict]:
+    order = list(APPROXIMATIONS)
+    result = []
+    for kind, row in rows.items():
+        label, unit, now, fix = APPROXIMATIONS[kind]
+        result.append({'kind': kind, 'label': label, 'unit': unit, 'count': row['count'], 'forms': len(row['forms']),
+                       'details': dict(row['details'].most_common()), 'now': now, 'fix': fix, 'examples': row['examples']})
+    return sorted(result, key=lambda r: (-r['forms'], -r['count'], order.index(r['kind'])))
+
 def scrub(text: str, names: bool) -> str:
     """A message template without the remaining single names (tables, LOVs, units)."""
     if names:
@@ -233,6 +368,7 @@ def collect(out: Path, entries: list[dict], names: bool = False) -> dict:
     issue_codes, sources, failures = Counter(), Counter(), Counter()
     operations = defaultdict(Counter)
     totals = Counter()
+    differences = approximation_rows()
     for number, entry in enumerate(entries, 1):
         root = out / entry['folder']
         summary = load(root / 'analysis/summary.json')
@@ -320,6 +456,8 @@ def collect(out: Path, entries: list[dict], names: bool = False) -> dict:
                 for name in found:
                     construct_forms[name].add(form)
 
+        approximations(model, form, names, differences, totals)
+
         for plan_lov in model.get('lov_plans', []):
             if not plan_lov.get('blockers'):
                 continue
@@ -350,6 +488,7 @@ def collect(out: Path, entries: list[dict], names: bool = False) -> dict:
         'totals': dict(totals),
         'operations': {op: dict(counts) for op, counts in sorted(operations.items())},
         'causes': rows(causes, 'endpoints', ('code', 'reason')),
+        'approximations': approximation_report(differences),
         'triggers': rows(triggers, 'triggers', ('event', 'reason')),
         'constructs': sorted(({'construct': name, 'triggers': count, 'forms': len(construct_forms[name])}
                               for name, count in construct_triggers.items()),
@@ -377,6 +516,32 @@ def fence(example: dict) -> list[str]:
     return [f'Példa ({where}):', '', '```sql', example['code'], '```', '']
 
 
+
+def approximation_lines(report: dict) -> list[str]:
+    """The approximations section: a table of every kind (zero too: checked), then the found ones in detail."""
+    rows = report.get('approximations') or []
+    if not rows:
+        return []
+    lines = ['## Eltérések a Forms-működéstől', '',
+             'Ami elkészül és működik, de nem pontosan úgy, mint a Formsban. Ezek nem tiltanak végpontot, ezért a fenti '
+             'tábla nem mutatja őket. Kivétel a kód közepén álló képernyőlépés: az a gombot vagy a triggert kézi '
+             'feladattá teszi, ezért a lenti okok között is szerepel. A 0-s sorokat is ellenőriztük.', '',
+             '| # | Eltérés | Előfordulás | Form | Részletek |', '|---:|---|---:|---:|---|']
+    for index, row in enumerate(rows, 1):
+        found = ', '.join(f'{k} {n}' for k, n in list(row['details'].items())[:6])
+        lines.append(f"| K{index} | {cell(row['label'])} | {row['count']} {row['unit']} | {row['forms']} | {cell(found)} |")
+    total = report.get('totals', {}).get('multi_record_blocks', 0)
+    writable = next((r['count'] for r in rows if r['kind'] == 'multi_record_write'), 0)
+    lines += ['', f'Többsoros adatbázis-blokk összesen: {total}, ebből írható: {writable}.']
+    for index, row in enumerate(rows, 1):
+        if not row['count']:
+            continue
+        lines += ([] if lines[-1] == '' else ['']) + [f"### K{index}. {row['label']}", '', f"- **Most:** {row['now']}",
+                                                      f"- **Javítás:** {row['fix']}", '']
+        for example in row['examples'][:2]:
+            lines += fence(example)
+    return lines if lines[-1] == '' else lines + ['']
+
 def markdown(report: dict, limit: int = 30, detailed: int = 12) -> str:
     t = report['totals']
     endpoints = t.get('endpoints', 0)
@@ -397,8 +562,9 @@ def markdown(report: dict, limit: int = 30, detailed: int = 12) -> str:
     lines.append(f"| **összesen** | **{endpoints}** | **{t.get('enabled', 0)}** ({share(t.get('enabled', 0))}) | "
                  f"**{t.get('ready', 0)}** | **{t.get('blocked', 0)}** ({share(t.get('blocked', 0))}) |")
     lines += ['', f"Nem generált művelet (a Forms-blokk nem engedi): {t.get('skipped_operations', 0)}. "
-              f"LOV-végpont: {t.get('lov_enabled', 0)} engedélyezett, {t.get('lov_blocked', 0)} tiltott.", '',
-              '## Okok a tiltott végpontok szerint', '',
+              f"LOV-végpont: {t.get('lov_enabled', 0)} engedélyezett, {t.get('lov_blocked', 0)} tiltott.", '']
+    lines += approximation_lines(report)
+    lines += ['## Okok a tiltott végpontok szerint', '',
               'Egy sor egy ok (hibakód és üzenetsablon). „Egyedüli ok”: ennyi végpontot csak ez tilt, vagyis az ok '
               'megszüntetésével ennyi végpont nyílik meg.', '',
               '| # | Kód | Ok | Végpont | Egyedüli ok | Form | Műveletek |', '|---:|---|---|---:|---:|---:|---|']

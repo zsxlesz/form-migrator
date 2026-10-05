@@ -1,4 +1,27 @@
-# NIVA Forms Migrator 4.13.0 — használat
+# NIVA Forms Migrator 4.14.0 — használat
+
+**4.14 – kevesebb kód, kevesebb kézi munka:** a felmérés mintáit utánzó formon minden végpont működik
+(20 / 20). A generált képernyőkomponens harmadával, a DPS ServiceImpl a több működő végpont ellenére is
+rövidebb lett.
+
+Újdonságok:
+
+- **Csatolt könyvtárak:** `--pld KONYVTAR.pld` (vagy feltöltés a weben, `.pll` esetén frmcmp). A form által
+  elért könyvtári rutinok beágyazódnak, nem az adatbázisban keresi őket a kód.
+- **`DO_KEY` a saját KEY-triggerrel:** a trigger kódja a hívás helyén fut, Forms-hatókörrel.
+- **`COMMIT_FORM` a gomb közepén:** a képernyő a ponton ment, a gomb pedig a mentés után folytatódik.
+- **Karcsúbb kód:**
+  - a PL/SQL-segédek egyszer szerepelnek, a `CommonMigrateTools.FormsPlsql`-ben;
+  - az üres utasítások kimaradnak;
+  - a blokkőr egy sor lett.
+- **Közös képernyő-futtató:** `frontend/niva-forms-screen.ts` projektenként egyszer, a komponens
+  `extends NivaFormsScreen`.
+- **`verify-db`:** a generált SQL és PL/SQL lefordítása a céladatbázisban (`DBMS_SQL.PARSE`), végrehajtás nélkül.
+- **Felmérés – eltérések a Forms-működéstől:** a riport azt is megszámolja, mi működik, de nem pontosan úgy,
+  mint a Formsban (többsoros írható blokkok, mentéskori validáció, eszköztáron nem futó KEY-triggerek …).
+- A CL-projektben a `CommonMigrateTools.java` fájlt cserélni kell (VERSION 4).
+
+Részletek és átállás: [JAVITASOK_4_14_HU.md](JAVITASOK_4_14_HU.md).
 
 **4.13 – működő alkalmazás a felmérés alapján:** a felmérés okait sorban megszüntettük. Az indító- és
 billentyű-triggerek nem tiltanak végpontot. Az ON-INSERT/ON-UPDATE/ON-DELETE az eredeti PL/SQL-lel fut. A
@@ -15,7 +38,7 @@ csomagok beágyazódnak.
 - **Riport** a képernyő által nem hívott végpontokról.
 - **Munkapad:** `analysis/MUNKAPAD.html`, a maradék kézi munka kártyákon, Jira-exporttal.
 - A felmérés mintáit utánzó formon a végpontok 95%-a működik (korábban 0%).
-- A CL-projektben a `CommonMigrateTools.java` fájlt cserélni kell (VERSION 3).
+- A CL-projektben a `CommonMigrateTools.java` fájlt cserélni kell (VERSION 3; a 4.14-től VERSION 4).
 
 Részletek és átállás: [JAVITASOK_4_13_HU.md](JAVITASOK_4_13_HU.md). Forms-szemantika puska a kézi
 átültetéshez: [FORMS_SZEMANTIKA_HU.md](FORMS_SZEMANTIKA_HU.md).

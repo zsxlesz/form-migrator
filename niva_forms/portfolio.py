@@ -64,7 +64,7 @@ def folder_name(path: Path, used: set[str]) -> str:
 def migrate_args(source: Path, out: Path, options) -> argparse.Namespace:
     """The same argument set the migrate command builds, with its defaults."""
     return argparse.Namespace(
-        command='migrate', input=source, out=out, olb=list(options.olb), mmb=None,
+        command='migrate', input=source, out=out, olb=list(options.olb), pld=list(getattr(options, 'pld', [])), mmb=None,
         regenerate=options.regenerate, analysis_only=False,
         scaffold=options.mode == 'scaffold', screen=options.mode == 'screen', screen_overrides=None,
         strict_inheritance=False, frontend_only=False, config=options.config, schema=options.schema,

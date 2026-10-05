@@ -274,6 +274,13 @@ def block_values(model, b):
             return "false"
         return "MODULE_REVIEWED" if gated else "true"
     vals.update({"CAN_" + op.upper(): flag(op) for op in ["read", "create", "update", "delete", "search"]})
+    # The guard: the operations that run (one Set instead of a switch over all five).
+    always = [op for op in ["read", "search", "create", "update", "delete"] if flag(op) == "true"]
+    reviewed = [op for op in ["read", "search", "create", "update", "delete"] if flag(op) == "MODULE_REVIEWED"]
+    def operation_set(names):
+        return "java.util.Set.of(" + ", ".join(jstr(n) for n in names) + ")"
+    vals["ENABLED_OPERATIONS"] = (f"(MODULE_REVIEWED ? {operation_set(always + reviewed)} : {operation_set(always)})"
+                                  if reviewed else operation_set(always))
     vals['SEARCH_METHOD'] = ''
     if query.get('status') == 'compiled' and query['binds'] and b.get('endpoint_plan', {}).get('search', True):
         bind_params = '\n'.join(f'            p.addValue({jstr(v["parameter"])}, '

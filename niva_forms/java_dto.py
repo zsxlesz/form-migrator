@@ -71,7 +71,7 @@ def bean_source(source, types, blocks):
                 raise MigrationError('COMPANY_DTO: egymásba ágyazott mezőértékadás nem támogatott.')
         source = replace_ranges(source, edits)
         source = rewrite(source, member, lambda m: m['receiver'] + '.get' + capitalized(m['field']) + '()')
-    accessors = re.compile(r'\brequest\.(criteria|offset|limit|term|parameters|blocks|original|value|changes\w+)\(\)')
+    accessors = re.compile(r'\brequest\.(criteria|offset|limit|term|parameters|blocks|original|value|changes\w+|action\w*)\(\)')
     source = rewrite(source, accessors, lambda m: 'request.get' + capitalized(m[1]) + '()')
     # Forms COMMIT_FORM (commit_chain): the change lists, the update pairs and the saved results.
     changes = re.compile(r'\b(request\.getChanges\w+\(\))\.(inserted|updated|deleted)\(\)|\b(update)\.(original|value)\(\)'

@@ -14,6 +14,7 @@ from niva_forms.cli import main
 from niva_forms.framework import classify, load
 from niva_forms.plsql import Unsupported
 from niva_forms.plsql_passthrough import prepare, Rewriter
+from screen_support import screen_source
 
 
 ACTION_SQL = """BEGIN
@@ -99,7 +100,7 @@ class TriggerNoiseTests(unittest.TestCase):
             self.assertNotIn('calendar' + item + 'Action', source)
         api = plan['api']['actions']
         self.assertEqual(set(api), kept)
-        frontend = (out / 'frontend/noise/noise.component.ts').read_text()
+        frontend = screen_source(out)  # the component and niva-forms-screen.ts (4.14)
         self.assertIn("this.toast.success('Kész'", frontend)
         for entry in api.values():  # this.url(...) with the endpoint as the CL names it
             self.assertIn("this.url('" + plan['api']['paths'][entry['constant']].lstrip('/') + "')", frontend)
@@ -161,7 +162,8 @@ class TriggerNoiseTests(unittest.TestCase):
                          block=None, items={}, units={}, prefixes=('qms$',))
         self.assertEqual(result['binds'], [])
         self.assertNotIn(':SYSTEM', result['sql'])
-        self.assertIn('NULL; UPDATE t SET a = 1;', result['sql'])
+        self.assertIn('BEGIN\n UPDATE t SET a = 1;', result['sql'])  # the NULL left for qms$event is pruned (4.14)
+        self.assertNotIn('qms$', result['sql'])
 
     def test_plsql_structure_check_accepts_nested_loops_cases_and_exception_handlers(self):
         body = '''DECLARE n NUMBER; BEGIN

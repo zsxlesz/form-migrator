@@ -13,6 +13,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from java_support import COMPANY_IMPORTS, write_stubs
+from screen_support import RUNTIME_GLOBALS, component, screen_method, screen_source
 from niva_forms.cli import main
 from niva_forms.plsql_passthrough import scan
 from niva_forms.service_inline import mask
@@ -304,9 +305,10 @@ class QueryActionTests(unittest.TestCase):
 
     def test_frontend_sends_flags_and_displays_rows_without_clearing_on_validation(self):
         out = self.generate()
-        component = next((out / 'frontend').rglob('*.component.ts')).read_text()
+        component = screen_source(out)  # the component and niva-forms-screen.ts (4.14)
         self.assertIn('queryActionBlocks', component)
-        self.assertIn('offset: 0, limit: 200', component)
+        self.assertIn('offset: 0, limit: NIVA_QUERY_LIMIT', component)
+        self.assertIn('NIVA_QUERY_LIMIT = 200', component)
         self.assertIn('if (page.rows != null)', component)
         self.assertIn('this.showRows(target, page.rows)', component)
         self.assertIn('this.activeQueryActions[target] = ownId', component)
@@ -502,29 +504,23 @@ public class QuerySmoke {
         if not shutil.which('node'):
             self.skipTest('Node with TypeScript stripping required')
         out = self.generate()
-        component = next((out / 'frontend').rglob('*.component.ts')).read_text()
-        visible = mask(component)
         methods = []
-        for method in ('runAction', 'executeQuery', 'showRows', 'showRecord', 'wireText', 'payload'):
-            match = re.search(r'^  (?:private |public )?' + method + r'(?:<[^>]+>)?\([^\n]*\)[^\n]*\{', visible, re.M)
-            self.assertIsNotNone(match, method)
-            start, end, depth = match.start(), match.end(), 1
-            while depth:
-                if visible[end] == '{':
-                    depth += 1
-                elif visible[end] == '}':
-                    depth -= 1
-                end += 1
-            methods.append(component[start:end])
-        p = re.search(r'interface (\w+)Page', component)[1]
+        for method in ('runAction', 'executeQuery', 'showRows', 'showRecord', 'wireText', 'payload', 'screenBlocks'):
+            source = screen_method(out, method)  # the component's override, else niva-forms-screen.ts
+            self.assertIsNotNone(source, method)
+            methods.append(source)
+        methods.append(screen_method(out, 'selectedRecords') or '  selectedRecords() { return {}; }')
+        p = re.search(r'export interface (\w+?)BlkRow', component(out))[1]
         script = self.root / 'query-flow.ts'
         script.write_text('''import assert from 'node:assert/strict';
 const TOAST_LIFE = {warning: 1, success: 1};
 const localIso = (value: Date) => value.toISOString();
-interface __P__Page { rows?: Record<string, unknown>[] | null; messages?: string[]; }
-interface __P__ActionResult { blocks?: Record<string, Record<string, string | null>>; messages?: string[]; }
+__RUNTIME_GLOBALS__
 interface __P__BlkRow { col6?: string; col7?: string; }
 class Screen {
+  toastLife = TOAST_LIFE;
+  initAction = '@INIT';
+  stateRecord() {}
   formValues = {T1: {col1: 'MB_34ADLAP', col2: true, col3: false, col4: true, col5: 'X'}};
   formGroups = {};
   regionBlocks = {};
@@ -577,7 +573,7 @@ assert.equal('offset' in screen.requests[3], false);
 assert.equal('limit' in screen.requests[3], false);
 assert.equal(screen.successes.length, 1);
 console.log('typescript query-action OK');
-'''.replace('__METHODS__', '\n'.join(methods)).replace('__P__', p))
+'''.replace('__METHODS__', '\n'.join(methods)).replace('__P__', p).replace('__RUNTIME_GLOBALS__', RUNTIME_GLOBALS))
         run = subprocess.run(['node', '--experimental-strip-types', str(script)], capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('typescript query-action OK', run.stdout)

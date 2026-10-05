@@ -20,6 +20,8 @@ ITEM_PROPERTIES = {'ENABLED': 'enabled', 'VISIBLE': 'visible', 'DISPLAYED': 'vis
 
 def emulation_fields(w: dict) -> list[str]:
     """State of the Forms runtime emulation: cursor, parameter lists, record groups, the open alert."""
+    if w.get('runtime'):
+        return runtime_fields(w)
     result = ['  // Forms-futtatókörnyezet emuláció: a backend a Forms-hívásokat felületi utasításként adja vissza (runCommands).\n'
               '  private cursorBlock = ' + json.dumps(w.get('first_block') or '') + ';\n'
               '  private cursorItem = \'\';\n'
@@ -280,9 +282,9 @@ __SELECTIONS__    const blocks: Record<string, Record<string, string | null>> = 
     const values = this.formValues[block] ?? {};
     for (const [field, key] of Object.entries(this.rowKeys[block] ?? {})) record[field] = this.wireText(block, key, values[key]);
     return record;
-  }''', '''  /** Forms COMMIT_FORM: a képernyő összes változása egy kérésben; a backend Forms-sorrendben, a triggerekkel menti. */
-  private formsCommit(): void {
-    const request: Record<string, unknown> = { blocks: this.screenBlocks(), parameters: this.requestContext([]) };
+  }''', '''__APPLY_CHANGED__  /** Forms COMMIT_FORM: a képernyő összes változása egy kérésben; a backend Forms-sorrendben, a triggerekkel menti.__PRELUDE_DOC__ */
+  private formsCommit(__PRELUDE_ARGS__): void {
+    const request: Record<string, unknown> = { blocks: this.screenBlocks(), parameters: this.requestContext([])__PRELUDE_SPREAD__ };
     let changed = false;
     for (const [block, spec] of Object.entries(this.commitBlocks)) {
       const changes: { inserted: unknown[]; updated: { original: unknown; value: unknown }[]; deleted: unknown[] } =
@@ -304,7 +306,7 @@ __SELECTIONS__    const blocks: Record<string, Record<string, string | null>> = 
         changed = true;
       }
     }
-    if (!changed) {
+    if (!changed__NO_PRELUDE__) {
       this.toast.warning('Mentés', 'Nincs mentendő változás.', true, TOAST_LIFE.warning);
       return;
     }
@@ -325,9 +327,86 @@ __SELECTIONS__    const blocks: Record<string, Record<string, string | null>> = 
         if (result.globals) this.rememberGlobals(result.globals);
         for (const [block, values] of Object.entries(result.blocks ?? {})) this.applyOracleValues(block, values);
         this.runCommands(result.commands ?? []);
-        this.toast.success('Mentve', result.messages?.join(' ') || 'A változások mentése sikerült.', true, TOAST_LIFE.success);
+        this.toast.success('Mentve', result.messages?.join(' ') || 'A változások mentése sikerült.', true, TOAST_LIFE.success);__THEN__
       },
       error: () => undefined, // WFF.err már jelezte; a tranzakció visszagörgetve, a képernyő változatlan
     });
-  }'''.replace('__CALL__', w['commit']['call']).replace('__P__', p)]
+  }'''.replace('__CALL__', w['commit']['call']).replace('__P__', p)
+        .replace('__APPLY_CHANGED__', '''  /** Egy gomb mentés előtti mezőértékei: a megváltozott blokk mentendő lesz (Forms: a rekord CHANGED állapotú). */
+  private applyChanged(block: string, values: Record<string, string | null>): void {
+    const before = JSON.stringify(this.screenBlocks()[block] ?? {});
+    this.applyOracleValues(block, values);
+    if (JSON.stringify(this.screenBlocks()[block] ?? {}) === before) return;
+    for (const [region, group] of Object.entries(this.formGroups)) if (this.regionBlocks[region] === block) group.markAsDirty();
+  }
 
+''' if w.get('commit_points') else '')
+        .replace('__PRELUDE_DOC__', '\n   *  prelude: mentési pontos gomb (a backend előbb a kódját futtatja a pontig); then: sikeres mentés után.'
+                 if w.get('commit_points') else '')
+        .replace('__PRELUDE_ARGS__', 'prelude: Record<string, unknown> | null = null, then: (() => void) | null = null'
+                 if w.get('commit_points') else '')
+        .replace('__PRELUDE_SPREAD__', ', ...(prelude ?? {})' if w.get('commit_points') else '')
+        .replace('__NO_PRELUDE__', ' && !prelude' if w.get('commit_points') else '')
+        .replace('__THEN__', '\n        then?.();' if w.get('commit_points') else '')]
+
+
+
+RUNTIME_FILE = 'niva-forms-screen.ts'
+RUNTIME_IMPORT = '../niva-forms-screen'
+
+
+def runtime_source() -> str:
+    """frontend/niva-forms-screen.ts: the Forms runtime every generated screen extends (one copy per project)."""
+    from pathlib import Path
+    return (Path(__file__).with_name('templates') / 'niva-forms-screen.ts.tpl').read_text(encoding='utf-8')
+
+
+def runtime_fields(w: dict) -> list[str]:
+    """The screen's data for NivaFormsScreen: overrides of the base fields, nothing of its own state."""
+    result = ['  // Forms-futtatókörnyezet emuláció: niva-forms-screen.ts; itt a képernyő adatai.\n'
+              '  protected override cursorBlock = ' + json.dumps(w.get('first_block') or '') + ';']
+    if w.get('alerts'):
+        result.append('  protected override readonly alertDefinitions: Record<string, { title: string; text: string; buttons: string[] }> = '
+                      + ts(w['alerts'], 1) + ';')
+    if w.get('form_routes'):
+        result.append('  protected override readonly formRoutes: Record<string, string> = ' + ts(w['form_routes'], 1) + ';')
+    result.append('  protected override readonly screenBlockNames: readonly string[] = ' + json.dumps(sorted(w['screen_keys'])) + ';')
+    if w.get('init') and w['init'] != '@INIT':
+        result.append('  protected override readonly initAction = ' + json.dumps(w['init']) + ';')
+    if w.get('commit'):
+        blocks = {block: {'request': spec['request'], 'result': spec['result'], 'operations': spec['operations']}
+                  for block, spec in w['commit']['blocks'].items()}
+        result.append('  // Forms COMMIT_FORM: a mentett blokkok a commit-kérés mezőivel és a megengedett műveletekkel.\n'
+                      '  protected override readonly commitBlocks: Record<string, { request: string; result: string; operations: readonly string[] }> = '
+                      + ts(blocks, 1) + ';\n'
+                      '  protected override readonly commitEndpoint = (request: Record<string, unknown>) => this.' + w['commit']['call'] + '(request);')
+    return result
+
+
+def runtime_hooks(w: dict) -> list[str]:
+    """The screen-specific parts NivaFormsScreen asks for: the tables' selected rows, CLEAR_BLOCK of a table,
+    windows and canvases (SHOW_WINDOW, SHOW_VIEW)."""
+    result = []
+    if w['tables']:
+        selections = ''.join(f"    if (this.{prop}Selection) records[{json.dumps(block)}] = {{ ...this.{prop}Selection }};\n" for block, prop in w['tables'])
+        result.append('''  /** A táblázatok kijelölt sorai (Forms: a blokk aktuális rekordja). */
+  protected override selectedRecords(): Record<string, Record<string, unknown>> {
+    const records: Record<string, Record<string, unknown>> = {};
+__SELECTIONS__    return records;
+  }'''.replace('__SELECTIONS__', selections))
+        cases = ''.join(f"      case {json.dumps(block)}: this.{prop}Rows = []; this.{prop}Selection = null; break;\n" for block, prop in w['tables'])
+        result.append('''  protected override clearTable(block: string): void {
+    switch (block) {
+__CASES__      default: break;
+    }
+  }'''.replace('__CASES__', cases))
+    if w.get('window_type'):
+        result.append(f'''  protected override formsWindow(name: string, visible: boolean): void {{
+    if (Object.hasOwn(this.windowVisible(), name)) this.setWindowVisible(name as {w['window_type']}, visible);
+  }}''')
+    if w.get('canvas_type'):
+        result.append(f'''  protected override formsCanvas(name: string, visible: boolean): void {{
+    if (!Object.hasOwn(this.canvasVisible(), name)) return;
+    if (visible) this.showCanvas(name as {w['canvas_type']}); else this.hideCanvas(name as {w['canvas_type']});
+  }}''')
+    return result

@@ -196,7 +196,8 @@ class HeadstartCleanupTests(unittest.TestCase):
     def test_clean_operation_waits_only_for_the_module_switch(self):
         out = self.generate(headstart_form(post_query=False))
         service = (out / 'backend/DPS/TesztServiceImpl.java').read_text(encoding='utf-8')
-        self.assertIn('case "search": enabled = MODULE_REVIEWED; break;', ' '.join(service.split()))  # the one switch in the ServiceImpl
+        # the one switch in the ServiceImpl: the guard's operations follow MODULE_REVIEWED
+        self.assertRegex(' '.join(service.split()), r'MODULE_REVIEWED \? Set\.of\([^)]*"search"[^)]*\) : Set\.of\(\)')
         self.assertIn('a MODULE_REVIEWED kapcsolóval engedélyezhető', service)
         plan = json.loads((out / 'analysis/backend-plan.json').read_text(encoding='utf-8'))
         search = next(e for e in plan['endpoints'] if e.get('operation') == 'search')

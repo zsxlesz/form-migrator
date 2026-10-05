@@ -32,6 +32,7 @@ Az „Összesítő ZIP” is tartalmazza a felmérés két fájlját.
 ```
 python -m niva_forms survey forms/ --out felmeres
 python -m niva_forms survey forms/ --out felmeres --olb kozos_olb.xml --schema schema.json
+python -m niva_forms survey forms/ --out felmeres --pld konyvtarak/ANKLIB.pld   # csatolt könyvtárakkal
 python -m niva_forms survey --out felmeres --report-only --names   # meglévő kimenetből, nevekkel
 ```
 
@@ -49,6 +50,24 @@ akkor tiltott, ha a `schema.json` kifejezetten tiltja.
 - **Okok:** a tiltott végpontok okai hibakóddal és üzenetsablonnal. Az **egyedüli ok** oszlop
   megmutatja, hány végpontot csak az adott ok tilt, vagyis hány nyílik meg, ha ezt az egy okot
   megszüntetjük. Az első okokhoz kódpéldák tartoznak.
+- **Eltérések a Forms-működéstől** (4.14): ami elkészül és működik, de nem pontosan úgy, mint a
+  Formsban. Ezek nem tiltanak végpontot, ezért az okok között nem jelennek meg. A riport mindegyiket
+  megszámolja (a 0-s sorokat is), és megadja, mit csinál most a webes modul, és mi lenne a javítás:
+
+  | Eltérés | Most a webes modulban |
+  |---|---|
+  | Többsoros, írható adatbázis-blokk | blokkonként egy aktuális rekord szerkeszthető, a táblázat sorai csak megjelennek |
+  | Szerveroldali mezővalidáció (WHEN-VALIDATE-ITEM, POST-CHANGE) | mentéskor fut, nem a mező elhagyásakor |
+  | Szerveroldali rekordvalidáció (WHEN-VALIDATE-RECORD) | mentéskor fut, nem a rekord elhagyásakor |
+  | Saját logikájú adat-billentyű (KEY-COMMIT, KEY-EXEQRY, KEY-CREREC, KEY-DELREC …) | az eszköztár gombja az alapműveletet hívja, a trigger logikája nem fut |
+  | Egyéb saját logikájú billentyű-trigger (KEY-NEXT-ITEM, KEY-Fn …) | nincs webes megfelelője |
+  | Képernyőlépés a kód közepén (EXECUTE_QUERY, CLEAR_BLOCK …) | a gomb vagy trigger kézi feladat |
+  | Saját hiba- és üzenetkezelés (ON-ERROR, ON-MESSAGE) | nem fut |
+  | POST-QUERY többsoros blokkon | működik, de soronként egy adatbázis-hívás |
+
+  Az a billentyű-trigger, amely csak a billentyű saját műveletét végzi (például `KEY-NXTBLK`:
+  `NEXT_BLOCK;`), nem számít eltérésnek. A keretrendszeri (`qms$…`) triggereket sem számolja.
+  A webes felületen az „Eltérések a Forms-működéstől” panel mutatja a talált sorokat.
 - **Átültetendő triggerek:** eseményenként és okonként, a bennük lévő Forms-hívásokkal és
   SQL-szerkezetekkel.
 - **Szerkezetek:** hány végpontot tiltó trigger tartalmazza az egyes elemeket (pl. `SET_BLOCK_PROPERTY`,
@@ -77,3 +96,28 @@ A formokat `F1`, `F2` stb. jelöli.
 
 A hibák feltárásához a `FELMERES_HU.md` elküldése általában elég. Ha a JSON-t is csatolod, minden sor
 és példa látszik.
+
+**Ne küldd el:**
+
+- a formonkénti almappákat: ezekben a teljes generált kód van, valódi nevekkel;
+- a `PORTFOLIO_HU.md` és `portfolio.json` fájlt: ezekben formnevek vannak (az „Összesítő ZIP” ezeket is
+  tartalmazza, ezért abból csak a két felmérésfájlt add tovább);
+- a `--names` kapcsolóval vagy a „Nevekkel” gombbal készült változatot.
+
+**Küldés előtt fusd át.** A hibaüzenetek szövegéből a nagybetűs neveket, a számokat, a kötött
+változókat és az idézett szövegeket kiveszi a riport. Egy kisbetűs név vagy egy érték elvben mégis
+átcsúszhat, ezért érdemes rákeresni a céges előtagokra és táblanév-töredékekre:
+
+```
+grep -i -n "ank_\|cegnev\|rendeles" FELMERES_HU.md
+```
+
+## Mi nem derül ki a felmérésből
+
+- **A valódi adatbázis:** hogy a továbbított PL/SQL és SQL lefordul-e a sémán. Ezt a `verify-db` mutatja
+  meg ([JAVITASOK_4_14_HU.md](JAVITASOK_4_14_HU.md)); a riportja valódi neveket tartalmaz.
+- **A host-környezet:** hogy a generált Java és TypeScript lefordul-e a céges CL-lel és az Angular-projekttel.
+- **A képernyő elrendezése**, vizuálisan.
+- **A névtelenítéssel elveszett részletek:** például az, hogy egy `N3.N4` hívás céges keretrendszer-rutin
+  vagy üzleti rutin. Ha egy ilyen gyakori, a keretrendszer előtagja felvehető a katalógusba (`framework_catalog`),
+  és onnantól megnevezve marad.

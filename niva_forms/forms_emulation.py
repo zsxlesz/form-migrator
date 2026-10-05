@@ -36,6 +36,11 @@ COMMANDS = set('''GO_ITEM GO_BLOCK GO_RECORD NEXT_ITEM PREVIOUS_ITEM NEXT_BLOCK 
 TAIL_COMMANDS = set('''EXECUTE_QUERY COUNT_QUERY ENTER_QUERY COMMIT_FORM POST CLEAR_FORM CLEAR_BLOCK CLEAR_RECORD
  CREATE_RECORD DELETE_RECORD DUPLICATE_RECORD EXIT_FORM CALL_FORM OPEN_FORM NEW_FORM GO_FORM DO_KEY
  LIST_VALUES'''.split())
+# Built-ins that move the cursor: a later DO_KEY may run another block's or item's KEY trigger.
+NAVIGATION = set('''GO_ITEM GO_BLOCK GO_FORM NEXT_ITEM PREVIOUS_ITEM NEXT_BLOCK PREVIOUS_BLOCK NEXT_FORM PREVIOUS_FORM
+ SET_INPUT_FOCUS'''.split())
+# Screen commands the web screen cannot carry out for a button: embedded KEY trigger code with them stays manual.
+NOT_FROM_BUTTON = {'LIST_VALUES', 'ENTER_QUERY'}
 # Pure screen niceties: nothing the web screen has to do.
 NOOPS = set('''SYNCHRONIZE BELL REDISPLAY CLEAR_MESSAGE PAUSE SET_APPLICATION_PROPERTY VALIDATE RECALCULATE
  CLEAR_EOL HIDE_MENU SHOW_MENU'''.split())
@@ -82,45 +87,38 @@ def emulated(word: str) -> bool:
             or word == 'GET_APPLICATION_PROPERTY' or word == 'FORMS_DDL')
 
 
-def declarations(needs: set, answers: str) -> tuple[list[str], list[str]]:
-    """(variables, subprograms) an emulated block needs. PL/SQL wants every variable of a declarative
-    part before the first subprogram body, so the caller places the two lists apart."""
-    items, subprograms = [], []
-    if 'ui' in needs:
-        items.append('  niva_ui VARCHAR2(32767);')
-        subprograms += ['  PROCEDURE niva_cmd(p_op VARCHAR2, p1 VARCHAR2 DEFAULT NULL, p2 VARCHAR2 DEFAULT NULL,',
-                        '                     p3 VARCHAR2 DEFAULT NULL, p4 VARCHAR2 DEFAULT NULL, p5 VARCHAR2 DEFAULT NULL,',
-                        '                     p6 VARCHAR2 DEFAULT NULL) IS',
-                        '  BEGIN',
-                        '    niva_ui := SUBSTR(niva_ui || p_op || CHR(31) || p1 || CHR(31) || p2 || CHR(31) || p3 || CHR(31) || p4',
-                        '                      || CHR(31) || p5 || CHR(31) || p6 || CHR(30), 1, 32000);',
-                        '  END;']
-    if 'find' in needs:
-        subprograms.append('  FUNCTION niva_find(p_name VARCHAR2) RETURN VARCHAR2 IS BEGIN RETURN UPPER(p_name); END;')
-    if 'none' in needs:
-        subprograms.append('  FUNCTION niva_none(p_name VARCHAR2) RETURN VARCHAR2 IS BEGIN RETURN NULL; END;')
-    if 'id_null' in needs:
-        subprograms.append('  FUNCTION niva_id_null(p_id VARCHAR2) RETURN BOOLEAN IS BEGIN RETURN p_id IS NULL; END;')
-    if 'group' in needs:
-        subprograms += ['  FUNCTION niva_group(p_op VARCHAR2, p1 VARCHAR2, p2 VARCHAR2 DEFAULT NULL, p3 VARCHAR2 DEFAULT NULL,',
+def answers_var() -> str:
+    """The bound variable of the alert answers (plsql_passthrough.Rewriter.var of NIVA.ALERTS): fixed."""
+    import hashlib
+    return 'nv_' + hashlib.sha1(ALERT_PARAMETER.encode('utf-8')).hexdigest()[:10]
+
+
+# The fixed local subprograms of an emulated block, by name. The same texts are the constants of
+# CommonMigrateTools.FormsPlsql (test_slim_code checks it): a generated block names them instead of
+# repeating them, so every module shares one copy.
+HELPERS = {
+    'MSG': '\n'.join(['  PROCEDURE niva_msg(p_text VARCHAR2, p_mode PLS_INTEGER DEFAULT NULL) IS',
+                      '  BEGIN niva_messages := SUBSTR(niva_messages || p_text || CHR(10), 1, 32000); END;']),
+    'CMD': '\n'.join(['  PROCEDURE niva_cmd(p_op VARCHAR2, p1 VARCHAR2 DEFAULT NULL, p2 VARCHAR2 DEFAULT NULL,',
+                      '                     p3 VARCHAR2 DEFAULT NULL, p4 VARCHAR2 DEFAULT NULL, p5 VARCHAR2 DEFAULT NULL,',
+                      '                     p6 VARCHAR2 DEFAULT NULL) IS',
+                      '  BEGIN',
+                      '    niva_ui := SUBSTR(niva_ui || p_op || CHR(31) || p1 || CHR(31) || p2 || CHR(31) || p3 || CHR(31) || p4',
+                      '                      || CHR(31) || p5 || CHR(31) || p6 || CHR(30), 1, 32000);',
+                      '  END;']),
+    'FIND': '  FUNCTION niva_find(p_name VARCHAR2) RETURN VARCHAR2 IS BEGIN RETURN UPPER(p_name); END;',
+    'NONE': '  FUNCTION niva_none(p_name VARCHAR2) RETURN VARCHAR2 IS BEGIN RETURN NULL; END;',
+    'ID_NULL': '  FUNCTION niva_id_null(p_id VARCHAR2) RETURN BOOLEAN IS BEGIN RETURN p_id IS NULL; END;',
+    'GROUP': '\n'.join(['  FUNCTION niva_group(p_op VARCHAR2, p1 VARCHAR2, p2 VARCHAR2 DEFAULT NULL, p3 VARCHAR2 DEFAULT NULL,',
                         '                      p4 VARCHAR2 DEFAULT NULL) RETURN VARCHAR2 IS',
                         '  BEGIN',
                         '    niva_cmd(p_op, p1, p2, p3, p4);',
                         "    RETURN CASE WHEN p_op = 'ADD_GROUP_COLUMN' THEN UPPER(p1) || '.' || UPPER(p2) ELSE UPPER(p1) END;",
-                        '  END;']
-    if 'copy' in needs:
-        subprograms.append('  PROCEDURE niva_copy(p_value VARCHAR2, p_target IN OUT VARCHAR2) IS BEGIN p_target := p_value; END;')
-    if 'default_value' in needs:
-        subprograms.append('  PROCEDURE niva_default_value(p_value VARCHAR2, p_target IN OUT VARCHAR2) IS'
-                           ' BEGIN IF p_target IS NULL THEN p_target := p_value; END IF; END;')
-    if 'alert' in needs or 'alert_buttons' in needs:
-        items += [f'  {name} CONSTANT NUMBER := {value};' for name, value in ALERT_BUTTONS.items()]
-    if 'alert' in needs:
-        items += ['  TYPE niva_texts IS TABLE OF VARCHAR2(4000) INDEX BY VARCHAR2(400);',
-                  '  niva_alert_texts niva_texts;',
-                  '  niva_alert_count PLS_INTEGER := 0;',
-                  '  niva_alert_pending EXCEPTION;']
-        subprograms += ['  PROCEDURE niva_alert_prop(p_alert VARCHAR2, p_prop VARCHAR2, p_value VARCHAR2,',
+                        '  END;']),
+    'COPY': '  PROCEDURE niva_copy(p_value VARCHAR2, p_target IN OUT VARCHAR2) IS BEGIN p_target := p_value; END;',
+    'DEFAULT_VALUE': ('  PROCEDURE niva_default_value(p_value VARCHAR2, p_target IN OUT VARCHAR2) IS'
+                      ' BEGIN IF p_target IS NULL THEN p_target := p_value; END IF; END;'),
+    'ALERT': '\n'.join(['  PROCEDURE niva_alert_prop(p_alert VARCHAR2, p_prop VARCHAR2, p_value VARCHAR2,',
                         '                            p_label VARCHAR2 DEFAULT NULL) IS',
                         '  BEGIN',
                         "    niva_alert_texts(UPPER(p_alert) || '|' || UPPER(p_prop)) := CASE WHEN p_label IS NULL THEN p_value ELSE p_label END;",
@@ -136,7 +134,7 @@ def declarations(needs: set, answers: str) -> tuple[list[str], list[str]]:
                         '    v_answer VARCHAR2(10);',
                         '  BEGIN',
                         '    niva_alert_count := niva_alert_count + 1;',
-                        f"    v_answer := REGEXP_SUBSTR({answers}, '[^,]+', 1, niva_alert_count);",
+                        f"    v_answer := REGEXP_SUBSTR({answers_var()}, '[^,]+', 1, niva_alert_count);",
                         '    IF v_answer IS NOT NULL THEN',
                         '      RETURN 87 + TO_NUMBER(v_answer);',
                         '    END IF;',
@@ -144,5 +142,75 @@ def declarations(needs: set, answers: str) -> tuple[list[str], list[str]]:
                         "             niva_alert_text(UPPER(p_alert) || '|ALERT_BUTTON1'), niva_alert_text(UPPER(p_alert) || '|ALERT_BUTTON2'),",
                         "             niva_alert_text(UPPER(p_alert) || '|ALERT_BUTTON3'), TO_CHAR(niva_alert_count));",
                         '    RAISE niva_alert_pending;',
-                        '  END;']
-    return items, subprograms
+                        '  END;']),
+}
+# need -> helper, in declaration order (niva_group calls niva_cmd, niva_show_alert calls niva_alert_text).
+HELPER_NEEDS = [('ui', 'CMD'), ('find', 'FIND'), ('none', 'NONE'), ('id_null', 'ID_NULL'), ('group', 'GROUP'),
+                ('copy', 'COPY'), ('default_value', 'DEFAULT_VALUE'), ('alert', 'ALERT')]
+
+
+def declarations(needs: set) -> tuple[list[str], list[str]]:
+    """(variables, helper names) an emulated block needs. PL/SQL wants every variable of a declarative
+    part before the first subprogram body, so the caller places the two lists apart."""
+    items = []
+    if 'ui' in needs:
+        items.append('  niva_ui VARCHAR2(32767);')
+    if 'alert' in needs or 'alert_buttons' in needs:
+        items += [f'  {name} CONSTANT NUMBER := {value};' for name, value in ALERT_BUTTONS.items()]
+    if 'alert' in needs:
+        items += ['  TYPE niva_texts IS TABLE OF VARCHAR2(4000) INDEX BY VARCHAR2(400);',
+                  '  niva_alert_texts niva_texts;',
+                  '  niva_alert_count PLS_INTEGER := 0;',
+                  '  niva_alert_pending EXCEPTION;']
+    return items, [helper for need, helper in HELPER_NEEDS if need in needs]
+
+
+HELPER_DOCS = {'MSG': 'niva_msg: a MESSAGE szövegei a válasz üzenetei közé.',
+               'CMD': 'niva_cmd: egy Forms-hívás felületi utasításként (CHR(30)/CHR(31) tagolás).',
+               'FIND': 'niva_find: FIND_ALERT, FIND_ITEM ... - a név maga az azonosító.',
+               'NONE': 'niva_none: GET_PARAMETER_LIST - a képernyőn nincs paraméterlista-objektum.',
+               'ID_NULL': 'niva_id_null: ID_NULL.',
+               'GROUP': 'niva_group: CREATE_GROUP, ADD_GROUP_COLUMN - utasítás és azonosító.',
+               'COPY': 'niva_copy: COPY(érték, \'BLOKK.MEZŐ\').',
+               'DEFAULT_VALUE': 'niva_default_value: DEFAULT_VALUE(érték, \'BLOKK.MEZŐ\').',
+               'ALERT': 'niva_alert_prop, niva_alert_text, niva_show_alert: SHOW_ALERT és társai.'}
+
+
+def java_class() -> str:
+    """CommonMigrateTools.FormsPlsql: HELPERS as Java constants, in the template's layout (lines <= 100)."""
+    def rendered(text):
+        return '"' + text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n') + '"'
+
+    def pieces(text, first_width, width):
+        """Literals of at most first_width / width characters, cut after a space; every source line ends one."""
+        result, budget = [], first_width
+        for line in (text + '\n').split('\n')[:-1]:
+            rest = line + '\n'
+            while len(rendered(rest)) > budget:
+                limit = budget - 2 - rest[:budget].count('"') - rest[:budget].count('\\')
+                cut = rest.rfind(' ', 0, limit)
+                cut = cut + 1 if cut > 0 else limit
+                result.append(rendered(rest[:cut]))
+                rest, budget = rest[cut:], width
+            result.append(rendered(rest))
+            budget = width
+        return result
+
+    lines = ['    /**',
+             '     * A Forms-emuláció rögzített PL/SQL-segédeljárásai (niva_msg, niva_cmd ...).',
+             '     *',
+             '     * <p>A generált névtelen blokkok a nevükkel hivatkoznak rájuk, így minden modul ugyanazt az',
+             '     * egy példányt használja. A szövegük a migrátor forms_emulation.HELPERS értéke.',
+             '     */',
+             '    public static final class FormsPlsql {']
+    for index, (name, text) in enumerate(HELPERS.items()):
+        if index:
+            lines.append('')
+        lines.append('        /** ' + HELPER_DOCS[name] + ' */')
+        head = '        public static final String ' + name + ' = '
+        literals = pieces(text, 100 - len(head), 100 - len('                + ') - 1)
+        lines.append(head + literals[0])
+        lines += ['                + ' + literal for literal in literals[1:]]
+        lines[-1] += ';'
+    lines += ['', '        private FormsPlsql() {', '        }', '    }']
+    return '\n'.join(lines) + '\n'

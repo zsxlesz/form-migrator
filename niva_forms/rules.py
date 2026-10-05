@@ -477,7 +477,8 @@ def plsql_library(model: dict, catalog: dict, ui: bool = False) -> dict:
                                   catalog.get("runtime_calls", ()), ui=ui, form=model["name"])
         model[summary] = {name: {"kind": u["kind"], "source": u["source"], "text": u["text"], "items": u.get("items", ""),
                                  "error": u["error"], "binds": list(u["binds"]), "calls": u["calls"], "unresolved": u["unresolved"],
-                                 "members": u.get("members", []), "commands": u.get("commands", [])}
+                                 "members": u.get("members", []), "commands": u.get("commands", []),
+                                 **({"library": u["library"]} if u.get("library") else {})}
                           for name, u in model[key].items()}
     return model[key]
 
@@ -486,19 +487,38 @@ def action_passthrough(trigger: dict, source: str, model: dict, catalog: dict) -
     """The anonymous block of a button trigger: values of every block, one transaction, the Forms
     built-ins emulated as screen commands (forms_emulation)."""
     from .plsql_passthrough import items_by_block, local_units, prepare
+    from .xmlmodel import get
     item = (trigger["block"] + "." + trigger["item"]) if trigger.get("block") and trigger.get("item") else None
+    # A button with Mouse Navigate = No leaves the cursor where it was: its own KEY triggers may not apply.
+    button = next((i for b in model["blocks"] if b["name"] == trigger.get("block") for i in b["items"] if i["name"] == trigger.get("item")), None)
+    navigates = button is None or get(button.get("properties", {}), "MouseNavigate", default="true").strip().lower() not in {"false", "no", "0"}
     return prepare(source, block=trigger["block"] or None, items=items_by_block(model), units=local_units(model),
                    prefixes=catalog["call_prefixes"], other_blocks=True, parameters=True, transaction=True,
                    procedures=model.get("procedures", {}), library=plsql_library(model, catalog, ui=True),
                    runtime_calls=catalog.get("runtime_calls", ()), ui=True, form=model["name"], trigger_item=item,
-                   key_overrides=key_overrides(model, catalog))
+                   key_overrides=key_overrides(model, catalog), key_triggers=key_triggers(model, catalog),
+                   commit_points=True, cursor_on_item=navigates)
 
 
 def key_overrides(model: dict, catalog: dict) -> set:
-    """Built-ins whose DO_KEY would run an own KEY-* trigger (not Headstart dispatch): never emulated."""
+    """Built-ins whose DO_KEY would run an own KEY-* trigger (not Headstart dispatch): embedded or refused."""
     from .forms_keys import KEY_EVENTS
     events = {t["event"] for t in model["triggers"] if framework.classify(t["source"], catalog)[0] not in {"framework", "empty"}}
     return {builtin for builtin, event in KEY_EVENTS.items() if event in events}
+
+
+def key_triggers(model: dict, catalog: dict) -> dict:
+    """KEY event -> the own KEY-* triggers DO_KEY may run: owner, scope, code and Execution Hierarchy."""
+    from .xmlmodel import get
+    result = {}
+    for t in model["triggers"]:
+        if not t["event"].startswith("KEY-") or framework.classify(t["source"], catalog)[0] in {"framework", "empty"}:
+            continue
+        hierarchy = get(t.get("properties", {}), "ExecutionHierarchy", "ExecuteHierarchy", default="Override").strip().upper()
+        result.setdefault(t["event"], []).append({
+            "id": t["id"], "event": t["event"], "block": t["block"], "item": t["item"], "hierarchy": hierarchy,
+            "source": (t.get("replacement") or {}).get("source", t["source"])})
+    return result
 
 
 COMMIT_EVENTS = ("PRE-COMMIT", "POST-FORMS-COMMIT")
@@ -522,7 +542,7 @@ def commit_plan(model: dict, catalog: dict) -> None:
                            prefixes=catalog["call_prefixes"], other_blocks=True, parameters=True, transaction=True,
                            procedures=model.get("procedures", {}), library=plsql_library(model, catalog, ui=True),
                            runtime_calls=catalog.get("runtime_calls", ()), ui=True, form=model["name"],
-                           key_overrides=key_overrides(model, catalog))
+                           key_overrides=key_overrides(model, catalog), key_triggers=key_triggers(model, catalog))
         except Unsupported as exc:
             trigger["commit_reason"] = str(exc)
             continue
@@ -566,7 +586,7 @@ def startup_plan(model: dict, catalog: dict) -> None:
                        prefixes=catalog["call_prefixes"], other_blocks=True, parameters=True, transaction=True,
                        procedures=model.get("procedures", {}), library=plsql_library(model, catalog, ui=True),
                        runtime_calls=catalog.get("runtime_calls", ()), ui=True, form=model["name"],
-                       key_overrides=key_overrides(model, catalog))
+                       key_overrides=key_overrides(model, catalog), key_triggers=key_triggers(model, catalog))
     except Unsupported as exc:
         model["init_plan"] = {"status": "manual", "triggers": ids, "reason": str(exc)}
         for issue in model["issues"]:
@@ -613,7 +633,8 @@ def passthrough(trigger: dict, block: dict, source: str, model: dict, catalog: d
     lines += [f"        row.{field(b)} = ({JAVA_CASTS[b['type']]}) out[{offset + k}];" for k, b in enumerate(prepared["outs"])]
     lines.append(f"        if (out[{offset + len(prepared['outs'])}] instanceof String) for (String line : ((String) out[{offset + len(prepared['outs'])}]).split(\"\\n\")) if (!line.isBlank()) context.message(line);")
     info = {"binds": [b["source"] for b in prepared["binds"]], "written": [b["source"] for b in prepared["outs"]],
-            "notes": prepared["notes"], "units": prepared["units"], "unresolved": prepared["unresolved"], "guarded": prepared["guarded"]}
+            "notes": prepared["notes"], "units": prepared["units"], "unresolved": prepared["unresolved"], "guarded": prepared["guarded"],
+            "sql": prepared["sql"]}  # analysis/db-statements.json: verify-db compiles it in the target database
     return "\n".join(lines), info
 
 

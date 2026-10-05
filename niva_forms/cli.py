@@ -66,7 +66,9 @@ DEFAULTS = {"java_package": "hu.company.features", "api_prefix": "/api/forms", "
             # groups, UTF-8 literals, 4-space indentation. false: the generator's own layout.
             "java_checkstyle_format": True,
             # Checkstyle CustomImportOrder customImportOrderRules: groups in this order, one empty line between.
-            "java_import_order": "STATIC###STANDARD_JAVA_PACKAGE###THIRD_PARTY_PACKAGE"}
+            "java_import_order": "STATIC###STANDARD_JAVA_PACKAGE###THIRD_PARTY_PACKAGE",
+            # Code page of the attached-library .pld files (--pld); "" = UTF-8, else cp1250 (Windows Forms).
+            "pld_encoding": ""}
 
 DEFAULTS.update(COMPANY_DEFAULTS)
 DEFAULTS.update(UI_DEFAULTS)
@@ -77,7 +79,7 @@ def configuration(args) -> dict:
     result = copy.deepcopy(DEFAULTS)
     if args.config:
         values = read_json(args.config)
-        unknown = set(values) - set(DEFAULTS) - {"export_command", "template_dir", "ai_think"}
+        unknown = set(values) - set(DEFAULTS) - {"export_command", "library_export_command", "template_dir", "ai_think"}
         if unknown:
             raise MigrationError(f"Ismeretlen config kulcsok: {sorted(unknown)}")
         result.update(values)
@@ -236,6 +238,12 @@ def migration(args, on_progress=None) -> int:
         snapshot.parent.mkdir()
         snapshot.write_bytes(inputs.form.raw)
         model = parse_xml(snapshot, resolved_root=resolution.root, property_metadata=resolution.metadata)
+        # Attached libraries (.pld): the units the form reaches become its program units (libraries.attach).
+        from .libraries import attach, load_libraries
+        from . import framework
+        libraries = load_libraries(getattr(args, "pld", None), config, stage)
+        if libraries or model["libraries"]:
+            write_json(bundle / "analysis" / "libraries.json", attach(model, libraries, framework.load(config)))
         model["inheritance_summary"] = {"version": 1, "resolved_links": len(resolution.resolved_links),
                                         "form_has_inheritance": resolution.form_has_inheritance,
                                         "details": "analysis/inheritance.json", "catalog": "analysis/olb-catalog.json"}
@@ -251,7 +259,6 @@ def migration(args, on_progress=None) -> int:
         package = config["java_package"] + "." + name(module).lower()
         emit("analyzing")
         # The framework catalog also classifies triggers: Headstart/Designer plumbing is not backend work.
-        from . import framework
         model['options'] = {key: config[key] for key in ('backend_live', 'backend_trigger_mode')}
         analyze(model, metadata, replacements, framework.load(config))
         initial_values(model)
@@ -345,6 +352,8 @@ def main(argv=None) -> int:
     migrate.add_argument("input", type=Path)
     migrate.add_argument("--olb", type=Path, action="append", default=[], metavar="LIBRARY_olb.xml",
                          help="Oracle Object Library XML-export; könyvtáranként ismételhető")
+    migrate.add_argument("--pld", type=Path, action="append", default=[], metavar="KONYVTAR.pld",
+                        help="Csatolt PL/SQL könyvtár szövegesen (.pld; .pll esetén frmcmp alakítja át). Ismételhető.")
     migrate.add_argument("--mmb", type=Path, action=SinglePath, metavar="MENU_mmb.xml",
                          help="Egy Oracle MenuModule XML-export; megőrzéshez, menügenerálás nélkül")
     migrate.add_argument("--out", type=Path, required=True, help="Új, még nem létező modulmappa")
@@ -375,6 +384,8 @@ def main(argv=None) -> int:
     batch.add_argument("inputs", nargs="*", type=Path, help="Form XML/FMB fájlok vagy mappák (mappában: *.fmb és FormModule XML)")
     batch.add_argument("--out", type=Path, required=True, help="Gyűjtőmappa; formonként egy almappa készül")
     batch.add_argument("--mode", choices=["screen", "scaffold", "strict"], default="screen", help="Generálási mód minden formra (alap: screen)")
+    batch.add_argument("--pld", type=Path, action="append", default=[], metavar="KONYVTAR.pld",
+                        help="Csatolt PL/SQL könyvtár szövegesen (.pld; .pll esetén frmcmp alakítja át). Ismételhető.")
     batch.add_argument("--olb", type=Path, action="append", default=[], metavar="LIBRARY_olb.xml")
     batch.add_argument("--config", type=Path)
     batch.add_argument("--schema", type=Path, help="Közös ellenőrzött DB-mapping JSON")
@@ -386,6 +397,8 @@ def main(argv=None) -> int:
     survey = commands.add_parser("survey", help="Felmérés: sok form generálása és megosztható riport arról, mi tiltja a végpontokat (FELMERES_HU.md, felmeres.json)")
     survey.add_argument("inputs", nargs="*", type=Path, help="Form XML/FMB fájlok vagy mappák (mappában: *.fmb és FormModule XML)")
     survey.add_argument("--out", type=Path, required=True, help="Gyűjtőmappa; formonként egy almappa készül")
+    survey.add_argument("--pld", type=Path, action="append", default=[], metavar="KONYVTAR.pld",
+                        help="Csatolt PL/SQL könyvtár szövegesen (.pld; .pll esetén frmcmp alakítja át). Ismételhető.")
     survey.add_argument("--olb", type=Path, action="append", default=[], metavar="LIBRARY_olb.xml")
     survey.add_argument("--config", type=Path)
     survey.add_argument("--schema", type=Path, help="Közös ellenőrzött DB-mapping JSON")
@@ -402,8 +415,17 @@ def main(argv=None) -> int:
     dimp.add_argument("export", type=Path)
     dimp.add_argument("--out", type=Path, required=True, help="A kimeneti schema.json")
     dimp.add_argument("--merge", type=Path, help="Meglévő schema.json: a kézi, ellenőrzött beállításai elsőbbséget kapnak")
+    verify = commands.add_parser("verify-db", help="A generált SQL és PL/SQL lefordítása a céladatbázisban (DBMS_SQL.PARSE), végrehajtás nélkül")
+    verify.add_argument("outputs", nargs="+", type=Path, help="migrate kimeneti mappák vagy egy batch gyűjtőmappa")
+    verify.add_argument("--dsn", required=True, help="Oracle kapcsolat: gep:port/szolgaltatas (python-oracledb thin mód)")
+    verify.add_argument("--user", required=True, help="Adatbázis-felhasználó (olvasási jog elég: a PARSE nem futtat)")
+    verify.add_argument("--password-env", default="NIVA_DB_PASSWORD", help="A jelszót tartalmazó környezeti változó (alap: NIVA_DB_PASSWORD)")
+    verify.add_argument("--report", type=Path, help="Az összesítő riport (alap: <első mappa>/DB_VERIFY_HU.md)")
     args = parser.parse_args(argv)
     try:
+        if args.command == "verify-db":
+            from .db_verify import run as run_verify
+            return run_verify(args)
         if args.command == "dictionary-sql":
             from .dictionary import run_sql
             return run_sql(args)

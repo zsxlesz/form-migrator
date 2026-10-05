@@ -45,8 +45,9 @@ class FormCallsAndOpenersTests(unittest.TestCase):
         self.assertEqual(screen['navigations']['CGNV$W01_1.PB_RESZLETEK'],
                          {'form': 'ROGZITO', 'call': 'CALL_FORM', 'route': '/rogzito',
                           'params': [{'name': 'P_KOD', 'block': 'V_CX_ADLAP', 'key': 'ubiXyKod'}]})
-        self.assertIn("import { Router } from '@angular/router';", component)
-        self.assertIn('  private readonly router = inject(Router);', component)
+        # 4.14: the Router is NivaFormsScreen's (niva-forms-screen.ts); navigate() uses this.router.
+        self.assertIn('extends NivaFormsScreen', component)
+        self.assertIn('void this.router.navigate([target.route], { queryParams });', component)
         self.assertIn('    if (this.navigate(ownId)) return;', component)
         _, screen, _ = self.generate(form_routes={'rogzito': '/pages/modules/rogzito'})
         self.assertEqual(screen['navigations']['CGNV$W01_1.PB_RESZLETEK']['route'], '/pages/modules/rogzito')

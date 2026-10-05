@@ -15,6 +15,7 @@ import tempfile
 import unittest
 
 from java_support import COMPANY_IMPORTS, write_stubs
+from screen_support import screen_source
 from niva_forms.cli import main
 from niva_forms.plsql import Unsupported
 from niva_forms.plsql_passthrough import prepare
@@ -97,16 +98,20 @@ class ReplicaTests(unittest.TestCase):
         cls.plan = json.loads((cls.out / 'analysis/backend-plan.json').read_text(encoding='utf-8'))
         cls.model = json.loads((cls.out / 'analysis/form.ir.json').read_text(encoding='utf-8'))
         cls.service = (cls.out / 'backend/DPS/RendelesServiceImpl.java').read_text(encoding='utf-8')
-        cls.screen = next((cls.out / 'frontend').rglob('*.component.ts')).read_text(encoding='utf-8')
+        cls.screen = screen_source(cls.out)  # the component and niva-forms-screen.ts (4.14)
 
     @classmethod
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def test_only_the_overridden_save_key_stays_manual(self):
+    def test_every_endpoint_runs_the_overridden_save_key_too(self):
+        # 4.14: DO_KEY('COMMIT_FORM') embeds the form's own KEY-COMMIT, whose COMMIT_FORM is a commit point.
         off = [e['method'] for e in self.plan['endpoints'] if not e['implemented']]
-        self.assertEqual(off, ['onCtrlPbMent'])  # DO_KEY('COMMIT_FORM') -> the form's own KEY-COMMIT logic
+        self.assertEqual(off, [])
         self.assertEqual(len(self.plan['endpoints']), 21)
+        self.assertTrue(self.plan['api']['actions']['CTRL.PB_MENT']['commit_point'])
+        self.assertIn('runOnCtrlPbMent(actionValues, actionParameters, blocks, globals, messages, actionCommands);', self.service)
+        self.assertIn("command[0] === 'NIVA_COMMIT'", self.screen)
 
     def test_where_order_by_and_rowid_run_like_forms(self):
         sql = ' '.join(self.service.replace('"\n', '').replace('+ "', '').split())  # the wrapped SQL literals joined
@@ -137,7 +142,7 @@ class ReplicaTests(unittest.TestCase):
         self.assertIn('row.rendelesId = saved.id;', commit)
         self.assertIn('PlsqlValues.number(values, "RENDELES", "ID")', commit)
         self.assertIn("onToolbar('save')", self.screen)
-        self.assertIn('private formsCommit(): void {', self.screen)
+        self.assertIn('protected formsCommit(prelude: Record<string, unknown> | null = null, then: (() => void) | null = null): void {', self.screen)
 
     def test_generated_java_compiles(self):
         if not shutil.which('java'):

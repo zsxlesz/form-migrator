@@ -113,7 +113,8 @@ class GenerationTests(unittest.TestCase):
         service = (out / 'backend/DPS/PlsqlTesztServiceImpl.java').read_text(encoding='utf-8')
         data = service
         self.assertIn('static final boolean MODULE_REVIEWED = true;', service)
-        self.assertIn('case "create": enabled = MODULE_REVIEWED; break;', ' '.join(data.split()))  # one switch still turns everything off
+        # one switch still turns everything off: the guard's operations follow MODULE_REVIEWED
+        self.assertRegex(' '.join(data.split()), r'MODULE_REVIEWED \? Set\.of\([^)]*"create"[^)]*\) : Set\.of\(\)')
         plan = json.loads((out / 'analysis/backend-plan.json').read_text(encoding='utf-8'))
         implemented = lambda prefix: next(e['implemented'] for e in plan['endpoints'] if e['method'].startswith(prefix))
         self.assertTrue(all(implemented(m) for m in ('listB', 'createB', 'updateB', 'deleteB', 'onGombokPbLezar')))

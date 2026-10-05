@@ -30,10 +30,10 @@ Az „Összesítő ZIP” is tartalmazza a felmérés két fájlját.
 ## Futtatás parancssorból
 
 ```
-python -m niva_forms survey forms/ --out felmeres
-python -m niva_forms survey forms/ --out felmeres --olb kozos_olb.xml --schema schema.json
-python -m niva_forms survey forms/ --out felmeres --pld konyvtarak/ANKLIB.pld   # csatolt könyvtárakkal
-python -m niva_forms survey --out felmeres --report-only --names   # meglévő kimenetből, nevekkel
+python -m frm_forms survey forms/ --out felmeres
+python -m frm_forms survey forms/ --out felmeres --olb kozos_olb.xml --schema schema.json
+python -m frm_forms survey forms/ --out felmeres --pld konyvtarak/ANKLIB.pld   # csatolt könyvtárakkal
+python -m frm_forms survey --out felmeres --report-only --names   # meglévő kimenetből, nevekkel
 ```
 
 A kimenet ugyanaz, mint a weben: `FELMERES_HU.md` és `felmeres.json`, mellettük a szokásos

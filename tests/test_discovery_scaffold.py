@@ -7,11 +7,11 @@ import subprocess
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
-from niva_forms.cli import main
-from niva_forms.common import MigrationError
-from niva_forms.discovery import scan, build_map, write_map
-from niva_forms.rules import analyze
-from niva_forms.xmlmodel import parse_xml
+from frm_forms.cli import main
+from frm_forms.common import MigrationError
+from frm_forms.discovery import scan, build_map, write_map
+from frm_forms.rules import analyze
+from frm_forms.xmlmodel import parse_xml
 from java_support import COMPANY_IMPORTS, write_stubs
 
 

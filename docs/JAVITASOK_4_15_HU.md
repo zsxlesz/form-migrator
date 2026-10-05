@@ -22,15 +22,15 @@ Eddig az `EXECUTE_QUERY`, `CLEAR_BLOCK` és társaik csak a kód utolsó lépés
 jött (például a lekérdezett rekord mezőjét olvasta), a gomb kézi feladat maradt. A 4.14 ezt a `COMMIT_FORM`-ra
 már megoldotta (mentési pont). Most ugyanez a mechanizmus a képernyőlépésekre is működik:
 
-1. A kérés a lépésnél megáll, és `NIVA_RESUME` utasítással tér vissza.
+1. A kérés a lépésnél megáll, és `FRM_RESUME` utasítással tér vissza.
 2. A képernyő végrehajtja az addigi utasításokat és a lépést. A lekérdezésnél megvárja, amíg a sorok
    megérkeznek.
-3. A képernyő a gombot `NIVA.RESUME = pont` paraméterrel hívja újra. A pont előtti utasítások kimaradnak, a
+3. A képernyő a gombot `FRM.RESUME = pont` paraméterrel hívja újra. A pont előtti utasítások kimaradnak, a
    kód a lépés után, **a képernyő új értékeivel** folytatódik, ahogy a Formsban.
 
 ```
-GO_BLOCK('B');                 IF niva_resume NOT IN (1) THEN niva_cmd('GO_BLOCK', 'B'); END IF;
-EXECUTE_QUERY;         ->      niva_screen_point(1, 'EXECUTE_QUERY');
+GO_BLOCK('B');                 IF frm_resume NOT IN (1) THEN frm_cmd('GO_BLOCK', 'B'); END IF;
+EXECUTE_QUERY;         ->      frm_screen_point(1, 'EXECUTE_QUERY');
 :CTRL.X := :B.NEV;             nv_… := nv_…;
 ```
 
@@ -46,7 +46,7 @@ EXECUTE_QUERY;         ->      niva_screen_point(1, 'EXECUTE_QUERY');
   - `DELETE_RECORD`, mert nem biztos, hova kerül utána a kurzor;
   - `CALL_FORM` / `NEW_FORM`, mert elnavigál;
   - ha a lépés egy helyi eljárás belsejében áll, és az eljárásban is kód követi.
-- **Képernyő:** a `niva-forms-screen.ts` **2-es változata** kell. A generált komponens `executeQuery(block,
+- **Képernyő:** a `frm-forms-screen.ts` **2-es változata** kell. A generált komponens `executeQuery(block,
   done)` horga a sorok megjelenítése után jelez, a futtató ezután folytatja a gombot.
 
 ## 2. Helyi csomag inicializáló résszel
@@ -82,6 +82,26 @@ csomagot, most változatlanul beágyazódnak.
   - a nem futó mezőesemények (vezérlőblokk WHEN-VALIDATE-ITEM / POST-CHANGE, WHEN-*-CHANGED);
   - a nem futó képernyőesemények (WHEN-NEW-BLOCK/RECORD/ITEM-INSTANCE, WHEN-WINDOW-*, WHEN-CUSTOM-ITEM-EVENT …).
 
+## 5. Átnevezés: „niva” helyett „frm”
+
+A „niva” elnevezés mindenhonnan kikerült (kód, generált kód, környezeti változók, webes felület,
+dokumentáció). Ahol eddig `niva`, `Niva` vagy `NIVA` állt, ott most `frm`, `Frm`, illetve `FRM` áll:
+
+| Régi | Új |
+|---|---|
+| `python -m niva_forms …`, `python -m niva_forms.web` | `python -m frm_forms …`, `python -m frm_forms.web` |
+| `niva-forms-screen.ts`, `NivaFormsScreen`, `NIVA_FORMS_SCREEN_VERSION` | `frm-forms-screen.ts`, `FrmFormsScreen`, `FRM_FORMS_SCREEN_VERSION` |
+| PL/SQL-segédek és utasítások: `niva_cmd`, `niva_msg` …, `NIVA.RESUME`, `NIVA_COMMIT` … | `frm_cmd`, `frm_msg` …, `FRM.RESUME`, `FRM_COMMIT` … |
+| Környezeti változók: `NIVA_DB_PASSWORD`, `NIVA_JAVA_IMPORT_MAP`, `NIVA_CORS_ORIGINS`, `NIVA_BACKEND_LIVE`, `NIVA_OLLAMA_MODEL` … | `FRM_DB_PASSWORD`, `FRM_JAVA_IMPORT_MAP`, `FRM_CORS_ORIGINS`, `FRM_BACKEND_LIVE`, `FRM_OLLAMA_MODEL` … |
+| A webes kérések fejléce: `X-Niva-Client` | `X-Frm-Client` |
+| `.niva-ai-cache`; a böngészőben tárolt `niva-…` beállítások; a `niva.forms.globals` (:GLOBAL értékek) | `.frm-ai-cache`, `frm-…`, `frm.forms.globals` |
+| Az Ollama-modell alapértelmezett neve: `niva-model` | `frm-model` |
+
+A generált kötött változók `nv_<hash>` neve nem a „niva” elnevezés része, ezért nem változott.
+
+A `CommonMigrateTools.java` **VERSION 5**-re nőtt, mert a `FormsPlsql` segédeljárásainak neve változott. Az új
+generált kód a régi `CommonMigrateTools`-szal nem fut, és fordítva sem.
+
 ## Nyitott kérdés: Headstart hibaverem
 
 A `qms$forms_errors.push(qms$forms_errors.msggettext(37, '…'), …)` és a `qms$forms_errors.raise_failure`
@@ -92,12 +112,16 @@ pontos működésétől függ: mit ad vissza a `msggettext`, és mit csinál a `
 
 ## Átállás
 
-1. Cseréld a `niva-forms-screen.ts` fájlt (`NIVA_FORMS_SCREEN_VERSION = '2'`).
-2. Generáld újra a modulokat (`--regenerate`). A képernyőkomponensben az `executeQuery` új `done` paramétert kap;
-   a ServiceImpl a képernyőpontos és az inicializáló részes csomagot használó gomboknál változik. Az új
-   változat az `analysis/backend-regeneration/` mappában van, ezt kell összefésülni.
-3. A `CommonMigrateTools.java` nem változott (VERSION 4).
-4. Futtasd újra a felmérést. Most az indítási végpontok okai és az eddig takart okok is látszanak.
+1. A régi `niva-forms-screen.ts` helyére tedd az új `frm-forms-screen.ts` fájlt
+   (`FRM_FORMS_SCREEN_VERSION = '2'`).
+2. Cseréld a `CommonMigrateTools.java` fájlt (VERSION 5).
+3. Generáld újra a modulokat (`--regenerate`). Minden generált fájl változik (`frm_…` nevek,
+   `extends FrmFormsScreen`, az `executeQuery` új `done` paramétere). Az új változat az
+   `analysis/backend-regeneration/` mappában van, ezt kell összefésülni.
+4. Szkriptekben, CI-ban és a környezeti változókban cseréld a neveket (`python -m frm_forms`, `FRM_…`). A
+   migrátor böngészőben tárolt beállításait (API-cím, opciók) egyszer újra meg kell adni. Ha saját Ollama-modellt
+   `niva-model` néven hoztál létre, add meg a nevét a felületen, vagy nevezd át `frm-model`-re.
+5. Futtasd újra a felmérést. Most az indítási végpontok okai és az eddig takart okok is látszanak.
 
 ## Ellenőrzés
 
@@ -108,4 +132,4 @@ pontos működésétől függ: mit ad vissza a `msggettext`, és mit csinál a `
     valamint egy Node-os képernyőszimuláció, amely megvárja a lekérdezést, és csak utána folytat;
   - `test_local_packages`: inicializáló rész, beágyazott alprogram, elutasítások;
   - `test_survey`: indítási végpont, token-okok, az új eltéréssorok.
-- A generált képernyők és a futtató szigorú `tsc` ellenőrzése (`NIVA_TSC`) a 2-es futtatóval is hibátlan.
+- A generált képernyők és a futtató szigorú `tsc` ellenőrzése (`FRM_TSC`) a 2-es futtatóval is hibátlan.

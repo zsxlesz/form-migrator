@@ -9,7 +9,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from niva_forms.cli import main
+from frm_forms.cli import main
 from java_support import COMPANY_IMPORTS, write_stubs
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -136,9 +136,9 @@ class CompactBackendTests(unittest.TestCase):
         company.write_text(json.dumps({'java_company_imports': COMPANY_IMPORTS}))
         out = self.generate(extra=['--config', str(company)])
         # Exercise the backend IR independently: the UI intentionally rejects identifier collisions.
-        from niva_forms.xmlmodel import parse_xml
-        from niva_forms.rules import analyze
-        from niva_forms.generate import generate_java, initial_values
+        from frm_forms.xmlmodel import parse_xml
+        from frm_forms.rules import analyze
+        from frm_forms.generate import generate_java, initial_values
         source = self.root/'collisions.xml'
         source.write_bytes(multiple_blocks().replace(b'HEADER', b'DETAIL_2').replace(b'SUMMARY', b'DETAIL$2'))
         model = parse_xml(source); analyze(model, {}, {}); initial_values(model)

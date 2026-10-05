@@ -148,7 +148,7 @@ A keretrendszer-katalógus `spacer_items` mintáira (pl. `L_URES_*`) illeszkedő
 
 ## Keretrendszer-blokkok
 
-A katalógusban (`niva_forms/data/framework-catalog.json`) szereplő, adatforrás nélküli blokkok nem kerülnek a képernyőre; a szerepüket a natív vezérlők és a host veszik át. Saját katalógus: `framework_catalog`.
+A katalógusban (`frm_forms/data/framework-catalog.json`) szereplő, adatforrás nélküli blokkok nem kerülnek a képernyőre; a szerepüket a natív vezérlők és a host veszik át. Saját katalógus: `framework_catalog`.
 
 | Blokk | Mezők | Miért maradt ki |
 |---|---:|---|

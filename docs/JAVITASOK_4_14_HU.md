@@ -13,7 +13,7 @@ A felmérés mintáit utánzó formon (`tests/fixtures/felmeres_replika_fmb.xml`
 |---|---:|---:|
 | Engedélyezett végpont (LOV nélkül) | 19 / 20 (95%) | **20 / 20 (100%)** |
 | DPS `ServiceImpl` | 1674 sor | 1544 sor, eggyel több működő végponttal |
-| Angular komponens | 1402 sor | 946 sor, plusz a projektenként **egyszer** szükséges 564 soros `niva-forms-screen.ts` |
+| Angular komponens | 1402 sor | 946 sor, plusz a projektenként **egyszer** szükséges 564 soros `frm-forms-screen.ts` |
 
 Az utolsó tiltott végpont a `DO_KEY('COMMIT_FORM')` gomb volt: a 4.14 lefuttatja a form KEY-COMMIT
 triggerét, és a `COMMIT_FORM` után folytatja a gomb kódját.
@@ -26,9 +26,9 @@ könyvtár azonban kliensoldali kód, az adatbázisban nincs meg, ezért ezek a 
 programegységeihez hasonlóan a névtelen blokkba ágyazódnak.
 
 ```bash
-python -m niva_forms migrate FORM_fmb.xml --out kimenet --screen --pld ANKLIB.pld --pld KOZOS.pld
-python -m niva_forms batch formok/ --out batch --pld konyvtarak/ANKLIB.pld
-python -m niva_forms survey formok/ --out felmeres --pld konyvtarak/ANKLIB.pld
+python -m frm_forms migrate FORM_fmb.xml --out kimenet --screen --pld ANKLIB.pld --pld KOZOS.pld
+python -m frm_forms batch formok/ --out batch --pld konyvtarak/ANKLIB.pld
+python -m frm_forms survey formok/ --out felmeres --pld konyvtarak/ANKLIB.pld
 ```
 
 - **Szöveges `.pld`:** közvetlenül olvasható. Alapból UTF-8, ha az nem sikerül, cp1250 (a Windowsos Forms
@@ -69,18 +69,18 @@ trigger kódja **beágyazott blokként** fut a `DO_KEY` helyén, a saját blokk-
 Eddig a `COMMIT_FORM` csak a kód utolsó lépéseként működött. Ha utána még volt kód (például naplózás
 vagy egy új lekérdezés), a gomb kézi feladat lett. Most ilyenkor **mentési pont** keletkezik:
 
-1. A gomb kérése a `COMMIT_FORM`-ig fut, és a mezők akkori értékeit egy `NIVA_COMMIT` utasítással adja vissza.
+1. A gomb kérése a `COMMIT_FORM`-ig fut, és a mezők akkori értékeit egy `FRM_COMMIT` utasítással adja vissza.
 2. A képernyő ment: a `commitForm` végpont **ugyanabban a tranzakcióban** újrafuttatja a gomb kódját a
    pontig, ellenőrzi, hogy ugyanoda jutott-e (ha az adatok közben változtak, HTTP 409 a válasz), és
    csak ezután menti a blokkokat. A gomb pont előtti adatbázis-módosításai így a mentéssel együtt
    véglegesednek, vagy vele együtt vesznek el, ahogy a Formsban.
-3. A képernyő a gombot még egyszer meghívja `NIVA.RESUME = pont` paraméterrel. Ebben a futásban minden
+3. A képernyő a gombot még egyszer meghívja `FRM.RESUME = pont` paraméterrel. Ebben a futásban minden
    pont előtti utasítás kimarad, a ponthoz vezető ágak feltétele nem értékelődik újra, a kód pontosan a
    `COMMIT_FORM` után folytatódik, a már mentett értékekkel.
 
 ```
-IF ank_jog.irhat THEN                  IF (niva_resume IN (1) OR (niva_resume NOT IN (1) AND (ank_jog.irhat))) THEN
-    COMMIT_FORM;               ->          niva_commit_form(1);
+IF ank_jog.irhat THEN                  IF (frm_resume IN (1) OR (frm_resume NOT IN (1) AND (ank_jog.irhat))) THEN
+    COMMIT_FORM;               ->          frm_commit_form(1);
     ank_naplo.mentes(:B.ID);               ank_naplo.mentes(nv_…);
 END IF;                                END IF;
 ```
@@ -98,8 +98,8 @@ A gomb ServiceImpl-metódusa ilyenkor két részre válik: a publikus végpontra
 
 ## 4. Karcsúbb generált kód, azonos működéssel
 
-- **`CommonMigrateTools.FormsPlsql`:** a Forms-emuláció állandó PL/SQL-segédeljárásai (`niva_msg`,
-  `niva_cmd`, `niva_find` …) eddig minden gomb blokkjában szó szerint megismétlődtek. Most egyszer
+- **`CommonMigrateTools.FormsPlsql`:** a Forms-emuláció állandó PL/SQL-segédeljárásai (`frm_msg`,
+  `frm_cmd`, `frm_find` …) eddig minden gomb blokkjában szó szerint megismétlődtek. Most egyszer
   szerepelnek, a CL-ben. A ServiceImpl csak összefűzi, amit a blokk használ:
   `FormsPlsql.MSG + FormsPlsql.CMD + "…"`. Az adatbázis ugyanazt a teljes blokkot kapja.
 - **Üres utasítások nélkül:** kimaradnak az emuláció után üresen maradt elemek:
@@ -117,17 +117,17 @@ A gomb ServiceImpl-metódusa ilyenkor két részre válik: a publikus végpontra
 
 A `CommonMigrateTools` **VERSION 4**-re nőtt (`FormsPlsql`, `PlsqlValues.prelude`).
 
-## 5. Közös képernyő-futtató: `NivaFormsScreen`
+## 5. Közös képernyő-futtató: `FrmFormsScreen`
 
 A Forms-emulációs képernyők (gombok, mentési lánc, alertek, `:GLOBAL` / `:SYSTEM`) eddig mindegyike
 tartalmazta a teljes futtatókódot (`runAction`, `formsCommit`, `runCommands` …). Most ez egyszer, a
-`frontend/niva-forms-screen.ts` fájlban van. A komponens `extends NivaFormsScreen`, és csak a saját
+`frontend/frm-forms-screen.ts` fájlban van. A komponens `extends FrmFormsScreen`, és csak a saját
 adatait tartja meg (`protected override readonly …`: blokkok, végpontok, alertek, útvonalak), valamint a
 saját elrendezéséhez tartozó horgokat (`executeQuery`, `showRows`, `setItemState`, `formsWindow` …).
 
-- **Telepítés:** a `niva-forms-screen.ts` a modulmappák mellé kerül, mert a komponens
-  `'../niva-forms-screen'`-ből importál. Minden formhoz ugyanaz a fájl tartozik, a
-  `NIVA_FORMS_SCREEN_VERSION` mutatja a változatát. Újabb verzió esetén cserélni kell.
+- **Telepítés:** a `frm-forms-screen.ts` a modulmappák mellé kerül, mert a komponens
+  `'../frm-forms-screen'`-ből importál. Minden formhoz ugyanaz a fájl tartozik, a
+  `FRM_FORMS_SCREEN_VERSION` mutatja a változatát. Újabb verzió esetén cserélni kell.
 - **TypeScript:** az `override` módosítóhoz TypeScript 4.3 vagy újabb kell. A kód `strict` és
   `noImplicitOverride` beállítással is fordul.
 - **Változatlan marad:** az emuláció nélküli egyszerű képernyő, amely nem kapja meg a futtatót.
@@ -147,9 +147,9 @@ A `verify-db` ezeket a `DBMS_SQL.PARSE` eljárással lefordítja, **végrehajtá
 
 ```bash
 pip install oracledb                        # thin mód: nem kell Oracle kliens
-export NIVA_DB_PASSWORD='…'                 # a jelszó csak környezeti változóból jön
-python -m niva_forms verify-db kimenet --dsn dbhost:1521/ORCL --user APP
-python -m niva_forms verify-db batch/ --dsn dbhost:1521/ORCL --user APP --report DB_VERIFY.md
+export FRM_DB_PASSWORD='…'                 # a jelszó csak környezeti változóból jön
+python -m frm_forms verify-db kimenet --dsn dbhost:1521/ORCL --user APP
+python -m frm_forms verify-db batch/ --dsn dbhost:1521/ORCL --user APP --report DB_VERIFY.md
 ```
 
 - **Kimenet:**
@@ -201,7 +201,7 @@ mutatja. Részletek: [FELMERES_HU.md](FELMERES_HU.md).
 - A generált képernyők és a futtató szigorú TypeScript-ellenőrzése csonkokkal (`tests/ts_stubs`):
 
   ```bash
-  NIVA_TSC=/út/a/tsc-hez PYTHONPATH=.:tests python -m unittest test_screen_runtime
+  FRM_TSC=/út/a/tsc-hez PYTHONPATH=.:tests python -m unittest test_screen_runtime
   ```
 
   `tsc` nélkül a teszt kimarad.
@@ -209,11 +209,11 @@ mutatja. Részletek: [FELMERES_HU.md](FELMERES_HU.md).
 ## Átállás (újragenerálás)
 
 1. Cseréld a `CommonMigrateTools.java` fájlt (VERSION 4).
-2. Másold a `frontend/niva-forms-screen.ts` fájlt a host alkalmazásba, a modulmappák mellé (egyszer,
+2. Másold a `frontend/frm-forms-screen.ts` fájlt a host alkalmazásba, a modulmappák mellé (egyszer,
    minden formhoz közös).
 3. Futtasd a `--regenerate` parancsot. A CREATE_ONCE `ServiceImpl`, `ControllerImpl` és a
    képernyőkomponens megmarad. Az új változatuk az `analysis/backend-regeneration/` mappában van, ezt
-   kell összefésülni. A komponensből sok kód kikerül (az `extends NivaFormsScreen` veszi át), ezért
+   kell összefésülni. A komponensből sok kód kikerül (az `extends FrmFormsScreen` veszi át), ezért
    ennél a fájlnál egyszerűbb az új változatot átvenni, és a saját módosításokat visszavezetni.
 4. Ha a form csatolt könyvtárat használ: add meg a `--pld` kapcsolót (vagy webes felületen töltsd fel a
    könyvtárat). A korábban „az adatbázis oldja fel” jelzésű hívások így beágyazódnak.

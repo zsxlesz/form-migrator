@@ -10,13 +10,13 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from java_support import COMPANY_IMPORTS, write_stubs
-from niva_forms.cli import main
-from niva_forms.common import MigrationError
-from niva_forms.dictionary import references
-from niva_forms.discovery import build_map
-from niva_forms.framework import classify, forms_calls, load, runtime_call
-from niva_forms.plsql import Unsupported
-from niva_forms.plsql_passthrough import prepare, unit_library
+from frm_forms.cli import main
+from frm_forms.common import MigrationError
+from frm_forms.dictionary import references
+from frm_forms.discovery import build_map
+from frm_forms.framework import classify, forms_calls, load, runtime_call
+from frm_forms.plsql import Unsupported
+from frm_forms.plsql_passthrough import prepare, unit_library
 
 CALENDAR = load({})['runtime_calls']
 
@@ -117,8 +117,8 @@ class FormsRuntimeTests(unittest.TestCase):
         self.assertFalse({a['owner'] for a in plan['skipped_actions']} & {'B.LINK', 'B.MARK'})
         source = (out / 'backend/DPS/RtServiceImpl.java').read_text(encoding='utf-8')
         self.assertEqual(source.count('DbCalls.call(jdbc'), 3)
-        self.assertIn("niva_cmd('WEB.SHOW_DOCUMENT', 'https://example.invalid', '_blank')", source)
-        self.assertIn("niva_cmd('SET_ITEM_INSTANCE_PROPERTY', nv_", source)  # :SYSTEM.CURSOR_ITEM from the screen
+        self.assertIn("frm_cmd('WEB.SHOW_DOCUMENT', 'https://example.invalid', '_blank')", source)
+        self.assertIn("frm_cmd('SET_ITEM_INSTANCE_PROPERTY', nv_", source)  # :SYSTEM.CURSOR_ITEM from the screen
         model = self.read(out, 'form.ir.json')
         link = next(t for t in model['triggers'] if t['owner'] == 'B.LINK')
         self.assertEqual(link['passthrough']['commands'], ['WEB.SHOW_DOCUMENT'])

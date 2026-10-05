@@ -20,7 +20,7 @@ Az AWU-szám formhoz tartozik, ezért nem mentjük általános böngésző-beál
 CLI:
 
 ```bash
-python -m niva_forms migrate form_fmb.xml --screen --module pelda --awu-azon 1234 --out output/pelda
+python -m frm_forms migrate form_fmb.xml --screen --module pelda --awu-azon 1234 --out output/pelda
 ```
 
 Vagy a már használt config JSON-ba: `"AWU_AZON": "1234"`.

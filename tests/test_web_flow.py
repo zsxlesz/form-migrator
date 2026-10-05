@@ -11,8 +11,8 @@ import sys
 import tempfile
 import unittest
 
-from niva_forms.cli import main
-from niva_forms.screen_windows import PrimaryWindowRequired
+from frm_forms.cli import main
+from frm_forms.screen_windows import PrimaryWindowRequired
 from test_screen_windows import simple_windows
 
 HEADSTART = Path(__file__).with_name('golden') / 'headstart' / 'input.xml'
@@ -87,7 +87,7 @@ class WebFlowTests(unittest.TestCase):
         code, err, _ = self.migrate(multi_screen(), '--screen')
         self.assertEqual(code, 1)
         self.assertIn('SCREEN_PRIMARY_WINDOW_REQUIRED', err)
-        from niva_forms.web import worker
+        from frm_forms.web import worker
         job = self.root / 'job'; inputs = job / 'inputs'; inputs.mkdir(parents=True)
         (inputs / 'input.xml').write_text(multi_screen(), encoding='utf-8')
         (inputs / 'config.json').write_text('{}')

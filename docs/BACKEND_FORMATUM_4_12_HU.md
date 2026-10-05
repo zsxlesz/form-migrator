@@ -66,7 +66,7 @@ rekordváltozás-ellenőrzés változatlanok. Domain/repository réteg nem kész
 ## Beállítások és beillesztés
 
 ```bash
-python -m niva_forms migrate form_fmb.xml --screen --module pelda --awu-azon 1234 --out output/pelda
+python -m frm_forms migrate form_fmb.xml --screen --module pelda --awu-azon 1234 --out output/pelda
 ```
 
 Az `AWU_AZON` nélküli CLI/API-generálás a korábbi formátumot tartja meg.

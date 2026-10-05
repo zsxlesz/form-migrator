@@ -16,9 +16,9 @@ import unittest
 
 from java_support import COMPANY_IMPORTS, write_stubs
 from screen_support import screen_source
-from niva_forms.cli import main
-from niva_forms.plsql import Unsupported
-from niva_forms.plsql_passthrough import prepare
+from frm_forms.cli import main
+from frm_forms.plsql import Unsupported
+from frm_forms.plsql_passthrough import prepare
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
@@ -36,10 +36,10 @@ class EmulationTests(unittest.TestCase):
         r = emulated("IF :SYSTEM.CURSOR_BLOCK = 'B' THEN set_item_property('B.NAME', ENABLED, PROPERTY_FALSE); END IF;"
                      " :GLOBAL.LAST := NAME_IN('B.NAME'); go_block('B'); execute_query;", trigger_item='CTRL.BTN')
         self.assertEqual(r['commands'], ['SET_ITEM_PROPERTY', 'GO_BLOCK', 'EXECUTE_QUERY'])
-        self.assertIn("niva_cmd('SET_ITEM_PROPERTY', 'B.NAME', 'ENABLED', 'PROPERTY_FALSE')", r['sql'])
+        self.assertIn("frm_cmd('SET_ITEM_PROPERTY', 'B.NAME', 'ENABLED', 'PROPERTY_FALSE')", r['sql'])
         self.assertEqual([b['source'] for b in r['globals']], ['GLOBAL.LAST'])
         self.assertIn('SYSTEM.CURSOR_BLOCK', [b['source'] for b in r['binds'] if b['parameter']])
-        self.assertTrue(r['sql'].rstrip().endswith('? := niva_ui;\nEND;'))
+        self.assertTrue(r['sql'].rstrip().endswith('? := frm_ui;\nEND;'))
 
     def test_steps_that_the_code_could_observe_must_be_last(self):
         with self.assertRaisesRegex(Unsupported, 'EXECUTE_QUERY után további'):
@@ -52,9 +52,9 @@ class EmulationTests(unittest.TestCase):
         r = emulated("DECLARE a ALERT; n NUMBER; BEGIN a := FIND_ALERT('Q'); n := SHOW_ALERT(a);"
                      " IF n = ALERT_BUTTON1 THEN UPDATE t SET x = 1; END IF; END;")
         self.assertIn('a VARCHAR2(4000);', r['sql'])
-        self.assertIn('SAVEPOINT niva_start', r['sql'])
-        self.assertIn('ROLLBACK TO SAVEPOINT niva_start', r['sql'])
-        self.assertIn('NIVA.ALERTS', [b['source'] for b in r['binds']])
+        self.assertIn('SAVEPOINT frm_start', r['sql'])
+        self.assertIn('ROLLBACK TO SAVEPOINT frm_start', r['sql'])
+        self.assertIn('FRM.ALERTS', [b['source'] for b in r['binds']])
 
     def test_overridden_do_key_and_query_properties_stay_manual(self):
         with self.assertRaisesRegex(Unsupported, 'KEY-COMMIT'):
@@ -85,7 +85,7 @@ class EmulationTests(unittest.TestCase):
 class ReplicaTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')
+        os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')
         cls.temp = tempfile.TemporaryDirectory()
         cls.root = Path(cls.temp.name)
         config = cls.root / 'config.json'
@@ -98,7 +98,7 @@ class ReplicaTests(unittest.TestCase):
         cls.plan = json.loads((cls.out / 'analysis/backend-plan.json').read_text(encoding='utf-8'))
         cls.model = json.loads((cls.out / 'analysis/form.ir.json').read_text(encoding='utf-8'))
         cls.service = (cls.out / 'backend/DPS/RendelesServiceImpl.java').read_text(encoding='utf-8')
-        cls.screen = screen_source(cls.out)  # the component and niva-forms-screen.ts (4.14)
+        cls.screen = screen_source(cls.out)  # the component and frm-forms-screen.ts (4.14)
 
     @classmethod
     def tearDownClass(cls):
@@ -111,7 +111,7 @@ class ReplicaTests(unittest.TestCase):
         self.assertEqual(len(self.plan['endpoints']), 21)
         self.assertTrue(self.plan['api']['actions']['CTRL.PB_MENT']['commit_point'])
         self.assertIn('runOnCtrlPbMent(actionValues, actionParameters, blocks, globals, messages, actionCommands);', self.service)
-        self.assertIn("command[0] === 'NIVA_COMMIT'", self.screen)
+        self.assertIn("command[0] === 'FRM_COMMIT'", self.screen)
 
     def test_where_order_by_and_rowid_run_like_forms(self):
         sql = ' '.join(self.service.replace('"\n', '').replace('+ "', '').split())  # the wrapped SQL literals joined
@@ -133,7 +133,7 @@ class ReplicaTests(unittest.TestCase):
         self.assertEqual(self.model['init_plan']['status'], 'generated')
         self.assertEqual(self.plan['api']['init'], '@INIT')
         self.assertIn('this.runAction("@INIT")', self.screen)
-        self.assertIn("niva_group('CREATE_GROUP', 'RG_ALLAPOT')", self.service)
+        self.assertIn("frm_group('CREATE_GROUP', 'RG_ALLAPOT')", self.service)
 
     def test_commit_chain_in_forms_order_with_the_master_key(self):
         commit = self.service[self.service.index('public CommitResult commitForm'):]

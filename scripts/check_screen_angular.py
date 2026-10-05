@@ -12,13 +12,13 @@ import sys
 import tempfile
 
 from check_generated_angular import ROOT, HOST
-from niva_forms.cli import main as migrate
+from frm_forms.cli import main as migrate
 
 
 def main():
     web = ROOT / 'web-ui'; compiler = web / 'node_modules/@angular/compiler-cli/bundles/src/bin/ngc.js'
     if not compiler.is_file(): raise SystemExit('Előbb: cd web-ui && npm ci')
-    with tempfile.TemporaryDirectory(prefix='niva-screen-check-', dir=web / 'node_modules') as temp:
+    with tempfile.TemporaryDirectory(prefix='frm-screen-check-', dir=web / 'node_modules') as temp:
         stage = Path(temp); (stage / 'host.ts').write_text(HOST)
         profile = {'emit_imports': True, 'optimus_import_path': '@test/host', 'optimus_form_block_symbol': 'HostFormBlock',
                    'form_block_type_import_path': '@test/host'}
@@ -182,7 +182,7 @@ console.log('OK: checkbox 1/0, selection, LOV response ordering, immutable sugge
         (stage / 'host.ts').write_text(HOST.replace('colBefore?: string;', ''))
         broken = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=120)
         assert broken.returncode != 0 and 'colBefore' in broken.stderr, broken.stdout + broken.stderr
-        assert not list(stage.glob('.niva-screen-check-*'))
+        assert not list(stage.glob('.frm-screen-check-*'))
         print('OK: host-project check compiles the fixture and rejects an incompatible FormBlock contract; temporary files cleaned.')
     print('OK: ' + str(len(fixtures)) + ' screen variants compile with actual Optimus UI 2.0.2; FormBlock remains a contract stub.')
 

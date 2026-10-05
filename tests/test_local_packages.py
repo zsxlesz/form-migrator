@@ -6,9 +6,9 @@ per request like the package state itself; writing data or the screen there is r
 """
 import unittest
 
-from niva_forms.plsql import Unsupported
-from niva_forms.plsql_passthrough import prepare
-from niva_forms.plsql_structure import parse
+from frm_forms.plsql import Unsupported
+from frm_forms.plsql_passthrough import prepare
+from frm_forms.plsql_structure import parse
 
 ITEMS = {'B': {'ID': {'type': 'number'}, 'NAME': {'type': 'text'}}, 'CTRL': {'X': {'type': 'text'}}}
 

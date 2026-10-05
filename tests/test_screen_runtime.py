@@ -1,8 +1,8 @@
-"""4.14: the Forms runtime of the generated screens is shared (frontend/niva-forms-screen.ts).
+"""4.14: the Forms runtime of the generated screens is shared (frontend/frm-forms-screen.ts).
 
-A screen with buttons or a save chain extends NivaFormsScreen: runAction, formsCommit, runCommands,
+A screen with buttons or a save chain extends FrmFormsScreen: runAction, formsCommit, runCommands,
 the alerts and the :GLOBAL / :SYSTEM context exist once per project; the component keeps its layout,
-its data (protected override readonly ...) and its hooks. With tsc available (NIVA_TSC or on PATH),
+its data (protected override readonly ...) and its hooks. With tsc available (FRM_TSC or on PATH),
 the generated screen and the runtime are type-checked strictly against stubs (tests/ts_stubs).
 """
 import contextlib
@@ -17,10 +17,10 @@ import tempfile
 import unittest
 
 from java_support import COMPANY_IMPORTS
-from niva_forms import screen_emulation
-from niva_forms.cli import main
-from niva_forms.screen_api import QUERY_LIMIT
-from niva_forms.ts_imports import code
+from frm_forms import screen_emulation
+from frm_forms.cli import main
+from frm_forms.screen_api import QUERY_LIMIT
+from frm_forms.ts_imports import code
 from screen_support import RUNTIME, component, runtime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,7 +44,7 @@ def generate(root: Path, source: Path, module: str) -> Path:
 class ScreenRuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')
+        os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')
         cls.temp = tempfile.TemporaryDirectory()
         cls.root = Path(cls.temp.name)
         cls.out = generate(cls.root, REPLICA, 'rendeles')
@@ -58,8 +58,8 @@ class ScreenRuntimeTests(unittest.TestCase):
 
     def test_screen_extends_the_shared_runtime_and_keeps_only_its_own_parts(self):
         screen = component(self.out)
-        self.assertIn("import { NivaFormsScreen, NivaPage } from '../niva-forms-screen';", screen)
-        self.assertIn('export class RendelesComponent extends NivaFormsScreen implements OnDestroy {', screen)
+        self.assertIn("import { FrmFormsScreen, FrmPage } from '../frm-forms-screen';", screen)
+        self.assertIn('export class RendelesComponent extends FrmFormsScreen implements OnDestroy {', screen)
         self.assertIn('protected readonly toast = inject(ToastService);', screen)  # the company convention stays
         self.assertIn('protected readonly toastLife = TOAST_LIFE;', screen)
         self.assertIn('protected override readonly commitEndpoint = (request: Record<string, unknown>) => this.commitForm(request);', screen)
@@ -70,22 +70,22 @@ class ScreenRuntimeTests(unittest.TestCase):
 
     def test_runtime_constants_follow_the_generator(self):
         source = screen_emulation.runtime_source()
-        self.assertIn(f'export const NIVA_QUERY_LIMIT = {QUERY_LIMIT};', source)
-        from niva_forms.screen_emulation import ITEM_PROPERTIES, STEP_COMMANDS
+        self.assertIn(f'export const FRM_QUERY_LIMIT = {QUERY_LIMIT};', source)
+        from frm_forms.screen_emulation import ITEM_PROPERTIES, STEP_COMMANDS
         for step, command in STEP_COMMANDS.items():
             self.assertIn(f"{step}: '{command}'", source)
         for prop, state in ITEM_PROPERTIES.items():
             self.assertIn(f"{prop}: '{state}'", source)
-        self.assertRegex(source, r"export const NIVA_FORMS_SCREEN_VERSION = '\d+';")
+        self.assertRegex(source, r"export const FRM_FORMS_SCREEN_VERSION = '\d+';")
 
     def test_screen_without_buttons_needs_no_runtime(self):
         self.assertFalse((self.simple / 'frontend' / RUNTIME).exists())
         self.assertIn('extends ServiceBase', component(self.simple))
 
     def test_typescript_strict(self):
-        tsc = os.environ.get('NIVA_TSC') or shutil.which('tsc')
+        tsc = os.environ.get('FRM_TSC') or shutil.which('tsc')
         if not tsc:
-            self.skipTest('tsc required (NIVA_TSC=<path to tsc>)')
+            self.skipTest('tsc required (FRM_TSC=<path to tsc>)')
         for out in (self.out, self.simple):
             with self.subTest(out=out.name):
                 work = self.root / ('ts-' + out.name)

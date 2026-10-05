@@ -7,11 +7,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-import niva_forms.cli as cli
-from niva_forms.screen_windows import WindowSelectionRequired
+import frm_forms.cli as cli
+from frm_forms.screen_windows import WindowSelectionRequired
 from test_screen_windows import simple_windows
 
-os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
 
 HEADSTART = Path(__file__).with_name('golden') / 'headstart' / 'input.xml'
 

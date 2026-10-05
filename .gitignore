@@ -5,6 +5,6 @@ node_modules/
 .angular/
 out-tsc/
 local-data/
-.niva-ai-cache/
+.frm-ai-cache/
 build/
 *.egg-info/

@@ -14,9 +14,9 @@ import xml.etree.ElementTree as ET
 
 from java_support import COMPANY_IMPORTS, write_stubs
 from screen_support import RUNTIME_GLOBALS, component, screen_method, screen_source
-from niva_forms.cli import main
-from niva_forms.plsql_passthrough import scan
-from niva_forms.service_inline import mask
+from frm_forms.cli import main
+from frm_forms.plsql_passthrough import scan
+from frm_forms.service_inline import mask
 
 
 BASE = '''COL6=;00; and ((:T1.COL1 = ;MB_34ADLAP; and COL7 in (;MB_34;,;MB_35;)) or
@@ -305,10 +305,10 @@ class QueryActionTests(unittest.TestCase):
 
     def test_frontend_sends_flags_and_displays_rows_without_clearing_on_validation(self):
         out = self.generate()
-        component = screen_source(out)  # the component and niva-forms-screen.ts (4.14)
+        component = screen_source(out)  # the component and frm-forms-screen.ts (4.14)
         self.assertIn('queryActionBlocks', component)
-        self.assertIn('offset: 0, limit: NIVA_QUERY_LIMIT', component)
-        self.assertIn('NIVA_QUERY_LIMIT = 200', component)
+        self.assertIn('offset: 0, limit: FRM_QUERY_LIMIT', component)
+        self.assertIn('FRM_QUERY_LIMIT = 200', component)
         self.assertIn('if (page.rows != null)', component)
         self.assertIn('this.showRows(target, page.rows)', component)
         self.assertIn('this.activeQueryActions[target] = ownId', component)
@@ -458,7 +458,7 @@ public class QuerySmoke {
         var jdbc = new CaptureJdbc();
         var service = new QueryServiceImpl(jdbc);
         var values = Map.of("T1", Map.of("COL1", "MB_34ADLAP", "COL2", "1", "COL3", "1", "COL4", "1", "COL5", "X"),
-                            "NIVA_QUERY_CONTEXT", Map.of("WHERE_TEXT", "1=1", "EXECUTED", "Y"));
+                            "FRM_QUERY_CONTEXT", Map.of("WHERE_TEXT", "1=1", "EXECUTED", "Y"));
         var request = new QueryActionRequest(values, Map.of(), 0, 200);
         var result = service.__METHOD__(new UserDto(), request);
         if (result.rows().size() != 1 || !"MB_34".equals(result.rows().get(0).col7)
@@ -506,7 +506,7 @@ public class QuerySmoke {
         out = self.generate()
         methods = []
         for method in ('runAction', 'executeQuery', 'showRows', 'showRecord', 'wireText', 'payload', 'screenBlocks'):
-            source = screen_method(out, method)  # the component's override, else niva-forms-screen.ts
+            source = screen_method(out, method)  # the component's override, else frm-forms-screen.ts
             self.assertIsNotNone(source, method)
             methods.append(source)
         methods.append(screen_method(out, 'selectedRecords') or '  selectedRecords() { return {}; }')

@@ -6,9 +6,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from niva_forms import java_imports, java_tidy
-from niva_forms.cli import main
-from niva_forms.common import MigrationError
+from frm_forms import java_imports, java_tidy
+from frm_forms.cli import main
+from frm_forms.common import MigrationError
 
 HEADSTART = Path(__file__).with_name('golden') / 'headstart' / 'input.xml'
 MAP = {'RestResponseDto': 'hu.ff.xy.cl.modules.RestResponseDto', 'UserDto': 'hu.ff.xy.cl.modules.UserDto',
@@ -46,7 +46,7 @@ class JavaImportMapTests(unittest.TestCase):
         self.assertEqual(java_imports.load(config), {'UserDto': 'hu.ff.xy.cl.modules.UserDto', 'Both': 'hu.ff.Both'})
         self.assertEqual(java_imports.load_ts(config), {'WFF': 'wf-package', 'Ui': '@ff/ui', 'ServiceBase': 'src/app/core/base/service-base',
                                                         'SocketIo': 'socket.io', 'Both': 'both-package'})
-        result, _ = __import__('niva_forms.ts_imports', fromlist=['tidy']).tidy(
+        result, _ = __import__('frm_forms.ts_imports', fromlist=['tidy']).tidy(
             "import { Component } from '@angular/core';\n\nexport class A { f() { WFF.err('Hiba', null); } }\n", java_imports.load_ts(config))
         self.assertIn("import { WFF } from 'wf-package';", result)
         with self.assertRaisesRegex(MigrationError, 'ugyanazzal a névvel'):  # a Java class name with a typo stays an error

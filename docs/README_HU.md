@@ -1,4 +1,4 @@
-# NIVA Forms Migrator 4.15.0 — használat
+# FRM Forms Migrator 4.15.0 — használat
 
 **4.15 – javítások egy valódi felmérés alapján:**
 
@@ -8,7 +8,9 @@
   beágyazódnak.
 - **Felmérés:** a nem generálható indítási végpont oka és a takart okok is látszanak; a billentyű-triggerek
   kettébontva jelennek meg.
-- A `niva-forms-screen.ts` fájlt cserélni kell (2-es változat).
+- **Átnevezés:** a „niva” elnevezés helyett mindenhol „frm” áll (`python -m frm_forms`, `FRM_…` környezeti
+  változók, `frm-forms-screen.ts`, `frm_…` PL/SQL-segédek).
+- A `frm-forms-screen.ts` (2-es változat) és a `CommonMigrateTools.java` (VERSION 5) fájlt cserélni kell.
 
 Részletek és átállás: [JAVITASOK_4_15_HU.md](JAVITASOK_4_15_HU.md).
 
@@ -26,8 +28,8 @@ rövidebb lett.
   - a PL/SQL-segédek egyszer szerepelnek, a `CommonMigrateTools.FormsPlsql`-ben;
   - az üres utasítások kimaradnak;
   - a blokkőr egy sor lett.
-- **Közös képernyő-futtató:** `frontend/niva-forms-screen.ts` projektenként egyszer, a komponens
-  `extends NivaFormsScreen`.
+- **Közös képernyő-futtató:** `frontend/frm-forms-screen.ts` projektenként egyszer, a komponens
+  `extends FrmFormsScreen`.
 - **`verify-db`:** a generált SQL és PL/SQL lefordítása a céladatbázisban (`DBMS_SQL.PARSE`), végrehajtás nélkül.
 - **Felmérés – eltérések a Forms-működéstől:** a riport azt is megszámolja, mi működik, de nem pontosan úgy,
   mint a Formsban (többsoros írható blokkok, mentéskori validáció, eszköztáron nem futó KEY-triggerek …).
@@ -132,7 +134,7 @@ Részletek: [FRONTEND_SCREEN_HU.md](FRONTEND_SCREEN_HU.md#mezőhosszak-segítő-
 
 Részletek: [LOCAL_START_HU.md](LOCAL_START_HU.md#webes-felület-egy-mód-tömeges-futtatás-fő-képernyő-előnézet), [FRONTEND_SCREEN_HU.md](FRONTEND_SCREEN_HU.md#backend-hívások-cl-útvonalak).
 
-**Felmérés:** sok form egy futással, és megosztható riport arról, mi tiltja a generált végpontokat (egyedüli okok, anonimizált kódpéldák). Webes kapcsoló vagy `python -m niva_forms survey`. Részletek: [FELMERES_HU.md](FELMERES_HU.md).
+**Felmérés:** sok form egy futással, és megosztható riport arról, mi tiltja a generált végpontokat (egyedüli okok, anonimizált kódpéldák). Webes kapcsoló vagy `python -m frm_forms survey`. Részletek: [FELMERES_HU.md](FELMERES_HU.md).
 
 **Automatizálás:** tömeges futtatás rangsorolt összesítővel (`batch`), Oracle adatszótár-export és -import (`dictionary-sql`, `dictionary-import`), DB-eljárás- és -függvényhívások fordítása ellenőrzött aláírással, generált LOV-végpontok és golden-tesztek a valódi formokra. Munkafolyamat: [AUTOMATIZALAS_HU.md](AUTOMATIZALAS_HU.md).
 
@@ -155,7 +157,7 @@ Python 3.10 vagy újabb szükséges. A parancssori generátorhoz nincs külső P
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-web.txt
-.\.venv\Scripts\python.exe -m niva_forms.web --port 8000
+.\.venv\Scripts\python.exe -m frm_forms.web --port 8000
 ```
 
 Linux/macOS:
@@ -163,7 +165,7 @@ Linux/macOS:
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-web.txt
-.venv/bin/python -m niva_forms.web --port 8000
+.venv/bin/python -m frm_forms.web --port 8000
 ```
 
 Nyisd meg a `http://localhost:8000` címet. A migrátor API URL mezőjébe írd: `http://localhost:8000/api`. A teljes, fordított Angular kezelőfelület benne van a ZIP-ben; ehhez nem kell npm vagy Node. A folyamat helyben fut, alapértelmezés szerint nincs AI-hívás.
@@ -173,7 +175,7 @@ Nyisd meg a `http://localhost:8000` címet. A migrátor API URL mezőjébe írd:
 A felületen a **Példa betöltése** egy szintetikus XML-t tölt be. Parancssorból:
 
 ```bash
-python -m niva_forms migrate examples/customer_fmb.xml --schema examples/schema.json --out build/customer --ai off --zip
+python -m frm_forms migrate examples/customer_fmb.xml --schema examples/schema.json --out build/customer --ai off --zip
 ```
 
 Kimenet: `build/customer/` és `build/customer.zip`. A kész minták a `sample-output/` mappában is megtalálhatók. A minták nem a céges Oracle modulok exportjai.
@@ -200,7 +202,7 @@ Közvetlen FMB-bemenet is használható, ha a Python folyamat számára elérhet
 ## 4. Nézd meg az attribútumleltárt
 
 ```bash
-python -m niva_forms inventory CUSTOMER_fmb.xml qmsolb65_olb.xml navigation_mmb.xml --out build/inventory
+python -m frm_forms inventory CUSTOMER_fmb.xml qmsolb65_olb.xml navigation_mmb.xml --out build/inventory
 ```
 
 Az `inventory.json` az XML-ben ténylegesen szereplő elem- és attribútumneveket, gyakoriságot és rendezett példaértékeket tartalmazza. Az `unused-attributes.json` az ismeretlen/nem használt neveket külön listázza. A `Property` gyerekelemek property-nevei külön leltárban szerepelnek. Az inventory nem futtat generálást, ezért ismeretlen attribútumokat tartalmazó XML vizsgálatára is használható; hibás XML-t elutasít.
@@ -220,7 +222,7 @@ Nem ismert property-t a program nem fordít le hasonló hangzás alapján. Ismer
 ## 5. Generálj
 
 ```bash
-python -m niva_forms migrate CUSTOMER_fmb.xml --olb qmsolb65_olb.xml --olb shared_olb.xml --mmb navigation_mmb.xml --config examples/config-company.json --out build/customer --ai off --zip
+python -m frm_forms migrate CUSTOMER_fmb.xml --olb qmsolb65_olb.xml --olb shared_olb.xml --mmb navigation_mmb.xml --config examples/config-company.json --out build/customer --ai off --zip
 ```
 
 A `--olb` ismételhető; a `--mmb` egyszer adható meg. A menü XML megőrzésre és öröklésfeloldásra szolgál; teljes Angular menü nem készül belőle. A backend nélküli frontend-munkához add hozzá a `--frontend-only` kapcsolót. A frontend neve a `FormModule.Title` normalizált alakja; üres Title esetén a Name. A `--module` csak a Java/API technikai nevet szabályozza.
@@ -230,7 +232,7 @@ A fail-closed ellenőrzés a forrásgenerálás és az AI előtt fut. Hiányzó 
 ## 6. Vizsgáld meg az elutasítást
 
 ```bash
-python -m niva_forms migrate CUSTOMER_fmb.xml --olb qmsolb65_olb.xml --out build/analysis --analysis-only --ai off
+python -m frm_forms migrate CUSTOMER_fmb.xml --olb qmsolb65_olb.xml --out build/analysis --analysis-only --ai off
 ```
 
 Ez kifejezetten elemzési csomag: nincs benne Java vagy Angular forrás. Feloldható bemenetnél a hibás/nem támogatott itemek is szerepelnek az UI-modellben és a riportban. Bemeneti/öröklési hiba esetén csak `analysis/input-issues.json` és a riport készül; feloldatlan adatokból nem keletkezik megtévesztő részmodell. A hiányzó OLB-k mellett a biztosan ismert érintett formitemek száma szerepel; hiányzó szülőblokk további örökölt itemeket is rejthet.
@@ -271,7 +273,7 @@ Részletes útmutató: a generált `INTEGRATION.md`, valamint `COMPANY_PROFILE_H
 ## 9. Újragenerálás
 
 ```bash
-python -m niva_forms migrate CUSTOMER_fmb.xml --olb qmsolb65_olb.xml --out build/customer --regenerate --zip
+python -m frm_forms migrate CUSTOMER_fmb.xml --olb qmsolb65_olb.xml --out build/customer --regenerate --zip
 ```
 
 Csak 4.x UI-modell manifesttel rendelkező cél frissíthető. A CREATE_ONCE fájlok bájtjai változatlanok maradnak, a kézi kiegészítő fájlokat is megőrzi. Minden generálás először átmeneti mappában készül. Hiba esetén a korábbi eredmény megmarad. Ha mezőt, blokkot vagy selector-kontraktust változtatsz, a megőrzött integrációs komponenseket kézzel hozzá kell igazítani; a generátor ezeket nem írja felül.
@@ -281,8 +283,8 @@ Csak 4.x UI-modell manifesttel rendelkező cél frissíthető. A CREATE_ONCE fá
 Az AI mód `off | cached | assist`, alapból `off`. A frontend típus- és layoutdöntéseit az AI nem írhatja felül, ezért a frontendforrások AI-módtól függetlenül determinisztikusak. AI használatakor a diagnosztikai csomag javaslatai és cache/hívási statisztikái eltérhetnek; a teljes ZIP bájtazonosságát AI-off módban ellenőrizzük. Az `assist` kizárólag a meglévő, rövid triggerjavaslatokhoz használja az Ollamát; kis kontextus, kéréslimit és cache maradt.
 
 ```powershell
-$env:NIVA_OLLAMA_URL = "http://BELSO-OLLAMA:11434"
-$env:NIVA_OLLAMA_MODEL = "niva-model"
+$env:FRM_OLLAMA_URL = "http://BELSO-OLLAMA:11434"
+$env:FRM_OLLAMA_MODEL = "frm-model"
 ```
 
 A webes felületen is megadható az Ollama URL/modell. A `http://xx:11434` csak alapértelmezett helykitöltő. Az AI nélküli generálás nem kér hálózati szolgáltatást. Offline telepítéshez az internetes, azonos Python/OS környezetben töltsd le a wheel-eket (`pip download -r requirements-web.txt -d python-packages`), majd a célgépen telepíts `--no-index --find-links=python-packages` kapcsolókkal. A lefordított webes felület helyi fájlokat használ.

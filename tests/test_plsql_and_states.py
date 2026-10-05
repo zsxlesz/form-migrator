@@ -6,9 +6,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from niva_forms.cli import main
-from niva_forms.plsql import Unsupported
-from niva_forms.plsql_passthrough import Rewriter, assigned_vars, prepare
+from frm_forms.cli import main
+from frm_forms.plsql import Unsupported
+from frm_forms.plsql_passthrough import Rewriter, assigned_vars, prepare
 
 V = Rewriter.var  # fixed variable name per item
 
@@ -30,7 +30,7 @@ class PassthroughTests(unittest.TestCase):
                           "EXCEPTION WHEN OTHERS THEN cgte$other_exceptions; END;")
         self.assertEqual([b['source'] for b in r['binds']], ['B.NEV', 'B.KOD'])
         self.assertIn(f"SELECT nev INTO {V('B.NEV')} FROM t WHERE kod = {V('B.KOD')}", r['sql'])
-        self.assertIn("niva_msg('Nincs: '':x'' ?')", r['sql'])  # literals untouched
+        self.assertIn("frm_msg('Nincs: '':x'' ?')", r['sql'])  # literals untouched
         self.assertIn('FORM_TRIGGER_FAILURE EXCEPTION;', r['sql'])
         self.assertIn('RAISE_APPLICATION_ERROR(-20999', r['sql'])
         self.assertIn('WHEN OTHERS THEN RAISE;', r['sql'])

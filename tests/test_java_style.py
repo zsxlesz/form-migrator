@@ -14,9 +14,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-from niva_forms import java_style
-from niva_forms.cli import configuration, main
-from niva_forms.common import MigrationError
+from frm_forms import java_style
+from frm_forms.cli import configuration, main
+from frm_forms.common import MigrationError
 from test_forms_runtime import fixture
 
 
@@ -201,7 +201,7 @@ class A {
 
     def test_unreadable_input_is_written_unchanged(self):
         source = 'class I {\n    /* unterminated\n}\n'
-        with mock.patch.dict(os.environ, {'NIVA_JAVA_STYLE_STRICT': ''}):
+        with mock.patch.dict(os.environ, {'FRM_JAVA_STYLE_STRICT': ''}):
             self.assertEqual(java_style.layout(source, 'I.java'), source)
         self.assertEqual(java_style.FAILED[-1]['file'], 'I.java')
 

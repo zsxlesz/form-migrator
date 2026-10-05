@@ -8,7 +8,7 @@ import shutil
 import sys
 import tempfile
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
-from niva_forms.cli import main
+from frm_forms.cli import main
 SAMPLES=[
  ('customer','customer_fmb.xml',['--schema','examples/schema.json']),
  ('review','review_fmb.xml',[]),
@@ -23,7 +23,7 @@ def main_samples():
     parser.add_argument('--accept-java-changes',action='store_true',help='Accept reviewed generator changes; record the file diff and still require compact layer counts.')
     settings=parser.parse_args()
     changes=[]
-    with tempfile.TemporaryDirectory(prefix='niva-samples-',dir=ROOT.parent) as temporary:
+    with tempfile.TemporaryDirectory(prefix='frm-samples-',dir=ROOT.parent) as temporary:
         stage=Path(temporary)
         for sample,source,options in SAMPLES:
             out=stage/sample;args=['migrate',str(ROOT/'examples'/source),'--out',str(out),'--ai','off','--zip']

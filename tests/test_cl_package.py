@@ -7,9 +7,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from niva_forms.cli import main
+from frm_forms.cli import main
 
-os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
 
 HEADSTART = Path(__file__).with_name('golden') / 'headstart' / 'input.xml'
 CL = 'hu.company.cl.pages.modules.xymodul'

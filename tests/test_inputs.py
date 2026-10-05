@@ -10,10 +10,10 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 import zipfile
 
-from niva_forms.cli import main
-from niva_forms.inputs import InputIssues, load_inputs
-from niva_forms.inheritance import resolve_inputs
-from niva_forms.xmlmodel import props, tag
+from frm_forms.cli import main
+from frm_forms.inputs import InputIssues, load_inputs
+from frm_forms.inheritance import resolve_inputs
+from frm_forms.xmlmodel import props, tag
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,7 +61,7 @@ class InputTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertFalse(destination.exists())
         self.assertFalse(destination.with_suffix(".zip").exists())
-        self.assertEqual(list(self.root.glob(".niva-stage-*")), [])
+        self.assertEqual(list(self.root.glob(".frm-stage-*")), [])
         data = json.loads(stderr.removeprefix("HIBA: "))
         self.assertIn(expected, [issue["code"] for issue in data["issues"]])
         return data["issues"]
@@ -131,7 +131,7 @@ class InputTests(unittest.TestCase):
 
     def test_strict_inheritance_rejects_the_same_input_before_generation(self):
         source = self.write("checkbox_fmb.xml", CHECKBOX)
-        with patch("niva_forms.cli.generate_java") as java, patch("niva_forms.cli.generate_angular") as angular, patch("niva_forms.cli.advise") as ai:
+        with patch("frm_forms.cli.generate_java") as java, patch("frm_forms.cli.generate_angular") as angular, patch("frm_forms.cli.advise") as ai:
             issues = self.rejected("MISSING_OLB", "--strict-inheritance", source=source)
             for tool in (java, angular, ai):
                 tool.assert_not_called()
@@ -313,7 +313,7 @@ class InputTests(unittest.TestCase):
         library = self.root / "bad_olb.xml"
         library.write_bytes('<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE x [<!ENTITY x "boom">]><ObjectLibrary Name="B"/>'.encode("utf-16"))
         self.rejected("XML_ENTITY", "--olb", library)
-        with patch("niva_forms.inputs.MAX_XML_BYTES", len(FORM.encode()) + 5):
+        with patch("frm_forms.inputs.MAX_XML_BYTES", len(FORM.encode()) + 5):
             library.write_bytes(b" " * (len(FORM.encode()) + 6))
             self.rejected("XML_TOO_LARGE", "--olb", library)
 

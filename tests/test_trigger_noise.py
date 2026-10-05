@@ -10,10 +10,10 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from java_support import COMPANY_IMPORTS, write_stubs
-from niva_forms.cli import main
-from niva_forms.framework import classify, load
-from niva_forms.plsql import Unsupported
-from niva_forms.plsql_passthrough import prepare, Rewriter
+from frm_forms.cli import main
+from frm_forms.framework import classify, load
+from frm_forms.plsql import Unsupported
+from frm_forms.plsql_passthrough import prepare, Rewriter
 from screen_support import screen_source
 
 
@@ -100,7 +100,7 @@ class TriggerNoiseTests(unittest.TestCase):
             self.assertNotIn('calendar' + item + 'Action', source)
         api = plan['api']['actions']
         self.assertEqual(set(api), kept)
-        frontend = screen_source(out)  # the component and niva-forms-screen.ts (4.14)
+        frontend = screen_source(out)  # the component and frm-forms-screen.ts (4.14)
         self.assertIn("this.toast.success('Kész'", frontend)
         for entry in api.values():  # this.url(...) with the endpoint as the CL names it
             self.assertIn("this.url('" + plan['api']['paths'][entry['constant']].lstrip('/') + "')", frontend)

@@ -31,15 +31,15 @@ def main():
         with opener.open(req, timeout=10) as response:
             return response.status, response.headers, response.read()
 
-    with tempfile.TemporaryDirectory(prefix="niva-http-check-") as temp:
+    with tempfile.TemporaryDirectory(prefix="frm-http-check-") as temp:
         folder = Path(temp)
         env = dict(os.environ)
         # Do not inherit a developer's Oracle config for this synthetic check.
-        env.pop("NIVA_SERVER_CONFIG", None)
-        for key in ('NIVA_CORS_ORIGINS', 'NIVA_CORS_HEADERS', 'NIVA_CORS_ALLOW_CREDENTIALS'):
+        env.pop("FRM_SERVER_CONFIG", None)
+        for key in ('FRM_CORS_ORIGINS', 'FRM_CORS_HEADERS', 'FRM_CORS_ALLOW_CREDENTIALS'):
             env.pop(key, None)
         with (folder / "server.log").open("wb") as log:
-            process = subprocess.Popen([sys.executable, "-m", "niva_forms.web", "--port", str(port), "--data-dir", str(folder / "data")],
+            process = subprocess.Popen([sys.executable, "-m", "frm_forms.web", "--port", str(port), "--data-dir", str(folder / "data")],
                                        cwd=ROOT, env=env, stdout=log, stderr=log)
             try:
                 deadline = time.monotonic() + 15
@@ -58,7 +58,7 @@ def main():
 
                 _, _, raw = request("/")
                 html = raw.decode("utf-8")
-                assert "<niva-studio" in html, "Missing compiled Angular UI; run npm run build in web-ui"
+                assert "<frm-studio" in html, "Missing compiled Angular UI; run npm run build in web-ui"
                 assets = re.findall(r'(?:src|href)="([^"?#]+\.(?:js|css))"', html)
                 assert assets and any(asset.endswith(".js") for asset in assets)
                 for asset in assets:
@@ -69,7 +69,7 @@ def main():
 
                 origin = {"Origin": "http://localhost:4200"}
                 _, cors, _ = request("/api/jobs", "OPTIONS", headers={**origin,
-                    "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type,x-niva-client"})
+                    "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type,x-frm-client"})
                 assert cors["access-control-allow-origin"] == origin["Origin"]
                 assert 'authorization' in cors['access-control-allow-headers'].lower()
                 print("OK: localhost:4200 Bearer CORS preflight")
@@ -80,7 +80,7 @@ def main():
                 assert 'authorization' in defaults['cors_headers']
                 assert defaults['client_contract']['authorization'] == 'accepted_but_not_validated'
 
-                boundary = "niva-test-" + uuid.uuid4().hex
+                boundary = "frm-test-" + uuid.uuid4().hex
                 parts = []
                 for name, filename, content in [
                     ("file", "customer_fmb.xml", (ROOT / "examples/customer_fmb.xml").read_bytes()),
@@ -91,7 +91,7 @@ def main():
                     parts.append(f"--{boundary}\r\nContent-Disposition: {disposition}\r\n\r\n".encode() + content + b"\r\n")
                 body = b"".join(parts) + f"--{boundary}--\r\n".encode()
                 status, headers, raw = request("/api/jobs", "POST", body, {**origin,
-                    "X-Niva-Client": "local-ui", "Content-Type": f"multipart/form-data; boundary={boundary}"})
+                    "X-Frm-Client": "local-ui", "Content-Type": f"multipart/form-data; boundary={boundary}"})
                 assert status == 202
                 assert headers["access-control-allow-origin"] == origin["Origin"]
                 job_id = json.loads(raw)["id"]

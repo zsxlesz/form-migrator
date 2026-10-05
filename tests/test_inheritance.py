@@ -7,10 +7,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from niva_forms.cli import main
-from niva_forms.inheritance import resolve_inputs
-from niva_forms.inputs import InputIssues, load_inputs
-from niva_forms.xmlmodel import parse_xml
+from frm_forms.cli import main
+from frm_forms.inheritance import resolve_inputs
+from frm_forms.inputs import InputIssues, load_inputs
+from frm_forms.xmlmodel import parse_xml
 
 
 class InheritanceTests(unittest.TestCase):
@@ -57,7 +57,7 @@ class InheritanceTests(unittest.TestCase):
         for library in self.libraries:
             arguments += ["--olb", str(library)]
         err = io.StringIO()
-        with patch("niva_forms.cli.generate_java") as java, patch("niva_forms.cli.generate_angular") as angular, patch("niva_forms.cli.advise") as ai:
+        with patch("frm_forms.cli.generate_java") as java, patch("frm_forms.cli.generate_angular") as angular, patch("frm_forms.cli.advise") as ai:
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
                 result = main(arguments)
             self.assertEqual(result, 1, err.getvalue())
@@ -66,7 +66,7 @@ class InheritanceTests(unittest.TestCase):
             ai.assert_not_called()
         self.assertFalse(destination.exists())
         self.assertFalse(destination.with_suffix(".zip").exists())
-        self.assertFalse(list(self.root.glob(".niva-stage-*")))
+        self.assertFalse(list(self.root.glob(".frm-stage-*")))
         issues = json.loads(err.getvalue().removeprefix("HIBA: "))["issues"]
         self.assertIn(code, [issue["code"] for issue in issues])
         return next(issue for issue in issues if issue["code"] == code)
@@ -348,7 +348,7 @@ class InheritanceTests(unittest.TestCase):
 
     def test_depth_limit_has_actionable_failure(self):
         self.olb("base", '<Item Name="ROOT" ItemType="Text Item"/><Item Name="BASE" ParentFilename="base.olb" ParentName="ROOT"/>')
-        with patch("niva_forms.inheritance.MAX_DEPTH", 3):
+        with patch("frm_forms.inheritance.MAX_DEPTH", 3):
             self.reject(self.form(self.item()), "INHERITANCE_DEPTH_LIMIT")
 
     def test_qualified_menu_inheritance_is_preserved_without_generating_menu_ui(self):

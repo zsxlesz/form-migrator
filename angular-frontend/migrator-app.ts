@@ -35,7 +35,7 @@ import { ToolbarModule } from '@openng/optimus-ui/toolbar';
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
 
 // ---------------------------------------------------------------- contract --
-// Mirrors niva_forms/web/models.py; the backend rejects unknown option keys.
+// Mirrors frm_forms/web/models.py; the backend rejects unknown option keys.
 type AiMode = 'off' | 'assist' | 'cached';
 type JobStatus = 'queued' | 'running' | 'needs_input' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast' | undefined;
@@ -113,10 +113,10 @@ interface SourceFile { path: string; bytes: number }
 interface Preview { path: string; text: string; truncated: boolean }
 interface Issue { code: string; owner: string; scope: string; detail: string }
 
-const API_KEY = 'niva-api-url-v2';
+const API_KEY = 'frm-api-url-v2';
 // v5: the gap default changed (fields fill their row); older saved settings would bring gaps back.
 // v6: the UI offers no choices any more; stale saved choices must not stay active unseen.
-const OPTIONS_KEY = 'niva-options-v6';
+const OPTIONS_KEY = 'frm-options-v6';
 const URL_PATTERN = /^https?:\/\/[^\s]+$/;
 
 // Every explanation lives in a tooltip, next to the control it explains.
@@ -159,7 +159,7 @@ const HELP = {
   cancel: 'Leállítja a generálást. Az ablak bezárása önmagában nem állítja le a háttérfeladatot.',
   retry: 'Új feladat ugyanazokkal a fájlokkal és beállításokkal.',
   delete: 'Törli a feladatot és az összes hozzá tartozó helyi fájlt.',
-  connect: 'A migrátor teljes API URL-je az /api útvonallal. Az első kapcsolódásig nincs API-kérés; a cím ebben a böngészőben marad. Indítás: python -m niva_forms.web --port 8000',
+  connect: 'A migrátor teljes API URL-je az /api útvonallal. Az első kapcsolódásig nincs API-kérés; a cím ebben a böngészőben marad. Indítás: python -m frm_forms.web --port 8000',
   cache: 'Törli a helyben tárolt AI-javaslatokat. A generált csomagokat nem érinti; csak üres feladatsor mellett.',
   files: 'A generált fájlok előnézete: az első 1 MB látszik, a ZIP-ben a teljes fájl van.',
   logs: 'A folyamat naplójának utolsó 32 KB-ja.',
@@ -1015,7 +1015,7 @@ function highlight(text: string, lang: CodeLang): string {
       <!--<p-toolbar>
         <ng-template #start>
           <div class="flex flex-col">
-            <span class="text-lg font-semibold">NIVA Migration Studio</span>
+            <span class="text-lg font-semibold">FRM Migration Studio</span>
             <span class="text-xs opacity-70">Oracle Forms → Angular + Java</span>
           </div>
         </ng-template>
@@ -2264,7 +2264,7 @@ export class Migrator implements OnInit, OnDestroy {
   private readonly http = new HttpClient(inject(HttpBackend));
   private readonly fb = inject(FormBuilder);
   private readonly sanitizer = inject(DomSanitizer);
-  private readonly mutation = { headers: new HttpHeaders({ 'X-Niva-Client': 'local-ui' }) };
+  private readonly mutation = { headers: new HttpHeaders({ 'X-Frm-Client': 'local-ui' }) };
   protected readonly help = HELP;
 
   // -------------------------------------------------------------- options --
@@ -2356,7 +2356,7 @@ export class Migrator implements OnInit, OnDestroy {
     ai_max_prompt_bytes: [3200, [Validators.required, Validators.min(500), Validators.max(16000)]],
     ai_think: ['default' as Options['ai_think']],
     ai_cache_salt: ['1', Validators.required],
-    ollama_model: ['niva-model', [Validators.required, Validators.pattern(/^[A-Za-z0-9_./:@-]+$/)]],
+    ollama_model: ['frm-model', [Validators.required, Validators.pattern(/^[A-Za-z0-9_./:@-]+$/)]],
     strict: [false],
   });
   // Signals keep the zoneless view in step with programmatic form updates.
@@ -2729,7 +2729,7 @@ export class Migrator implements OnInit, OnDestroy {
     } catch {
       this.health.set(null);
       this.connectionError.set(
-        'A backend nem érhető el. Indítsd el a Python szervert (python -m niva_forms.web --port 8000), majd kapcsolódj újra.',
+        'A backend nem érhető el. Indítsd el a Python szervert (python -m frm_forms.web --port 8000), majd kapcsolódj újra.',
       );
     } finally {
       this.connecting.set(false);

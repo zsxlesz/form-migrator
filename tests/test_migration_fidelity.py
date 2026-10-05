@@ -7,8 +7,8 @@ import xml.etree.ElementTree as ET
 
 import test_forms_runtime as runtime
 from java_support import write_stubs
-from niva_forms.plsql import Unsupported
-from niva_forms.plsql_passthrough import prepare
+from frm_forms.plsql import Unsupported
+from frm_forms.plsql_passthrough import prepare
 
 fixture = runtime.fixture
 
@@ -97,7 +97,7 @@ class MigrationFidelityTests(unittest.TestCase):
         self.assertIn('passthrough', trigger)
         service = (out / 'backend/DPS/RtServiceImpl.java').read_text(encoding='utf-8')
         self.assertIn('FORM_TRIGGER_FAILURE EXCEPTION', service)
-        self.assertIn("niva_msg('Dátum szükséges')", service)  # UTF-8 source: no Unicode escapes (Checkstyle)
+        self.assertIn("frm_msg('Dátum szükséges')", service)  # UTF-8 source: no Unicode escapes (Checkstyle)
         self.assertNotIn('onCalendarOk(', service)
 
     def test_legacy_java_mode_remains_available(self):
@@ -124,7 +124,7 @@ class MigrationFidelityTests(unittest.TestCase):
     def test_error_dispatch_propagates_after_other_handler_statements(self):
         body = "BEGIN UPDATE t SET a = 1; EXCEPTION WHEN OTHERS THEN MESSAGE('Failure'); qms$error; END;"
         sql = runtime.prepared(body)['sql']
-        self.assertIn("niva_msg('Failure'); RAISE;", sql)
+        self.assertIn("frm_msg('Failure'); RAISE;", sql)
         # Recovery in a finished nested handler does not leak into the outer body.
         nested = 'BEGIN BEGIN NULL; EXCEPTION WHEN OTHERS THEN NULL; END; qms$notify; END;'
         sql = runtime.prepared(nested)['sql']
@@ -166,7 +166,7 @@ class MigrationFidelityTests(unittest.TestCase):
         self.assertTrue((out / 'RUNTIME_COVERAGE.md').is_file())
 
     def test_coverage_reports_disabled_and_absent_backend(self):
-        from niva_forms.runtime_coverage import coverage
+        from frm_forms.runtime_coverage import coverage
         out = self.generate(fixture({'SAVE': 'UPDATE t SET a = 1;'}))
         rows = {r['owner']: r for r in self.read(out, 'runtime-coverage.json')['triggers']}
         self.assertEqual(rows['B.SAVE']['status'], 'blocked')
@@ -216,7 +216,7 @@ public class ValidationSmoke {
             return new JdbcTemplate() {
                 @Override public <T> T execute(String sql, CallableStatementCallback<T> callback) {
                     String event = executions == 0 ? "WVI" : "WVR";
-                    check(sql.contains("niva_msg('" + event + "')"), "Wrong trigger order or not original PL/SQL");
+                    check(sql.contains("frm_msg('" + event + "')"), "Wrong trigger order or not original PL/SQL");
                     check(sql.contains(executions == 0 ? "UPPER(" : "LENGTH("), "Oracle expression was lost");
                     var outs = new LinkedHashMap<Integer, Integer>();
                     CallableStatement cs = (CallableStatement) java.lang.reflect.Proxy.newProxyInstance(

@@ -14,7 +14,7 @@ A Python-függőségek nem változtak. A csomag tartalmazza az újraépített we
 kezelőfelületet; annak használatához nem kell npm-et futtatni.
 
 ```powershell
-.\.venv\Scripts\python.exe -m niva_forms.web --port 8000
+.\.venv\Scripts\python.exe -m frm_forms.web --port 8000
 ```
 
 Nyisd meg a `http://localhost:8000` oldalt. A generálási módnál válaszd a
@@ -25,7 +25,7 @@ kézzel válts át. A modul neve lehet például `fadlek`.
 A projekt gyökeréből, parancssorral:
 
 ```powershell
-.\.venv\Scripts\python.exe -m niva_forms migrate .\frm_ank_fadlek_fmb.xml --screen --frontend-only --module fadlek --config .\examples\config-screen.json --out .\build\fadlek-screen --zip
+.\.venv\Scripts\python.exe -m frm_forms migrate .\frm_ank_fadlek_fmb.xml --screen --frontend-only --module fadlek --config .\examples\config-screen.json --out .\build\fadlek-screen --zip
 ```
 
 A `--frontend-only` elhagyásával a korábbi Java rétegek és gombvégpontvázak is
@@ -95,7 +95,7 @@ saját FormBlock mégis `btnLabel`-ből olvassa a gombfeliratot:
 ## Keretrendszer-katalógus
 
 A Designer/Headstart formok generált keretrendszer-objektumait egy szerkeszthető
-katalógus sorolja fel: `niva_forms/data/framework-catalog.json`. Saját példány a
+katalógus sorolja fel: `frm_forms/data/framework-catalog.json`. Saját példány a
 `framework_catalog` beállítással adható meg (a config fájlhoz képest relatív útvonal).
 Minden alábbi döntés erre a fájlra hivatkozik a `MIGRATION_NOTES.md`-ben; név alapján
 semmi nem dől el, ami nincs a katalógusban.
@@ -358,7 +358,7 @@ kötött példa. Ellenőrzöttként rögzíti a hat kikövetkeztetett vezérlőt
 olvasható feliratot ad a LOV melletti gombnak:
 
 ```powershell
-python -m niva_forms migrate review-output/fadlek/analysis/source.xml --screen --frontend-only --module fadlek --screen-overrides examples/fadlek-screen-overrides.json --out build/fadlek-reviewed
+python -m frm_forms migrate review-output/fadlek/analysis/source.xml --screen --frontend-only --module fadlek --screen-overrides examples/fadlek-screen-overrides.json --out build/fadlek-reviewed
 ```
 
 | `set` kulcs | Jelentés |

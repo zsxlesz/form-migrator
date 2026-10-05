@@ -4,14 +4,14 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-DIRECTORIES = {"niva_forms", "web-ui", "web-dist", "examples", "sample-output", "review-output", "screen-output", "tests", "docs", "scripts"}
+DIRECTORIES = {"frm_forms", "web-ui", "web-dist", "examples", "sample-output", "review-output", "screen-output", "tests", "docs", "scripts"}
 FILES = {"README.md", "README_HU.md", "LOCAL_START_HU.md", "VALIDATION_HU.md", "FRONTEND_SCREEN_HU.md", "pyproject.toml", "requirements-web.txt", "requirements-test.txt", ".gitignore", "COMPANY_PROFILE_HU.md", "BACKEND_COMPACT_HU.md", "BACKEND_OPTIMIZATION_HU.md"}
-EXCLUDED = {"node_modules", "__pycache__", ".angular", ".venv", "out-tsc", "local-data", ".git", ".pytest_cache", ".niva-ai-cache", "build"}
+EXCLUDED = {"node_modules", "__pycache__", ".angular", ".venv", "out-tsc", "local-data", ".git", ".pytest_cache", ".frm-ai-cache", "build"}
 
 
 def excluded(relative):
     return relative.suffix == ".pyc" or any(
-        part in EXCLUDED or part.startswith((".niva-stage-", ".niva-screen-check-")) or part.endswith(".egg-info")
+        part in EXCLUDED or part.startswith((".frm-stage-", ".frm-screen-check-")) or part.endswith(".egg-info")
         for part in relative.parts)
 
 
@@ -20,7 +20,7 @@ def main():
     output = ROOT.parent / (ROOT.name + ".zip")
     count = 0
     # Publish only a closed, verified archive, including in watched/synced folders.
-    with tempfile.TemporaryDirectory(prefix="niva-package-", dir=ROOT.parent) as temporary:
+    with tempfile.TemporaryDirectory(prefix="frm-package-", dir=ROOT.parent) as temporary:
         staged = Path(temporary) / output.name
         with zipfile.ZipFile(staged, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for path in sorted(ROOT.rglob("*")):

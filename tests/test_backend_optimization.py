@@ -8,12 +8,12 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from niva_forms.cli import main
-from niva_forms.xmlmodel import parse_xml
-from niva_forms.rules import analyze
-from niva_forms.common import MigrationError
-from niva_forms.backend_queries import QueryCompiler
-from niva_forms.plsql import Unsupported
+from frm_forms.cli import main
+from frm_forms.xmlmodel import parse_xml
+from frm_forms.rules import analyze
+from frm_forms.common import MigrationError
+from frm_forms.backend_queries import QueryCompiler
+from frm_forms.plsql import Unsupported
 from java_support import COMPANY_IMPORTS, write_stubs
 
 ROOT=Path(__file__).resolve().parents[1]

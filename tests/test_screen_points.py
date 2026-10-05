@@ -2,8 +2,8 @@
 
 Before, the web screen could carry out EXECUTE_QUERY and the like only as the last step, so a button
 that read the queried values afterwards stayed manual work. Now the request stops at the step
-(NIVA_RESUME command), the screen carries it out - waiting for the query - and calls the button again
-with NIVA.RESUME: the statements before the point are skipped, the code continues with the new values.
+(FRM_RESUME command), the screen carries it out - waiting for the query - and calls the button again
+with FRM.RESUME: the statements before the point are skipped, the code continues with the new values.
 """
 import contextlib
 import io
@@ -17,16 +17,16 @@ import unittest
 
 from java_support import COMPANY_IMPORTS, write_stubs
 from screen_support import RUNTIME_GLOBALS, ts_method
-from niva_forms.cli import main
-from niva_forms import commit_points as cp
-from niva_forms.plsql import Unsupported
-from niva_forms.plsql_passthrough import prepare
-from niva_forms.plsql_structure import parse
-from niva_forms.survey import mid_code_steps
+from frm_forms.cli import main
+from frm_forms import commit_points as cp
+from frm_forms.plsql import Unsupported
+from frm_forms.plsql_passthrough import prepare
+from frm_forms.plsql_structure import parse
+from frm_forms.survey import mid_code_steps
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
-RUNTIME = ROOT / 'niva_forms' / 'templates' / 'niva-forms-screen.ts.tpl'
+RUNTIME = ROOT / 'frm_forms' / 'templates' / 'frm-forms-screen.ts.tpl'
 ITEMS = {'B': {'ID': {'type': 'number'}, 'NAME': {'type': 'text'}}, 'CTRL': {'X': {'type': 'text'}}}
 
 
@@ -40,25 +40,25 @@ class BackendTests(unittest.TestCase):
         r = button("go_block('B'); execute_query(NO_VALIDATE); :CTRL.X := :B.NAME;")
         self.assertEqual((r['screen_points'], r['commit_points']), (1, 0))
         self.assertEqual(r['commands'], ['GO_BLOCK', 'EXECUTE_QUERY'])
-        self.assertIn("IF niva_resume NOT IN (1) THEN\nniva_cmd('GO_BLOCK', 'B');\nEND IF;", r['tail'])
-        self.assertIn("niva_screen_point(1, 'EXECUTE_QUERY');", r['tail'])
-        self.assertIn("niva_cmd('NIVA_RESUME', TO_CHAR(niva_commit_at));", r['tail'])
+        self.assertIn("IF frm_resume NOT IN (1) THEN\nfrm_cmd('GO_BLOCK', 'B');\nEND IF;", r['tail'])
+        self.assertIn("frm_screen_point(1, 'EXECUTE_QUERY');", r['tail'])
+        self.assertIn("frm_cmd('FRM_RESUME', TO_CHAR(frm_commit_at));", r['tail'])
         self.assertNotIn('ROLLBACK', r['tail'])  # the work before the point stays: no save follows
         sources = [b['source'] for b in r['binds']]
-        self.assertIn('NIVA.RESUME', sources)
-        self.assertNotIn('NIVA.COMMIT', sources)
-        self.assertIn('PROCEDURE niva_screen_point(p_point PLS_INTEGER, p_step VARCHAR2)', r['sql'])
-        self.assertNotIn('niva_commit_form', r['sql'])
+        self.assertIn('FRM.RESUME', sources)
+        self.assertNotIn('FRM.COMMIT', sources)
+        self.assertIn('PROCEDURE frm_screen_point(p_point PLS_INTEGER, p_step VARCHAR2)', r['sql'])
+        self.assertNotIn('frm_commit_form', r['sql'])
         self.assertTrue(any('képernyőpont (1)' in n for n in r['notes']))
         parse(r['sql'])
 
     def test_screen_and_commit_points_are_numbered_together(self):
         r = button("create_record; :B.NAME := 'új'; commit_form; :CTRL.X := 'kész';")
         self.assertEqual((r['screen_points'], r['commit_points']), (1, 1))
-        self.assertIn("niva_screen_point(1, 'CREATE_RECORD');", r['tail'])
-        self.assertIn('niva_commit_form(2);', r['tail'])
-        self.assertIn("IF niva_point_kind = 'STEP' THEN", r['tail'])
-        self.assertIn('NIVA.COMMIT', [b['source'] for b in r['binds']])
+        self.assertIn("frm_screen_point(1, 'CREATE_RECORD');", r['tail'])
+        self.assertIn('frm_commit_form(2);', r['tail'])
+        self.assertIn("IF frm_point_kind = 'STEP' THEN", r['tail'])
+        self.assertIn('FRM.COMMIT', [b['source'] for b in r['binds']])
         parse(r['sql'])
 
     def test_what_cannot_resume_stays_manual_with_the_reason(self):
@@ -78,8 +78,8 @@ class BackendTests(unittest.TestCase):
                          {'EXECUTE_QUERY'})
 
     def test_placeholders(self):
-        self.assertEqual(cp.screen_placeholder('CLEAR_BLOCK'), "niva_screen_point(NIVA_POINT, 'CLEAR_BLOCK')")
-        self.assertEqual(cp.purpose("niva_commit_form(NIVA_POINT); niva_screen_point(NIVA_POINT, 'CLEAR_BLOCK');"),
+        self.assertEqual(cp.screen_placeholder('CLEAR_BLOCK'), "frm_screen_point(FRM_POINT, 'CLEAR_BLOCK')")
+        self.assertEqual(cp.purpose("frm_commit_form(FRM_POINT); frm_screen_point(FRM_POINT, 'CLEAR_BLOCK');"),
                          'COMMIT_FORM, CLEAR_BLOCK a kód közepén')
 
 
@@ -132,7 +132,7 @@ __METHODS__
 }
 const screen = new Screen();
 // 1. The button reaches EXECUTE_QUERY with more code after it: the request stops there.
-screen.replies.push({blocks: {}, messages: [], globals: {}, commands: [['GO_BLOCK', 'B'], ['EXECUTE_QUERY'], ['NIVA_RESUME', '1']]});
+screen.replies.push({blocks: {}, messages: [], globals: {}, commands: [['GO_BLOCK', 'B'], ['EXECUTE_QUERY'], ['FRM_RESUME', '1']]});
 // 3. Resumed after the point with the queried values: the rest of the code ran.
 screen.replies.push({blocks: {CTRL: {X: 'lekérdezett'}}, messages: [], globals: {}, commands: []});
 assert.equal(screen.runAction('CTRL.PB'), true);
@@ -141,7 +141,7 @@ assert.deepEqual(screen.queried, ['B']);
 assert.equal(screen.cursorBlock, 'B');
 await new Promise(resolve => setTimeout(resolve, 30));
 assert.equal(screen.requests.length, 2);
-assert.equal(screen.requests[1].parameters['NIVA.RESUME'], '1');
+assert.equal(screen.requests[1].parameters['FRM.RESUME'], '1');
 assert.equal(screen.requests[1].parameters['SYSTEM.CURSOR_BLOCK'], 'B');
 assert.equal(screen.requests[1].blocks.B.NAME, 'lekérdezett');  // the code goes on with the queried record
 assert.equal(screen.formValues.CTRL.x, 'lekérdezett');
@@ -176,7 +176,7 @@ def replica_variant() -> str:
 class ReplicaTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')
+        os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')
         cls.temp = tempfile.TemporaryDirectory()
         cls.root = Path(cls.temp.name)
         form = cls.root / 'valtozat_fmb.xml'
@@ -201,7 +201,7 @@ class ReplicaTests(unittest.TestCase):
     def test_the_survey_refusals_became_working_endpoints(self):
         self.assertTrue(self.endpoint('PB_FRISSIT')['implemented'], self.endpoint('PB_FRISSIT'))
         self.assertTrue(self.endpoint('PB_UJRASZAMOL')['implemented'], self.endpoint('PB_UJRASZAMOL'))
-        self.assertIn("niva_screen_point(1, 'EXECUTE_QUERY');", self.service)
+        self.assertIn("frm_screen_point(1, 'EXECUTE_QUERY');", self.service)
         self.assertIn('-- RENDELES_PKG inicializálása', self.service)
         self.assertIn('FUNCTION kerekit(p NUMBER) RETURN NUMBER', self.service)
 

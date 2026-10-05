@@ -6,10 +6,10 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from niva_forms.cli import main
-from niva_forms.angular_ui import generate
-from niva_forms.ui_schema import validate_ui_model
-from niva_forms.common import MigrationError
+from frm_forms.cli import main
+from frm_forms.angular_ui import generate
+from frm_forms.ui_schema import validate_ui_model
+from frm_forms.common import MigrationError
 ROOT=Path(__file__).resolve().parents[1]
 
 class UiPipelineTests(unittest.TestCase):
@@ -113,7 +113,7 @@ class UiPipelineTests(unittest.TestCase):
     def test_same_input_byte_identical_and_reject_before_java_ai(self):
         out,m=self.good();first={str(p.relative_to(out)):p.read_bytes() for p in out.rglob('*') if p.is_file()}
         other,_=self.good(label='other');self.assertEqual(first,{str(p.relative_to(other)):p.read_bytes() for p in other.rglob('*') if p.is_file()})
-        with patch('niva_forms.cli.generate_java') as java, patch('niva_forms.cli.advise') as ai:
+        with patch('frm_forms.cli.generate_java') as java, patch('frm_forms.cli.advise') as ai:
             self.bad('UNSUPPORTED_ITEM','<Item Name="F"/>',label='bad')
             java.assert_not_called();ai.assert_not_called()
 
@@ -150,7 +150,7 @@ class UiPipelineTests(unittest.TestCase):
         self.assertFalse((self.root/'inventory').exists())
 
     def test_regeneration_archive_failure_rolls_back_folder_and_zip(self):
-        from niva_forms.publication import publish
+        from frm_forms.publication import publish
         old=self.root/'old';old.mkdir();(old/'manual').write_text('previous')
         archive=self.root/'old.zip';archive.write_bytes(b'old zip')
         stage=self.root/'stage';stage.mkdir();bundle=stage/'bundle';bundle.mkdir();(bundle/'new').write_text('new')

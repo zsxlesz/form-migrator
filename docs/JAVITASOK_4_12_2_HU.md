@@ -9,7 +9,7 @@ importok külön csoportot alkotnak, és üres sor választja el őket a többit
 ## Mi változott
 
 Minden generált backend-Java a `java_tidy` után egy új lépésen megy át
-(`niva_forms/java_style.py`). Ez a CL-, DPS- és WBS-fájlokra, a régi és a céges (AWU)
+(`frm_forms/java_style.py`). Ez a CL-, DPS- és WBS-fájlokra, a régi és a céges (AWU)
 formátumra, valamint a `template_dir` sablonjaira egyaránt vonatkozik. Csak az elrendezés
 változik, a kód jelentése nem.
 
@@ -63,7 +63,7 @@ CREATE_ONCE ServiceImpl-ekben a változás a `--regenerate` által adott `.patch
   (a kapcsos zárójelek kivételével, a literálokat értékük szerint véve) és a kommenteknek
   egyezniük kell. Ha nem egyeznek, vagy a formázó nem ismer egy szerkezetet (pl. címkézett
   utasítás), a fájl változatlanul íródik ki. Ilyenkor az `analysis/java-style.json` sorolja fel
-  az érintett fájlokat; normál esetben ez a fájl nem jön létre. `NIVA_JAVA_STYLE_STRICT=1`
+  az érintett fájlokat; normál esetben ez a fájl nem jön létre. `FRM_JAVA_STYLE_STRICT=1`
   mellett ilyenkor hiba keletkezik.
 - Ellenőrzés a tesztcsomag által generált 660 Java-fájlon:
   - a javac-szintaxisfák előtte és utána azonosak (a blokkok egységesítése után);

@@ -7,12 +7,12 @@ import xml.etree.ElementTree as ET
 import test_company_cl as cl
 import test_compact_backend as compact
 import test_forms_runtime as runtime
-from niva_forms.common import MigrationError
-from niva_forms.java_dto import bean_source
-from niva_forms.service_inline import JAVA_NONCODE, mask
+from frm_forms.common import MigrationError
+from frm_forms.java_dto import bean_source
+from frm_forms.service_inline import JAVA_NONCODE, mask
 import os
 
-os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
 
 
 def signature(source, method):

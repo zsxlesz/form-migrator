@@ -24,12 +24,12 @@ public class DbcallServiceImpl extends ModuleServiceBase<WbsLogHelper> implement
     private final DbcallRestClient client;
 
     public DbcallServiceImpl(RestTemplateBuilder builder,
-            @Value("${niva.dbcall.dps-base-url:}") String configuredUrl) {
+            @Value("${frm.dbcall.dps-base-url:}") String configuredUrl) {
         String url = configuredUrl == null || configuredUrl.isBlank() ? GENERATED_DPS_URL : configuredUrl.trim();
         URI uri = URI.create(url);
         if (!("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) || uri.getHost() == null
                 || uri.getRawUserInfo() != null || uri.getRawQuery() != null || uri.getRawFragment() != null) {
-            throw new IllegalArgumentException("Állítsd be: niva.dbcall.dps-base-url");
+            throw new IllegalArgumentException("Állítsd be: frm.dbcall.dps-base-url");
         }
         this.client = new DbcallRestClientImpl(builder.build(), url.replaceAll("/+$", ""));
     }

@@ -12,12 +12,12 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from java_support import COMPANY_IMPORTS, write_stubs
-from niva_forms.backend_lovs import rewrite
-from niva_forms.cli import main
-from niva_forms.plsql import Unsupported, parse
-from niva_forms.plsql_passthrough import normal_mode_sql, prepare
-from niva_forms.rules import Compiler
-from niva_forms.screen_states import Translator
+from frm_forms.backend_lovs import rewrite
+from frm_forms.cli import main
+from frm_forms.plsql import Unsupported, parse
+from frm_forms.plsql_passthrough import normal_mode_sql, prepare
+from frm_forms.rules import Compiler
+from frm_forms.screen_states import Translator
 
 
 def fixture():

@@ -2,9 +2,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from niva_forms.ui_types import classify, ITEM_TYPES
-from niva_forms.ui_inventory import inventory
-from niva_forms.common import MigrationError
+from frm_forms.ui_types import classify, ITEM_TYPES
+from frm_forms.ui_inventory import inventory
+from frm_forms.common import MigrationError
 
 class TypeTests(unittest.TestCase):
     def test_every_explicit_item_type(self):

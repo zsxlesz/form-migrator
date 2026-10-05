@@ -1,8 +1,8 @@
 {
   "version": "4.14.0",
-  "scope": "Attached PL/SQL libraries (--pld), DO_KEY with the form's KEY trigger, COMMIT_FORM commit points, slimmer generated code (FormsPlsql, prune, Set guard), shared NivaFormsScreen runtime, verify-db, survey approximations section",
+  "scope": "Attached PL/SQL libraries (--pld), DO_KEY with the form's KEY trigger, COMMIT_FORM commit points, slimmer generated code (FormsPlsql, prune, Set guard), shared FrmFormsScreen runtime, verify-db, survey approximations section",
   "replica_survey": {
-    "command": "python -m niva_forms survey <felmeres_replika_fmb.xml mappa> --out felmeres",
+    "command": "python -m frm_forms survey <felmeres_replika_fmb.xml mappa> --out felmeres",
     "enabled_endpoints_4_13": "19/20",
     "enabled_endpoints_4_14": "20/20",
     "dps_service_impl_lines": {
@@ -18,7 +18,7 @@
   },
   "focused": {
     "command": "PYTHONPATH=.:tests python -m unittest test_libraries test_commit_points test_slim_code test_screen_runtime test_db_verify test_survey test_golden -q",
-    "typescript": "NIVA_TSC=<tsc> PYTHONPATH=.:tests python -m unittest test_screen_runtime (tsc --strict --noImplicitOverride against tests/ts_stubs)"
+    "typescript": "FRM_TSC=<tsc> PYTHONPATH=.:tests python -m unittest test_screen_runtime (tsc --strict --noImplicitOverride against tests/ts_stubs)"
   },
   "full_suite": {
     "command": "PYTHONPATH=.:tests python -m unittest discover -s tests -t tests",

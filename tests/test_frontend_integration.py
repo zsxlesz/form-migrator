@@ -10,15 +10,15 @@ import zipfile
 
 try:
     from fastapi.testclient import TestClient
-    from niva_forms.web.app import create_app
-    from niva_forms.web.settings import Settings
+    from frm_forms.web.app import create_app
+    from frm_forms.web.settings import Settings
     WEB_AVAILABLE = True
 except ImportError:
     WEB_AVAILABLE = False
 
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = 'http://localhost:4200'
-HEADERS = {'Origin': ORIGIN, 'Authorization': 'Bearer synthetic-test-token', 'X-Niva-Client': 'local-ui'}
+HEADERS = {'Origin': ORIGIN, 'Authorization': 'Bearer synthetic-test-token', 'X-Frm-Client': 'local-ui'}
 
 
 @unittest.skipUnless(WEB_AVAILABLE, 'Web API dependencies required')
@@ -31,7 +31,7 @@ class FrontendIntegrationTests(unittest.TestCase):
     def client(self, **options):
         return TestClient(create_app(Settings(data_dir=self.root/'data', **options)), base_url='http://localhost:8000')
 
-    def preflight(self, client, path='/api/health', origin=ORIGIN, method='GET', headers='authorization,x-niva-client,content-type'):
+    def preflight(self, client, path='/api/health', origin=ORIGIN, method='GET', headers='authorization,x-frm-client,content-type'):
         return client.options(path, headers={'Origin': origin, 'Access-Control-Request-Method': method,
                                             'Access-Control-Request-Headers': headers})
 
@@ -68,16 +68,16 @@ class FrontendIntegrationTests(unittest.TestCase):
             self.assertNotIn('access-control-allow-origin', response.headers)
             response = client.post('/api/jobs', headers={'Origin': ORIGIN, 'Authorization': HEADERS['Authorization']})
             self.assertEqual(response.status_code, 403)  # A Bearer header is not authentication or the mutation marker.
-            self.assertIn('X-Niva-Client', response.json()['detail'])
+            self.assertIn('X-Frm-Client', response.json()['detail'])
 
     def test_environment_config_reaches_both_cors_and_request_guard(self):
         origin = 'https://frontend.example:8443'
-        with patch.dict(os.environ, {'NIVA_WORK_DIR': str(self.root/'data'), 'NIVA_CORS_ORIGINS': ' '+origin+' ',
-                                    'NIVA_CORS_HEADERS': 'X-Company-Id, X-Request-Id',
-                                    'NIVA_CORS_ALLOW_CREDENTIALS': 'true'}, clear=True):
+        with patch.dict(os.environ, {'FRM_WORK_DIR': str(self.root/'data'), 'FRM_CORS_ORIGINS': ' '+origin+' ',
+                                    'FRM_CORS_HEADERS': 'X-Company-Id, X-Request-Id',
+                                    'FRM_CORS_ALLOW_CREDENTIALS': 'true'}, clear=True):
             settings = Settings.from_env()
         with TestClient(create_app(settings), base_url='http://localhost:8000') as client:
-            response = self.preflight(client, origin=origin, headers='Authorization,X-Company-ID,x-request-id,x-niva-client')
+            response = self.preflight(client, origin=origin, headers='Authorization,X-Company-ID,x-request-id,x-frm-client')
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.headers['access-control-allow-origin'], origin)
             self.assertEqual(response.headers['access-control-allow-credentials'], 'true')
@@ -90,11 +90,11 @@ class FrontendIntegrationTests(unittest.TestCase):
             self.assertEqual(response.status_code, 422)  # Reaches validation; not rejected by the local guard.
 
     def test_invalid_environment_is_rejected_before_serving(self):
-        for key, value in [('NIVA_CORS_ORIGINS', '*'), ('NIVA_CORS_ORIGINS', 'http://localhost:4200/migrator'),
-                           ('NIVA_CORS_ORIGINS', 'http://localhost:4200/'), ('NIVA_CORS_ORIGINS', 'null'),
-                           ('NIVA_CORS_ORIGINS', 'http://user:pass@localhost:4200'),
-                           ('NIVA_CORS_HEADERS', '*'), ('NIVA_CORS_HEADERS', 'Authorization: Bearer token'),
-                           ('NIVA_CORS_HEADERS', 'X-Test\r\nInjected'), ('NIVA_CORS_ALLOW_CREDENTIALS', 'yes')]:
+        for key, value in [('FRM_CORS_ORIGINS', '*'), ('FRM_CORS_ORIGINS', 'http://localhost:4200/migrator'),
+                           ('FRM_CORS_ORIGINS', 'http://localhost:4200/'), ('FRM_CORS_ORIGINS', 'null'),
+                           ('FRM_CORS_ORIGINS', 'http://user:pass@localhost:4200'),
+                           ('FRM_CORS_HEADERS', '*'), ('FRM_CORS_HEADERS', 'Authorization: Bearer token'),
+                           ('FRM_CORS_HEADERS', 'X-Test\r\nInjected'), ('FRM_CORS_ALLOW_CREDENTIALS', 'yes')]:
             with self.subTest(key=key, value=value), patch.dict(os.environ, {key: value}, clear=True):
                 with self.assertRaises(ValueError):
                     Settings.from_env()

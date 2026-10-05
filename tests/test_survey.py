@@ -6,8 +6,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from niva_forms import survey
-from niva_forms.cli import main
+from frm_forms import survey
+from frm_forms.cli import main
 from test_screen_windows import simple_windows
 
 ROOT = Path(__file__).resolve().parent
@@ -80,7 +80,7 @@ class ApproximationHelperTests(unittest.TestCase):
         self.assertFalse(survey.default_key('KEY-EXIT', 'NULL;'))  # the key no longer exits: a difference
 
     def test_token_errors_keep_the_reason_of_the_database_passthrough(self):
-        from niva_forms.portfolio import normalize
+        from frm_forms.portfolio import normalize
         text = ("Nem támogatott token a(z) 57. karakternél: '%' x. Átfuttatás az adatbázisban sem lehetséges: "
                 "A(z) PKG helyi csomag nem futtatható: 12 hiba")
         self.assertEqual(normalize(text), "Nem támogatott token a(z) N. karakternél: '%'… Átfuttatás az adatbázisban sem "

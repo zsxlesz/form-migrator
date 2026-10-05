@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-from niva_forms.cli import main
+from frm_forms.cli import main
 from java_support import COMPANY_IMPORTS, write_stubs
 
 ROOT = Path(__file__).resolve().parents[1]

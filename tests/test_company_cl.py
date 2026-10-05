@@ -11,12 +11,12 @@ import xml.etree.ElementTree as ET
 import test_forms_runtime as runtime
 import test_compact_backend as compact
 from java_support import COMPANY_IMPORTS
-from niva_forms.cli import DEFAULTS, main
-from niva_forms.common import MigrationError
-from niva_forms.contracts import validate_awu_azon, validate_company_config
+from frm_forms.cli import DEFAULTS, main
+from frm_forms.common import MigrationError
+from frm_forms.contracts import validate_awu_azon, validate_company_config
 import os
 
-os.environ.setdefault('NIVA_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
 
 
 CL_IMPORTS = COMPANY_IMPORTS + ['hu.company.common.' + symbol for symbol in
@@ -120,7 +120,7 @@ class CompanyClTests(unittest.TestCase):
         self.assertIn('private List<Map<String, Object>> rows;', self.read(out, 'RtLovResultDto.java'))
 
     def test_company_backend_preserves_sql_plsql_and_documents_frontend_adapter(self):
-        from niva_forms.service_inline import JAVA_NONCODE
+        from frm_forms.service_inline import JAVA_NONCODE
         legacy, _ = self.generate('legacy', {'AWU_AZON': ''})
         company, _ = self.generate('company')
         old_service = (legacy / 'backend/DPS/RtServiceImpl.java').read_text()
@@ -174,7 +174,7 @@ class CompanyClTests(unittest.TestCase):
 class CompanyClValidationTests(unittest.TestCase):
     def test_web_options_forward_exact_identifier_and_reject_invalid_values(self):
         try:
-            from niva_forms.web.models import MigrationOptions
+            from frm_forms.web.models import MigrationOptions
             from pydantic import ValidationError
         except ImportError:
             self.skipTest('A webes opciómodell ellenőrzéséhez Pydantic 2 szükséges.')

@@ -1,6 +1,6 @@
 # Saját Angular frontend bekötése – 4.7.1
 
-A migrátor helyi Python API-ja a saját alkalmazás `http://localhost:4200/migrator` oldaláról is hívható. Alapból engedélyezett a localhost/127.0.0.1 4200 és 4201 origin, a backend saját portja, valamint az `Authorization`, `Content-Type` és `X-Niva-Client` fejléc. A CORS middleware ezen felül a szokásos egyszerű fejléceket, például az Accept fejlécet is kezeli.
+A migrátor helyi Python API-ja a saját alkalmazás `http://localhost:4200/migrator` oldaláról is hívható. Alapból engedélyezett a localhost/127.0.0.1 4200 és 4201 origin, a backend saját portja, valamint az `Authorization`, `Content-Type` és `X-Frm-Client` fejléc. A CORS middleware ezen felül a szokásos egyszerű fejléceket, például az Accept fejlécet is kezeli.
 
 Az Angular interceptor által hozzáadott `Authorization: Bearer …` nem okoz többé tiltott-fejléc hibát. A Python API a tokent nem ellenőrzi, nem használja jogosultságként és nem menti a generálási feladatba. Ez továbbra is helyi, egyfelhasználós migrátor; nem céges bejelentkezési végpont. A szerver továbbra is a 127.0.0.1 címen figyel.
 
@@ -9,7 +9,7 @@ Az Angular interceptor által hozzáadott `Authorization: Bearer …` nem okoz t
 A friss csomag könyvtárában állítsd le a régi backendfolyamatot, majd indítsd el:
 
 ```powershell
-.\.venv\Scripts\python.exe -m niva_forms.web --port 8000
+.\.venv\Scripts\python.exe -m frm_forms.web --port 8000
 ```
 
 Frontend: `http://localhost:4200/migrator`. Migrátor API URL: `http://localhost:8000/api`.
@@ -17,9 +17,9 @@ Frontend: `http://localhost:4200/migrator`. Migrátor API URL: `http://localhost
 Ezekhez az alapértékekhez nem kell Python-kódot módosítani. Más frontend és további céges fejléc a backend termináljában állítható be, indítás előtt:
 
 ```powershell
-$env:NIVA_CORS_ORIGINS = "http://localhost:4300,https://frontend.example"
-$env:NIVA_CORS_HEADERS = "X-Request-Id,X-Company-Id"
-.\.venv\Scripts\python.exe -m niva_forms.web --port 8000
+$env:FRM_CORS_ORIGINS = "http://localhost:4300,https://frontend.example"
+$env:FRM_CORS_HEADERS = "X-Request-Id,X-Company-Id"
+.\.venv\Scripts\python.exe -m frm_forms.web --port 8000
 ```
 
 Az értékek példák: csak a ténylegesen használt origineket/fejlécneveket add meg. A listák bővítik az alapértékeket. Originben nincs `/migrator`, záró `/`, query vagy wildcard; fejlécbe csak név kerül, tokenérték nem. Hibás beállításnál a szerver induláskor hibát jelez. Ezek a szerver környezeti változói, nem a generátor `--config` JSON kulcsai.
@@ -27,20 +27,20 @@ Az értékek példák: csak a ténylegesen használt origineket/fejlécneveket a
 Ha a saját HttpClient/interceptor `withCredentials: true` beállítással küld kérést, a backendben ezt külön engedélyezd:
 
 ```powershell
-$env:NIVA_CORS_ALLOW_CREDENTIALS = "true"
+$env:FRM_CORS_ALLOW_CREDENTIALS = "true"
 ```
 
 Alapértéke false. A kézzel hozzáadott Bearer fejléc miatt önmagában nem kell bekapcsolni. Ez a kapcsoló nem hoz létre sessiont és nem végez cookie- vagy tokenellenőrzést.
 
 ## A frontend kérései
 
-A POST és DELETE műveletekhez add hozzá a `X-Niva-Client: local-ui` fejlécet. Ez explicit migrátorkérés-jelölés; a Bearer fejléc nem helyettesíti.
+A POST és DELETE műveletekhez add hozzá a `X-Frm-Client: local-ui` fejlécet. Ez explicit migrátorkérés-jelölés; a Bearer fejléc nem helyettesíti.
 
 Példa a meglévő Angular service-ben (`http` egy HttpClient, `file` egy File):
 
 ```typescript
 const api = 'http://localhost:8000/api';
-const headers = { 'X-Niva-Client': 'local-ui' };
+const headers = { 'X-Frm-Client': 'local-ui' };
 
 const body = new FormData();
 body.append('file', file, file.name);
@@ -51,7 +51,7 @@ return this.http.post<{ id: string }>(`${api}/jobs`, body, { headers });
 
 A visszaadott Observable-ra a hívó feliratkozik. A meglévő interceptor továbbra is hozzáadhatja az Authorization fejlécet. FormData esetén ne állíts be kézzel JSON vagy multipart Content-Type fejlécet: a böngésző állítsa elő a multipart boundary-t. Ha a globális interceptor minden kérésre JSON Content-Type-ot erőltet, a FormData kéréseket ki kell venni ebből az ágból.
 
-Állapotlekérdezés: GET `/api/jobs/{id}`. Letöltés: GET `/api/jobs/{id}/download?kind=all` (vagy frontend/backend), Angularban `responseType: 'blob'`. A Content-Disposition fejléc olvasható a fájlnévhez. Törlés: DELETE `/api/jobs/{id}`, a fenti X-Niva-Client fejléccel.
+Állapotlekérdezés: GET `/api/jobs/{id}`. Letöltés: GET `/api/jobs/{id}/download?kind=all` (vagy frontend/backend), Angularban `responseType: 'blob'`. A Content-Disposition fejléc olvasható a fájlnévhez. Törlés: DELETE `/api/jobs/{id}`, a fenti X-Frm-Client fejléccel.
 
 A migrátor sima JSON objektumokat ad vissza, nem vállalati ResponseDto burkolót; a hibák jellemzően a `detail` mezőben vannak. A ZIP-válasz bináris. Ha a saját globális interceptor automatikusan kibont vagy átír minden választ, a migrátor API-t ehhez külön kell igazítani. A saját frontend forrása nem része ennek a javításnak; az itt megadott szerződés alapján illeszthető be a meglévő service-be.
 

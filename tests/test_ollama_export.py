@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from niva_forms.common import MigrationError
-from niva_forms.exporter import export_fmb
-from niva_forms.ollama import advise, validate_advice
+from frm_forms.common import MigrationError
+from frm_forms.exporter import export_fmb
+from frm_forms.ollama import advise, validate_advice
 
 
 class FakeResponse(io.BytesIO):
@@ -41,26 +41,26 @@ class OllamaTests(unittest.TestCase):
     def test_budget_cache_offline_and_no_auto_promotion(self):
         client = FakeOpener(self.response)
         model = self.model(3)
-        with patch('niva_forms.ollama.opener', return_value=client):
+        with patch('frm_forms.ollama.opener', return_value=client):
             stats = advise(model, 'assist', {'max_ai_calls': 1}, self.cache)
         self.assertEqual((stats['attempted_calls'], stats['skipped_budget']), (1, 2))
         self.assertEqual(model['triggers'][0]['status'], 'review')
         self.assertFalse(client.requests[0]['stream'])
         self.assertEqual(client.requests[0]['options']['num_ctx'], 2048)
-        with patch('niva_forms.ollama.opener', side_effect=AssertionError('cached mode network')):
+        with patch('frm_forms.ollama.opener', side_effect=AssertionError('cached mode network')):
             cached = advise(self.model(), 'cached', {'max_ai_calls': 1}, self.cache)
         self.assertEqual(cached['cache_hits'], 1)
 
     def test_failed_request_consumes_budget_no_retry(self):
         client = FakeOpener(error=TimeoutError('mock timeout'))
-        with patch('niva_forms.ollama.opener', return_value=client):
+        with patch('frm_forms.ollama.opener', return_value=client):
             stats = advise(self.model(2), 'assist', {'max_ai_calls': 1}, self.cache)
         self.assertEqual(len(client.requests), 1)
         self.assertEqual(stats['failures'], 1)
 
     def test_invalid_json_and_truncated_response_never_cached(self):
         for response in [{'done': True, 'response': 'not json'}, {'done': True, 'done_reason': 'length', 'response': self.response['response']}]:
-            with patch('niva_forms.ollama.opener', return_value=FakeOpener(response)):
+            with patch('frm_forms.ollama.opener', return_value=FakeOpener(response)):
                 stats = advise(self.model(), 'assist', {}, self.cache)
             self.assertEqual(stats['failures'], 1)
         self.assertEqual(list(self.cache.glob('*.json')), [])
@@ -68,12 +68,12 @@ class OllamaTests(unittest.TestCase):
     def test_long_source_is_skipped_not_truncated(self):
         model = self.model()
         model['triggers'][0]['source'] = 'x' * 1201
-        with patch('niva_forms.ollama.opener', side_effect=AssertionError('oversized source request')):
+        with patch('frm_forms.ollama.opener', side_effect=AssertionError('oversized source request')):
             stats = advise(model, 'assist', {}, self.cache)
         self.assertEqual(stats['skipped_size'], 1)
 
     def test_cache_salt_invalidates_previous_model_revision(self):
-        with patch('niva_forms.ollama.opener', return_value=FakeOpener(self.response)):
+        with patch('frm_forms.ollama.opener', return_value=FakeOpener(self.response)):
             advise(self.model(), 'assist', {}, self.cache)
         stats = advise(self.model(), 'cached', {'ai_cache_salt': '2'}, self.cache)
         self.assertEqual(stats['cache_misses'], 1)
@@ -86,7 +86,7 @@ class OllamaTests(unittest.TestCase):
         model=self.model(2)
         model['triggers'] += [copy.deepcopy(model['triggers'][0]) for _ in range(5)]
         client=FakeOpener(self.response)
-        with patch('niva_forms.ollama.opener',return_value=client):
+        with patch('frm_forms.ollama.opener',return_value=client):
             stats=advise(model,'assist',{},self.cache)
         self.assertEqual(stats['attempted_calls'],1);self.assertEqual(stats['unique_candidates'],2)
         self.assertEqual(stats['reused_advice'],5)
@@ -100,7 +100,7 @@ class OllamaTests(unittest.TestCase):
         source='PROCEDURE CHECK_IT(ID NUMBER) IS BEGIN UNKNOWN(ID); END;'
         model['program_units']=[{'name':'CHECK_IT','programunittext':source}]
         client=FakeOpener(self.response)
-        with patch('niva_forms.ollama.opener',return_value=client): stats=advise(model,'assist',{},self.cache)
+        with patch('frm_forms.ollama.opener',return_value=client): stats=advise(model,'assist',{},self.cache)
         self.assertEqual(stats['attempted_calls'],1)
         self.assertIn(source,client.requests[0]['prompt'])
         self.assertEqual(model['triggers'][0]['ai_status'],'skipped_budget')
@@ -110,14 +110,14 @@ class OllamaTests(unittest.TestCase):
         model=self.model();model['triggers']*=8
         model['triggers']=[copy.deepcopy(t) for t in model['triggers']]
         client=FakeOpener(error=TimeoutError('offline'))
-        with patch('niva_forms.ollama.opener',return_value=client):stats=advise(model,'assist',{'max_ai_calls':5},self.cache)
+        with patch('frm_forms.ollama.opener',return_value=client):stats=advise(model,'assist',{'max_ai_calls':5},self.cache)
         self.assertEqual(len(client.requests),1);self.assertEqual(stats['failures'],1)
 
     def test_large_local_unit_is_omitted_whole(self):
         model=self.model();model['triggers'][0]['source']='LARGE;'
         model['program_units']=[{'name':'LARGE','programunittext':'PROCEDURE LARGE IS BEGIN '+('NULL;'*400)+' END;'}]
         client=FakeOpener(self.response)
-        with patch('niva_forms.ollama.opener',return_value=client):advise(model,'assist',{},self.cache)
+        with patch('frm_forms.ollama.opener',return_value=client):advise(model,'assist',{},self.cache)
         self.assertIn('omitted_local_dependencies',client.requests[0]['prompt'])
         self.assertNotIn('PROCEDURE LARGE',client.requests[0]['prompt'])
 
@@ -143,7 +143,7 @@ class ExportTests(unittest.TestCase):
                 export_fmb(source, root / 'export', {'export_command': [sys.executable, '-c', 'pass', '{input}']})
 
     def test_missing_oracle_binary_actionable_error(self):
-        with patch('niva_forms.exporter.shutil.which', return_value=None), tempfile.TemporaryDirectory() as temp:
+        with patch('frm_forms.exporter.shutil.which', return_value=None), tempfile.TemporaryDirectory() as temp:
             with self.assertRaisesRegex(MigrationError, 'FMB bináris'):
                 export_fmb(Path(temp) / 'x.fmb', Path(temp) / 'export', {})
 

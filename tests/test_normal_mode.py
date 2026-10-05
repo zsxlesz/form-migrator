@@ -118,7 +118,7 @@ class NormalModeTests(unittest.TestCase):
             java, kind = compiler.expression(node)
             self.assertEqual(kind, 'boolean')
             self.assertIn('SqlValues.compare("NORMAL", "NORMAL", "=")', java)
-            self.assertEqual(frontend.expression(node), 'this.cmp("NORMAL", \'=\', "NORMAL")')
+            self.assertEqual(frontend.expression(node), "this.cmp('NORMAL', '=', 'NORMAL')")
 
     def test_complete_generation_has_a_live_lov_and_compiled_block_query(self):
         for mode in ('plsql', 'java'):
@@ -143,7 +143,7 @@ class NormalModeTests(unittest.TestCase):
                 states = json.loads((out / 'analysis/screen-plan.json').read_text())['item_states']
                 self.assertEqual(states['manual'], [])
                 component = next((out / 'frontend').rglob('*.component.ts')).read_text()
-                self.assertIn('this.cmp("NORMAL", \'=\', "NORMAL")', component)
+                self.assertIn("this.cmp('NORMAL', '=', 'NORMAL')", component)
                 # Evidence retains the original query; it is not overwritten with the adaptation.
                 self.assertIn(':SYSTEM.MODE', (out / 'analysis/backend-evidence.md').read_text())
 

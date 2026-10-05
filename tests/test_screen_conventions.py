@@ -3,7 +3,6 @@ import contextlib
 import io
 import json
 from pathlib import Path
-import re
 import tempfile
 import unittest
 
@@ -43,8 +42,8 @@ class ScreenConventionTests(unittest.TestCase):
                 continue  # button rows keep their right alignment
             for item in section['items']:
                 self.assertEqual((item['col_before'], item['col_after']), (0, 0), item['owner'])
-        self.assertIn('{ type: "label", ownId: "V_ELEK_ADLAP.L_URES_2", labelText: "", col: "2" }', source)
-        self.assertNotIn('labelText: "L_URES', source)
+        self.assertIn("{ type: 'label', ownId: 'V_ELEK_ADLAP.L_URES_2', labelText: '', col: '2' }", source)
+        self.assertNotIn("labelText: 'L_URES", source)
 
     def test_custom_catalog_without_spacer_items_keeps_the_convention(self):
         catalog = self.root / 'catalog.json'
@@ -58,9 +57,11 @@ class ScreenConventionTests(unittest.TestCase):
                                             'nincsIlyen': {'max': 3}}}
         code, err, out, source = self.run_screen(lengths=lengths)
         self.assertEqual(code, 0, err)
-        definition = next(line for line in source.splitlines() if 'formControlName: "ubiInptipKod"' in line)
-        self.assertIn('maxLenght: 6, minLenght: 2', definition)
-        self.assertIn('"ubiInptipKod": [Validators.minLength(2), Validators.maxLength(6)]', source)
+        definition = next(line for line in source.splitlines() if "formControlName: 'ubiInptipKod'" in line)
+        self.assertIn('maxLenght: 6, minLenght: 2', definition)  # the runtime turns these into minLength/maxLength validators
+        self.assertNotRegex(source, r'\bValidators\.')
+        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
+        self.assertIn('if (field.minLenght) result.push(Validators.minLength(field.minLenght));', runtime)
         plan = json.loads((out / 'analysis/screen-plan.json').read_text(encoding='utf-8'))
         self.assertEqual(plan['field_lengths']['unknown'], ['nincsIlyen'])
         codes = {n['code'] for n in plan['notices']}
@@ -76,27 +77,31 @@ class ScreenConventionTests(unittest.TestCase):
     def test_buttons_are_primary(self):
         code, err, out, source = self.run_screen()
         self.assertEqual(code, 0, err)
-        self.assertIn('btnSeverity: "primary"', source)
-        self.assertNotIn('"secondary"', source)
+        self.assertIn("...this.button('CGNV$W01_1.PB_RESZLETEK') }", source)
+        self.assertNotIn('secondary', source)
+        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
+        self.assertIn("return { btnSeverity: 'primary' as const, onClick: () => this.onAction(ownId) };", runtime)
+        self.assertNotIn("'secondary'", runtime)
 
     def test_toast_service_in_every_component_with_configured_import(self):
         code, err, out, source = self.run_screen()
         self.assertEqual(code, 0, err)
         self.assertIn('// TODO: importáld a saját csomagodból: ToastService', source)
         self.assertIn('protected readonly toast = inject(ToastService);', source)
-        self.assertIn('const TOAST_LIFE = { success: 3000, warning: 8000, danger: 6000 } as const;', source)
-        # Missing data, backend errors and empty results are signalled. This
-        # fixture now has only UI buttons, so there is no action-success toast.
-        self.assertIn('if (!this.validBefore(ownId)) return;', source)
+        self.assertIn('protected readonly toastLife = { success: 3000, warning: 8000, danger: 6000 };', source)
+        # Missing data, backend errors and empty results are signalled by the shared runtime, with the screen's toast.
+        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
+        self.assertIn('if (!this.validBefore(ownId)) return;', runtime)
         for call in ["this.toast.warning('Hiányzó vagy hibás adat'", "WFF.err('Hiba', error);", "this.toast.warning('Nincs találat'"]:
-            self.assertIn(call, source)
+            self.assertIn(call, runtime)
+        self.assertIn('protected abstract readonly toast: FrmToast;', runtime)
         config = {'emit_imports': True, 'optimus_import_path': '@company/optimus', 'optimus_form_block_symbol': 'AnkFormBlockComponent',
                   'form_block_type_import_path': '@company/optimus/form-block', 'toast_service_import_path': '@company/ui/toast',
                   'toast_life_ms': {'success': 2500, 'warning': 10000, 'danger': 7000}}
         code, err, _, source = self.run_screen(config=config, label='emit')
         self.assertEqual(code, 0, err)
-        self.assertIn('import { ToastService } from "@company/ui/toast";', source)
-        self.assertIn('const TOAST_LIFE = { success: 2500, warning: 10000, danger: 7000 } as const;', source)
+        self.assertIn("import { ToastService } from '@company/ui/toast';", source)
+        self.assertIn('protected readonly toastLife = { success: 2500, warning: 10000, danger: 7000 };', source)
         code, err, _, _ = self.run_screen(config={'toast_life_ms': {'success': 10}}, label='bad-life')
         self.assertEqual(code, 1)
         self.assertIn('toast_life_ms', err)
@@ -106,7 +111,7 @@ class ScreenConventionTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn('protected readonly toast = inject(ToastService);', source)
         self.assertNotIn('HttpClient', source)
-        self.assertTrue(re.search(r"steps\.some\(step => \['executeQuery', 'commit', 'createRecord', 'deleteRecord'\]\.includes\(step\.op\)\) : false", source))
+        self.assertNotIn('validBefore', source)  # the shared runtime checks the form before a data step
 
 
 if __name__ == '__main__':

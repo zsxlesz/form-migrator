@@ -505,33 +505,33 @@ public class QuerySmoke {
             self.skipTest('Node with TypeScript stripping required')
         out = self.generate()
         methods = []
-        for method in ('runAction', 'executeQuery', 'showRows', 'showRecord', 'wireText', 'payload', 'screenBlocks'):
+        for method in ('runAction', 'executeQuery', 'showRows', 'showRecord', 'wireText', 'payload', 'screenBlocks', 'selectedRecords',
+                       'rowFields', 'fromDto', 'oracleName', 'keyOf', 'blockOf', 'fields'):
             source = screen_method(out, method)  # the component's override, else frm-forms-screen.ts
             self.assertIsNotNone(source, method)
             methods.append(source)
-        methods.append(screen_method(out, 'selectedRecords') or '  selectedRecords() { return {}; }')
-        p = re.search(r'export interface (\w+?)BlkRow', component(out))[1]
+        self.assertIn("BLK: frmTable(", component(out))
         script = self.root / 'query-flow.ts'
         script.write_text('''import assert from 'node:assert/strict';
 const TOAST_LIFE = {warning: 1, success: 1};
 const localIso = (value: Date) => value.toISOString();
 __RUNTIME_GLOBALS__
-interface __P__BlkRow { col6?: string; col7?: string; }
 class Screen {
   toastLife = TOAST_LIFE;
   initAction = '@INIT';
-  stateRecord() {}
   formValues = {T1: {col1: 'MB_34ADLAP', col2: true, col3: false, col4: true, col5: 'X'}};
   formGroups = {};
-  regionBlocks = {};
-  oracleNames = {T1: {col1: 'COL1', col2: 'COL2', col3: 'COL3', col4: 'COL4', col5: 'COL5'}};
+  structures = {};
+  recordHandlers = {};
+  originals = {};
+  markPristine() {}
+  oracleNames = {};
   checkboxValues = {T1: {col2: ['1','0'], col3: ['1','0'], col4: ['1','0']}};
   queryActionBlocks = {'T1.PB_LEKERDEZES': 'BLK'};
   activeQueryActions = {};
-  rowKeys = {BLK: {col6: 'col6', col7: 'col7'}};
+  rowKeys = {BLK: ['col6', 'col7']};
   queries = {};
-  blkRows = [{col7: 'old'}];
-  blkSelection = null;
+  tables = {BLK: {rows: [{col7: 'old'}], selection: null}};
   changeDetector = {markForCheck() {}};
   warnings = [];
   successes = [];
@@ -553,16 +553,16 @@ __METHODS__
 const screen = new Screen();
 assert.equal(screen.runAction('T1.PB_LEKERDEZES'), true);
 assert.deepEqual(screen.requests[0], {blocks:{T1:{COL1:'MB_34ADLAP',COL2:'1',COL3:'0',COL4:'1',COL5:'X'}},parameters:{},offset:0,limit:200});
-assert.deepEqual(screen.blkRows, [{col6:'00',col7:'MB_34'}]);
+assert.deepEqual(screen.tables.BLK.rows, [{col6:'00',col7:'MB_34'}]);
 assert.equal(screen.successes.length, 0);
 screen.reply = {rows:null,messages:['Adatlap kiválasztása nem történt meg!']};
 assert.equal(screen.runAction('T1.PB_LEKERDEZES'), true);
-assert.deepEqual(screen.blkRows, [{col6:'00',col7:'MB_34'}]);
+assert.deepEqual(screen.tables.BLK.rows, [{col6:'00',col7:'MB_34'}]);
 assert.equal(screen.warnings.length, 1);
 screen.reply = {rows:[],messages:[]};
 assert.equal(screen.executeQuery('BLK'), true);
 assert.equal(screen.requests.length, 3);
-assert.deepEqual(screen.blkRows, []);
+assert.deepEqual(screen.tables.BLK.rows, []);
 assert.equal(screen.warnings.length, 2);
 screen.actionEndpoints['T1.OTHER'] = request => {
   screen.requests.push(request);
@@ -573,7 +573,7 @@ assert.equal('offset' in screen.requests[3], false);
 assert.equal('limit' in screen.requests[3], false);
 assert.equal(screen.successes.length, 1);
 console.log('typescript query-action OK');
-'''.replace('__METHODS__', '\n'.join(methods)).replace('__P__', p).replace('__RUNTIME_GLOBALS__', RUNTIME_GLOBALS))
+'''.replace('__METHODS__', '\n'.join(methods)).replace('__RUNTIME_GLOBALS__', RUNTIME_GLOBALS))
         run = subprocess.run(['node', '--experimental-strip-types', str(script)], capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('typescript query-action OK', run.stdout)

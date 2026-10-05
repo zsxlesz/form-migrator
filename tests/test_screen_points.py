@@ -89,7 +89,8 @@ class RuntimeFlowTests(unittest.TestCase):
             self.skipTest('Node with TypeScript stripping required')
         runtime = RUNTIME.read_text(encoding='utf-8')
         methods = '\n'.join(ts_method(runtime, name) for name in ('runAction', 'runCommands', 'formsQuery', 'screenBlocks',
-                                                                  'applyOracleValues', 'showRecord', 'wireText', 'payload'))
+                                                                  'applyOracleValues', 'showRecord', 'wireText', 'payload',
+                                                                  'cursor', 'oracleName', 'keyOf', 'blockOf', 'fields'))
         with tempfile.TemporaryDirectory() as temp:
             script = Path(temp) / 'screen-point.ts'
             script.write_text('''import assert from 'node:assert/strict';
@@ -103,12 +104,13 @@ class Screen {
   checkboxValues = {};
   cursorBlock = 'CTRL';
   cursorItem = '';
-  stateRecord() {}
   selectedRecords() { return {}; }
   formValues: Record<string, Record<string, unknown>> = {B: {name: 'régi'}, CTRL: {x: null}};
   formGroups = {};
-  regionBlocks = {};
-  oracleNames = {B: {name: 'NAME'}, CTRL: {x: 'X'}};
+  structures = {};
+  tables = {};
+  recordHandlers = {};
+  oracleNames = {};
   changeDetector = {markForCheck() {}};
   successes = [];
   toast = {warning: () => undefined, success: (...args) => this.successes.push(args)};

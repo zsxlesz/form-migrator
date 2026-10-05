@@ -48,7 +48,8 @@ a generált képernyő típuskövetkeztetéseit is tartalmazza, azok indoklásá
 
 | Fájl | Tartalom |
 |---|---|
-| `frontend/fadlek/fadlek.component.ts` | Egy szerkeszthető komponens, inline template, meződefiníciók, táblák és események |
+| `frontend/fadlek/fadlek.component.ts` | Egy szerkeszthető komponens: inline template, a képernyő adatai (struktúrák, táblák, lekérdezések, LOV-ok) és az egysoros végpontmetódusok |
+| `frontend/frm-forms-screen.ts` | A közös futtató (`FrmFormsScreen`, `<frm-table>`, `<frm-toolbar>`, `<frm-alert>`): egyszer kell a projektbe tenni, külön letölthető |
 | `frontend/fadlek/MIGRATION_NOTES.md` | Blokkok, adatforrások, gombhívások, LOV SQL/return mapping, öröklési hiányok |
 | `analysis/screen-plan.json` | Géppel olvasható elrendezési döntések és kihagyott technikai mezők |
 | `analysis/screen-overrides.template.json` | Mezőazonosítók és forráslenyomatok a tartós kézi döntésekhez |
@@ -82,7 +83,7 @@ vagy konfiguráld az automatikus importot az alábbi kulcsokkal:
 | `optimus_form_block_symbol` | Üresen `FormBlocksComponent`; más exportált névnél azt add meg |
 | `form_block_type_import_path` | A valódi FormBlock namespace exportútvonal |
 
-A képernyőváz nem igényel environment-importot, mert nem indít HTTP-kéréseket.
+A képernyőváz nem igényel environment-importot: a szerver- és modulútvonalat a `ServiceBase.url()` adja.
 A vezérlők a megadott `FormBlock.Structure` szerződést követik, például
 `labelText`, `btnSeverity`, `colBefore`, `maxLenght`, `suggestions`.
 
@@ -139,7 +140,8 @@ A szöveges beviteli mezők minimális és maximális hossza egy JSON-fájlban a
 - **Kulcs:** a `formControlName`. Ha több blokkban is előfordul, `BLOKK.formControlName`
   alakban adható meg; ez erősebb a sima névnél.
 - **Hatás:** a megadott érték felülírja a Forms MaximumLength/FixedLength értékét, és
-  FormBlock `minLenght`/`maxLenght`, valamint FormGroup `Validators.minLength/maxLength` lesz belőle.
+  FormBlock `minLenght`/`maxLenght` lesz belőle. A `Validators.minLength/maxLength` ellenőrzést
+  ebből a futtató (`frm-forms-screen.ts`) állítja elő, a komponensbe nem kerül külön validátor.
 - **Használat:** `migrate`/`batch --field-lengths fajl.json`, a konfigurációban
   `screen_field_lengths`, vagy a webes felület „Mezőhosszak” feltöltése. Egy fájl a
   batch összes formjára érvényes.
@@ -165,6 +167,13 @@ MESSAGE-hívásokkal együtt TypeScriptre fordulnak, és a Forms-eseménynek meg
 - **Alkalmazás:** a `setItemState` a FormBlock-struktúrán (`disabled`, `invisible`, `validator`,
   `readonly`) és a FormControlon (enable/disable, `Validators.required`) is érvényesíti az
   állapotot.
+- **Tömör kód (4.20):**
+  - ugyanannak a mezőnek az egymás utáni tulajdonságai egy hívásba kerülnek:
+    `this.setItemState('B.MEGJ', { enabled: true, required: true })`;
+  - az `IF feltétel THEN … PROPERTY_TRUE ELSE … PROPERTY_FALSE` minta egyetlen sor:
+    `this.setItemState('B.EXTRA', { visible: this.cmp(…) })`;
+  - az egyutasításos kezelő nem kap saját metódust: közvetlenül a `changeHandlers` /
+    `recordHandlers` / `buttonHandlers` térképbe, illetve a konstruktorba kerül.
 - **Feltételek:** SQL-szerűen értékelődnek ki (NULL-lal való összehasonlítás hamis), a
   checkboxok Checked/Unchecked értékével.
 - **Kézi lista:** ha egy trigger mást is csinál (például SELECT), vagy nem szó szerinti
@@ -183,16 +192,18 @@ MESSAGE-hívásokkal együtt TypeScriptre fordulnak, és a Forms-eseménynek meg
 - **Mikor jelez:**
   - adatműveletet végző gombnál (lekérdezés, mentés, létrehozás, törlés) hiányzó vagy
     hibás mező esetén `toast.warning`, és kérés nem indul;
-  - backend-hiba: a `WFF.err('Hiba', error)` jelzi (a hívások `catchError`-ja);
+  - backend-hiba: a `WFF.err('Hiba', error)` jelzi (a futtató `send` metódusának `catchError`-ja);
   - üres lekérdezés és backend-üzenet: `warning`;
   - sikeres akció: `toast.success`.
-- **Élettartamok:** `toast_life_ms` (alap: success 3000, warning 8000, danger 6000 ms).
-- **Gombok:** a generált gombok `btnSeverity: "primary"` színt kapnak.
+- **Élettartamok:** `toast_life_ms` (alap: success 3000, warning 8000, danger 6000 ms), a
+  komponensben `protected readonly toastLife = { success: 3000, warning: 8000, danger: 6000 };`.
+- **Gombok:** a gomb a struktúrában `...this.button('BLOKK.GOMB')`; a segéd `btnSeverity: 'primary'`
+  színt és az `onClick` bekötést adja.
 
 ## Tartomány-elválasztók
 
 Ha egy mező promptja csak írásjel (`-`, `–`, `/`, `:`…), és ugyanabban a sorban
-mező áll előtte, a prompt a két mező közé kerül `type: "label"` elemként, a mező
+mező áll előtte, a prompt a két mező közé kerül `type: 'label'` elemként, a mező
 saját felirata üres lesz — így a két mező egy vonalban marad, ahogy Forms-ban.
 Hely hiányában (`SEPARATOR_NO_ROOM`) vagy ha nincs előtte mező, marad feliratnak.
 
@@ -203,9 +214,10 @@ listává alakulnak (`goBlock`, `goItem`, `executeQuery`, `enterQuery`, `commit`
 `clearBlock`, `clearForm`, `exitForm`, rekordnavigáció, `showWindow`/`hideWindow`,
 `showCanvas`/`hideCanvas`, literális `message`). Csak akkor, ha a trigger minden
 utasítása felismert; feltétel, változó vagy saját eljárás esetén `steps: null`, a
-jegyzet pedig kilistázza a saját hívásokat. A lépések az `actionRequested`
-esemény `steps` mezőjében érkeznek: a host egyetlen közös adapterben valósítja
-meg őket, gombonkénti kód nélkül. A komponens automatikusan semmit nem futtat.
+jegyzet pedig kilistázza a saját hívásokat. A lépések a komponens `actionSteps`
+adatában vannak (`'BLOKK.GOMB': [{ op: 'goBlock', block: 'RESULT' }, { op: 'executeQuery' }]`),
+gombnyomásra a közös futtató (`frm-forms-screen.ts`, `runSteps`) hajtja végre őket,
+gombonkénti kód nélkül.
 
 A `MIGRATION_NOTES.md` első szekciója a tényleges teendőket összesíti; a
 **Triggerek besorolása** a triggereket keretrendszeri / vegyes / saját / üres
@@ -313,14 +325,15 @@ component.hideCanvas('DETAIL_EXTRA');
 component.setWindowVisible('EDIT_WINDOW', false);
 ```
 
-A megengedett ablak- és canvasnevek TypeScript literáluniók. A láthatóság Angular
-signal, így a hostból történő hívás is frissíti a kötött nézetet. Több ablak
-egyszerre is nyitva lehet; egyik zárása nem zárja be a másikat. A FormGroup
-értékeit és módosítottságát az ismételt létrehozáskor megőrzi a komponens.
+A metódusok a közös futtatóban (`frm-forms-screen.ts`) vannak; a komponens csak a
+kezdőállapotot adja adatként (`windowVisible`, `canvasVisible`, `activeContentCanvas`
+signal és `canvasTargets`). A láthatóság Angular signal, így a hostból történő hívás is
+frissíti a kötött nézetet. Több ablak egyszerre is nyitva lehet; egyik zárása nem zárja
+be a másikat. A FormGroup értékeit és módosítottságát az ismételt létrehozáskor
+megőrzi a futtató.
 
-A `windowVisibilityChanged` a már megtörtént láthatóságváltást jelzi. Nem
-megszakítható zárási esemény: ha a bezárást validálni kell, a hostban alakítsd ki
-a zárási szabályt. A `CloseAllowed=false` elrejti az X gombot; hiányában a
+Ha a bezárást validálni kell, a `setWindowVisible` felülírásával alakítsd ki a zárási
+szabályt. A `CloseAllowed=false` elrejti az X gombot; hiányában a
 generátor true fallbacket használ. Az Esc és háttérkattintás nem zárja az ablakot.
 Ablakbezáráskor nincs automatikus mentés vagy adat-visszavonás.
 
@@ -418,12 +431,20 @@ az SQL és a kezdeti adatértékek nem változnak. Bizonytalan forrásnál kapcs
 
 ## Validációk és meg nem valósított tulajdonságok
 
-A generált `validationRules` a FormGroup kontrolljaihoz rendeli a Required,
-szöveghossz, fix hossz, betűkorlátozás és számhatár szabályokat. A meglévő host
-validátorokat megőrzi. A kötelező checkbox true és false értéke is érvényes;
-null vagy üres értéknél `required` hibát ad. Ezt a meződefiníció mellett komment
-is jelzi; nem feltételezi, hogy a privát FormBlock `validator: true` kapcsolója
-megkülönbözteti a kötelező kitöltést a kötelező bepipálástól.
+A FormGroup-validátorok nagy részét a futtató (`frm-forms-screen.ts`, `fieldValidators`) a
+FormBlock-struktúrából állítja elő, a komponensbe nem kerül külön szabály:
+
+| Struktúra | Validátor |
+|---|---|
+| `validator: true` | `Validators.required` |
+| `minLenght` / `maxLenght` | `Validators.minLength` / `Validators.maxLength` |
+| `regexRule.regex` (CaseRestriction) | `Validators.pattern` |
+| checkbox (`checkboxValues`) | csak boolean érték |
+
+Csak az marad a komponens `validators` adatában (`'BLOKK.MEZŐ': [...]`), ami a struktúrából
+nem olvasható ki: `FrmValidators.number({...})`, `FrmValidators.date`, a kötelező checkbox
+`FrmValidators.checked` szabálya (true és false is érvényes, null/üres nem), és a maximális
+hossztól eltérő fix hossz. A meglévő host validátorokat a futtató megőrzi.
 
 Numerikus mezőnél a minimum/maximum, precision és scale ellenőrzése pontos
 decimális összehasonlítással történik. A nagy decimális értékek stringként
@@ -446,26 +467,27 @@ formában jelennek meg; a nyers SQL és XML a forrásauditban változatlan.
 ## Backend-hívások (céges minta)
 
 A generált komponens útvonalon elérhető oldal, nem gyerekkomponens: nincs `@Input` és `@Output`.
-A céges `ServiceBase`-ből öröklődik, a konstruktor `super()`-rel indul:
+A közös `FrmFormsScreen`-t örökli (az pedig a céges `ServiceBase`-t). Minden végpont egysoros metódus:
 
 ```ts
-export class XyComponent extends ServiceBase {
+export class XyComponent extends FrmFormsScreen {
   private readonly http = inject(HttpClient);
 
-  constructor() {
-    super();
-  }
+  searchAit(body: unknown) { return this.send('searchAit', this.http.post(this.url('searchait'), body)); }
+}
+```
 
-  searchAit(body: unknown) {
-    return this.http.post(this.url('searchait'), body)
-      .pipe(
-        tap((res) => WFF.debug(this.modName + '.searchAit', res)),
-        catchError((error) => {
-          WFF.err('Hiba', error);
-          throw error;
-        })
-      );
-  }
+A `send` a futtatóban van:
+
+```ts
+protected send<T>(name: string, request: Observable<T>): Observable<T> {
+  return request.pipe(
+    tap(res => WFF.debug(this.modName + '.' + name, res)),
+    catchError(error => {
+      WFF.err('Hiba', error);
+      throw error;
+    }),
+  );
 }
 ```
 
@@ -473,13 +495,14 @@ export class XyComponent extends ServiceBase {
   metódusa van. A `this.url('…')` argumentuma a végpont neve úgy, ahogy a CL használja (céges
   formátumban pontosan a `…_NAME` érték). Erre rákeresve a hívás a CL-ben, a DPS-ben, a WBS-ben és a
   komponensben is megtalálható. A szerver- és modulútvonalat a `ServiceBase.url()` teszi elé.
-- **Ki hívja:** a lekérdező gombok (`go_block` + `execute_query`), a LOV-keresés és a PL/SQL-es gombok
-  maguk hívják a saját metódusukat. A mentés metódusai elkészülnek, bekötésük a fejlesztőé.
+- **Ki hívja:** a komponens adatai mondják meg (`queries`, `lovs`, `actionEndpoints`, `commitEndpoint`):
+  `TETEL: { call: request => this.searchTetel(request), criteria: { rendelesId: 'RENDELES.id' } }`.
+  A futtató ezek alapján hívja a végpontot lekérdezéskor, LOV-keresésnél, gombnyomásra és mentéskor.
 - **Naplózás:** minden sikeres válasz legelőször a `WFF.debug(this.modName + '.<metódus>', res)` hívásba
   kerül (`tap`), ahol a `<metódus>` a végpontmetódus neve. A `modName` a modul útvonala
-  (`WFF.trim(this.router.url, '/')`): a `frm-forms-screen.ts`-ben van, futtató nélküli képernyőn a
-  komponensben. A `router` a `ServiceBase`-ből jön, a képernyő nem injektál saját routert.
-- **Hibák:** a `catchError` a `WFF.err('Hiba', error)` hívással jelez. Az üres találatot, a
+  (`WFF.trim(this.router.url, '/')`), a `frm-forms-screen.ts`-ben. A `router` a `ServiceBase`-ből jön,
+  a képernyő nem injektál saját routert.
+- **Hibák:** a `send` `catchError`-ja a `WFF.err('Hiba', error)` hívással jelez. Az üres találatot, a
   backend-üzeneteket és a sikeres műveletet a `ToastService` mutatja.
 - **Válaszboríték:** céges módban a válasz `RestResponseDto`-ban érkezik. Az adatot a `payload()`
   metódus veszi ki; a keresett mezőnevek listája ott, egy helyen igazítható.
@@ -490,31 +513,25 @@ export class XyComponent extends ServiceBase {
 
 ## Események és LOV
 
-A gombok `actionRequested` eseményt adnak: ownId, a blokkok aktuális értékei és a
-kijelölt táblasorok. A checkboxok booleanként jelennek meg; az eseményben az eredeti
-checked/unchecked kódot kapod vissza. A szükséges üzleti validációt az adott akcióhoz
-kösd. A kötelező checkboxnál a false megengedett, a null/üres érték nem.
+A gomb a struktúrában `...this.button('BLOKK.GOMB')`: a futtató `onAction`-je dönti el, mi fut
+(állapotkezelő, navigáció, felismert lépések, PL/SQL-végpont). A végpont a blokkok aktuális
+értékeit és a kijelölt táblasorokat kapja; a checkboxok booleanként jelennek meg, a kérésben az
+eredeti checked/unchecked kód megy. A kötelező checkboxnál a false megengedett, a null/üres érték nem.
 
-A LOV `lovRequested` eseménye tartalmazza az ownId, lov, query és requestId mezőket.
-Az adapter válasza után hívd:
+A LOV a struktúrában `...this.lov('BLOKK.MEZŐ', 'LOV_NEV')`: lenyitó, `optionLabel`/`optionValue` és a
+`completeMethod`. A keresést a komponens `lovs` adata írja le:
 
-```typescript
-component.setLovSuggestions(request.ownId, [
-  {
-    label: 'Adatlap megnevezése',
-    value: 'T104',
-    returnValues: {
-      'V_ELEK_ADLAP.UBI_INPTIP_KOD': 'T104',
-      'V_ELEK_ADLAP.UBI_INPTIP_KOD_NEV': 'Adatlap megnevezése',
-    },
-  },
-], request.requestId);
+```ts
+protected override readonly lovs: Record<string, FrmLov> = {
+  LOV_STATUSZ: { call: request => this.lovLovStatusz(request), columns: { KOD: 'RENDELES.STATUSZ', NEV: 'RENDELES.STATUSZ_NEV' } },
+};
 ```
 
-A korábbi kérés késői válasza nem írja felül az új találatokat. A frissítés új
-FormBlock struktúratömböt ad, hogy OnPush mellett is érzékelhető legyen.
-Az `optionValue: "value"` szerinti skalár kiválasztásakor a felsorolt ReturnItem
-mezők frissülnek; más blokk és később létrejövő FormGroup is támogatott.
+A `columns` a LOV-oszlopokat a ReturnItem mezőkhöz rendeli, a `binds` a lekérdezés kötött
+változóit a képernyő mezőihez. A korábbi kérés késői válasza nem írja felül az új találatokat.
+A frissítés új FormBlock struktúratömböt ad, hogy OnPush mellett is érzékelhető legyen.
+Kiválasztáskor a felsorolt ReturnItem mezők frissülnek; más blokk és később létrejövő
+FormGroup is támogatott.
 
 Az SQL, a paraméterek, a ReturnItem mapping és a master-detail kapcsolatok a
 migrációs jegyzetben találhatók. Kliensből nem futtatunk SQL-t vagy PL/SQL-t.
@@ -592,3 +609,47 @@ A generált sablon nem kap saját keretet (`<div class="flex flex-col gap-4 p-4"
 (`<h1>{{ title }}</h1>`): a keretet és a címet a befogadó oldal adja. A sablon közvetlenül a
 szakaszokkal kezdődik.
 
+## A komponens felépítése (4.20)
+
+A generált komponens csak a képernyő saját részeit tartalmazza; minden általános logika a
+`frm-forms-screen.ts`-ben van. Rövidítve (a felmérési replikából, 969 helyett 123 sor):
+
+```ts
+export class RendelesComponent extends FrmFormsScreen {
+  protected readonly toast = inject(ToastService);
+  protected readonly toastLife = { success: 3000, warning: 8000, danger: 6000 };
+  private readonly http = inject(HttpClient);
+
+  protected override readonly structures: Record<string, FormBlock.Structure[]> = {
+    ctrl: [
+      { type: 'text', ownId: 'CTRL.MODUS', formControlName: 'modus', labelText: 'Mód', col: '2', maxLenght: 1 },
+      { type: 'button', ownId: 'CTRL.PB_KERES', labelText: 'Keresés', col: '2', ...this.button('CTRL.PB_KERES') },
+    ],
+  };
+
+  protected override readonly tables = {
+    TETEL: frmTable(5, [['id', 'Tétel', '27.27%'], ['termek', 'Termék', '36.36%']]),
+  };
+
+  protected override readonly queries: Record<string, FrmQuery> = {
+    TETEL: { call: request => this.searchTetel(request), criteria: { rendelesId: 'RENDELES.id' } },
+  };
+
+  searchTetel(body: unknown) { return this.send('searchTetel', this.http.post(this.url('searchtetel'), body)); }
+
+  constructor() {
+    super();
+    this.runAction('@INIT');
+  }
+}
+```
+
+- **Nincs a komponensben:** kurzorblokk-követés, feliratlista, régió→blokk térkép, Oracle-név térkép
+  (csak az eltérések: `oracleNames`), feliratkozás-kezelés (`ngOnDestroy`), toast-élettartam konstans,
+  meződefiníciók feletti kommentek. Ezeket a futtató a struktúrából vezeti le, illetve
+  `takeUntilDestroyed`-del iratkozik le.
+- **Táblázat:** `<frm-table [table]="tables.TETEL" />`; a sorok `tables.TETEL.rows`, a kijelölt sor
+  `tables.TETEL.selection`.
+- **Felülírás:** bármelyik adatmező vagy futtató-metódus felülírható a komponensben (`override`).
+- **Kommentek:** csak a továbbfejlesztést segítő megjegyzések maradnak (TODO-importok, kézi
+  navigációnál az eredeti Forms-kód, képernyőn nem szereplő mező állapota).

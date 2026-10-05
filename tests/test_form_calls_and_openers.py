@@ -25,7 +25,7 @@ class FormCallsAndOpenersTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(['migrate', str(root / 'xymodul_fmb.xml'), '--screen', '--module', 'xymodul',
                                    '--config', str(root / 'config.json'), '--out', str(root / 'out')]), 0)
-        out = root / 'out'
+        out = self.out = root / 'out'
         plan = json.loads((out / 'analysis/backend-plan.json').read_text(encoding='utf-8'))
         screen = json.loads((out / 'analysis/screen-plan.json').read_text(encoding='utf-8'))
         component = (out / 'frontend/xymodul/xymodul.component.ts').read_text(encoding='utf-8')
@@ -47,8 +47,10 @@ class FormCallsAndOpenersTests(unittest.TestCase):
                           'params': [{'name': 'P_KOD', 'block': 'V_CX_ADLAP', 'key': 'ubiXyKod'}]})
         # 4.14: the Router is FrmFormsScreen's (frm-forms-screen.ts); navigate() uses this.router.
         self.assertIn('extends FrmFormsScreen', component)
-        self.assertIn('void this.router.navigate([target.route], { queryParams });', component)
-        self.assertIn('    if (this.navigate(ownId)) return;', component)
+        self.assertIn("'CGNV$W01_1.PB_RESZLETEK': { route: '/rogzito', params: { P_KOD: 'V_CX_ADLAP.ubiXyKod' } },", component)
+        runtime = (self.out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
+        self.assertIn('void this.router.navigate([target.route], { queryParams });', runtime)
+        self.assertIn('    if (this.navigate(ownId)) return;', runtime)
         _, screen, _ = self.generate(form_routes={'rogzito': '/pages/modules/rogzito'})
         self.assertEqual(screen['navigations']['CGNV$W01_1.PB_RESZLETEK']['route'], '/pages/modules/rogzito')
 
@@ -61,11 +63,12 @@ class FormCallsAndOpenersTests(unittest.TestCase):
             self.assertEqual(screen['manual_navigations'], {'CGNV$W01_1.PB_RESZLETEK': {'method': 'navigateCgnvW011PbReszletek'}})
             method = component[component.index('  private navigateCgnvW011PbReszletek(): void {'):]
             method = method[:method.index('\n  }\n') + 4]
-            self.assertIn('const selected = { "AIT": this.aitSelection };', method)
+            self.assertIn('const selected = { AIT: this.tables.AIT.selection };', method)
             self.assertIn('// Eredeti Forms-kód (kiindulásnak):', method)
             self.assertIn('// PROCEDURE rogzitoform_hivasa IS', method)
             self.assertIn("this.toast.warning('Nincs bekötve'", method)
-            self.assertIn('const manual = this.manualNavigations[ownId];', component)
+            self.assertIn("'CGNV$W01_1.PB_RESZLETEK': () => this.navigateCgnvW011PbReszletek(),", component)
+            self.assertIn('const manual = this.manualNavigations[ownId];', (self.out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8'))
         self.assertEqual(form, form)
 
     def test_a_form_call_that_also_writes_data_stays_a_backend_task(self):

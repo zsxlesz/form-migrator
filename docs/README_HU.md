@@ -1,4 +1,17 @@
-# FRM Forms Migrator 4.19.0 — használat
+# FRM Forms Migrator 4.20.0 — használat
+
+**4.20 – frontend: rövidebb, Angularosabb képernyők:**
+
+- **Csak a képernyő saját része:** a generált komponensben az adatai (`structures`, `tables`, `queries`, `lovs` …), az
+  egysoros végpontmetódusok és a sablon vannak. A felmérési replika komponense 969 helyett 123 sor.
+- **Forms-utánzás nélkül:** kurzorblokk, régió- és feliratlisták, feliratkozás-kezelés és validátor-másolatok nincsenek
+  a modulban; a futtató a struktúrából vezeti le őket.
+- **Egyszerűbb FormBlock-JSON:** mezőnként egy sor, a gombot `...this.button(ownId)`, a LOV-ot `...this.lov(ownId, lov)`
+  köti be; táblázat: `frmTable(...)` és `<frm-table>`.
+- **Felesleges kommentek nélkül:** csak a továbbfejlesztést segítő megjegyzések maradnak.
+- **`frm-forms-screen.ts` 4-es változat:** a projektben cserélni kell (Segédfájlok).
+
+Részletek: [JAVITASOK_4_20_HU.md](JAVITASOK_4_20_HU.md).
 
 **4.19 – frontend: FormBlocksComponent, kérésnaplózás, modName:**
 

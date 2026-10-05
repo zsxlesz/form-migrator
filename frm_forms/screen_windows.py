@@ -221,41 +221,19 @@ def controls(plan):
             'canvases': {s['name']: s['visible'] for s in plan['surfaces']} if needed else {}, 'content': content}
 
 
-def runtime(plan, prefix, quoted, compact):
-    state = plan['window_controls']; declarations, fields, methods = [], [], []
-    # Computed keys preserve arbitrary Oracle names, including __proto__.
-    def record(value):
-        return '{\n' + '\n'.join('    [' + quoted(k) + ']: ' + compact(v) + ',' for k, v in value.items()) + '\n  }'
+def runtime(plan):
+    """The windows' and canvases' visibility as data: frm-forms-screen.ts shows and hides them (SHOW_WINDOW, SHOW_VIEW)."""
+    from .ts_code import record
+    state = plan['window_controls']; fields = []
     if state['windows']:
-        typ = prefix + 'WindowName'
-        declarations.append('export type ' + typ + ' = ' + ' | '.join(map(quoted, state['windows'])) + ';')
-        fields += ['  protected readonly windowVisible = signal<Record<' + typ + ', boolean>>(' + record(state['windows']) + ');']
-        methods.append('''  public setWindowVisible(window: __TYPE__, visible: boolean): void {
-    if (!Object.hasOwn(this.windowVisible(), window)) throw new Error('Ismeretlen ablak: ' + window);
-    if (this.windowVisible()[window] === visible) return;
-    this.windowVisible.update(state => ({ ...state, [window]: visible }));
-  }'''.replace('__TYPE__', typ))
+        fields.append('  protected override readonly windowVisible = signal<Record<string, boolean>>(' + record(state['windows']) + ');')
     if state['content']:
-        fields.append('  protected readonly activeContentCanvas = signal<Record<string, string>>(' + record(state['content']) + ');')
+        fields.append('  protected override readonly activeContentCanvas = signal<Record<string, string>>(' + record(state['content']) + ');')
     if state['canvases']:
-        typ = prefix + 'CanvasName'
-        declarations.append('export type ' + typ + ' = ' + ' | '.join(map(quoted, state['canvases'])) + ';')
-        fields.append('  protected readonly canvasVisible = signal<Record<' + typ + ', boolean>>(' + record(state['canvases']) + ');')
-        targets = {s['name']: {'window': s['window'] or None,
-                               'contentWindow': s['window'] if s['window'] in state['content'] and canonical(s['type']) == 'content' else None}
-                   for s in plan['surfaces']}
+        fields.append('  protected override readonly canvasVisible = signal<Record<string, boolean>>(' + record(state['canvases']) + ');')
         if state['windows'] or state['content']:
-            fields.append('  private readonly canvasTargets: Record<' + typ + ', { window: ' +
-                          (prefix + 'WindowName | null' if state['windows'] else 'null') + '; contentWindow: string | null }> = ' + record(targets) + ';')
-        show = ['  public showCanvas(canvas: ' + typ + '): void {',
-                "    if (!Object.hasOwn(this.canvasVisible(), canvas)) throw new Error('Ismeretlen canvas: ' + canvas);",
-                '    this.canvasVisible.update(state => ({ ...state, [canvas]: true }));']
-        if state['windows'] or state['content']: show.append('    const target = this.canvasTargets[canvas];')
-        if state['content']:
-            show += ['    const window = target.contentWindow;', '    if (window) this.activeContentCanvas.update(state => ({ ...state, [window]: canvas }));']
-        if state['windows']: show.append('    if (target.window) this.setWindowVisible(target.window, true);')
-        show += ['  }', '', '  public hideCanvas(canvas: ' + typ + '): void {',
-                 "    if (!Object.hasOwn(this.canvasVisible(), canvas)) throw new Error('Ismeretlen canvas: ' + canvas);",
-                 '    this.canvasVisible.update(state => ({ ...state, [canvas]: false }));', '  }']
-        methods.append('\n'.join(show))
-    return declarations, fields, methods
+            targets = {s['name']: {'window': s['window'] or None,
+                                   'contentWindow': s['window'] if s['window'] in state['content'] and canonical(s['type']) == 'content' else None}
+                       for s in plan['surfaces']}
+            fields.append('  protected override readonly canvasTargets = ' + record(targets) + ';')
+    return fields

@@ -41,11 +41,11 @@ class ScreenTests(unittest.TestCase):
         self.assertEqual([(f['owner'], f['target'], f['target_widget']) for f in plan['folded_buttons']],
                          [('V_ELEK_ADLAP.UBI_INPTIP_KOD2', 'V_ELEK_ADLAP.UBI_INPTIP_KOD', 'autocomplete')])
         self.assertNotIn('UBI_INPTIP_KOD2', source)
-        self.assertIn('labelText: "Lekérdezés"', source); self.assertNotIn('btnLabel', source)
+        self.assertIn("labelText: 'Lekérdezés'", source); self.assertNotIn('btnLabel', source)
         self.assertEqual(plan['sections'][1]['records'], 15)
         self.assertEqual([s['name'] for s in plan['surfaces']], ['CG$PAGE_1'])
         self.assertEqual([i['widget'] for i in plan['sections'][0]['items']][-3:], ['checkbox'] * 3)
-        self.assertIn('"Feldolgozatlan adatlapok lekérdezése"', source)
+        self.assertIn("'Feldolgozatlan adatlapok lekérdezése'", source)
         self.assertNotIn('CALENDAR', source); self.assertNotIn('QMS$', source)
         self.assertNotIn('primeng', source); self.assertNotIn('pTemplate', source)
         self.assertEqual(len(list((out / 'frontend').rglob('*.ts'))), 1)
@@ -108,7 +108,7 @@ class ScreenTests(unittest.TestCase):
         self.assertEqual([i['owner'] for i in plan['sections'][0]['items']], ['B.CODE', 'B.NAME'])
         self.assertEqual(sum(i['col'] + i['col_before'] + i['col_after'] for i in plan['sections'][0]['items']), 12)
         self.assertEqual(plan['folded_buttons'][0]['ignored'], ["copy ('0', 'GLOBAL.save_mouse_record')"])
-        self.assertNotIn('CODE_BTN', source); self.assertIn('dropdown: true', source)
+        self.assertNotIn('CODE_BTN', source); self.assertIn("...this.lov('B.CODE', 'L')", source)
         self.assertFalse(plan['actions'])
 
     def test_list_button_is_kept_when_its_trigger_does_more_or_target_has_no_opener(self):
@@ -126,11 +126,11 @@ class ScreenTests(unittest.TestCase):
         _, plan, source = self.generate(self.LOV_FORM % self.HEADSTART, {'screen_fold_list_buttons': False}, label='kept')
         self.assertIn('B.CODE_BTN', [i['owner'] for i in plan['sections'][0]['items']])
         self.assertFalse(plan['folded_buttons'])
-        button = next(line for line in source.splitlines() if 'B.CODE_BTN' in line and 'type: "button"' in line)
+        button = next(line for line in source.splitlines() if 'B.CODE_BTN' in line and "type: 'button'" in line)
         self.assertIn('labelText:', button); self.assertNotIn('btnLabel', button)
         _, _, source = self.generate(self.LOV_FORM % self.HEADSTART,
                                      {'screen_fold_list_buttons': False, 'screen_button_label_property': 'btnLabel'}, label='legacy')
-        button = next(line for line in source.splitlines() if 'B.CODE_BTN' in line and 'type: "button"' in line)
+        button = next(line for line in source.splitlines() if 'B.CODE_BTN' in line and "type: 'button'" in line)
         self.assertIn('btnLabel:', button); self.assertNotIn('labelText', button)
 
     def test_reviewed_button_override_keeps_the_list_button(self):
@@ -139,7 +139,7 @@ class ScreenTests(unittest.TestCase):
         _, plan, source = self.generate(ROOT / 'review-output/fadlek/analysis/source.xml',
                                         extra=['--screen-overrides', str(path)], label='reviewed')
         self.assertFalse(plan['folded_buttons'])
-        self.assertIn('labelText: "Adatlap típusa…"', source)
+        self.assertIn("labelText: 'Adatlap típusa…'", source)
 
     PICKER = "/* CGAP$OLES_SEQUENCE_BEFORE */&amp;#10;begin&amp;#10;   qms$calendar.key_listval;&amp;#10;end;"
     RANGE_FORM = '''<FormModule Name="QRY" Title="Lekérdezés" CoordinateSystem="Real" RealUnit="Pixel" FirstNavigationBlock="FILTER">
@@ -170,12 +170,12 @@ class ScreenTests(unittest.TestCase):
 
     def test_framework_calendar_block_is_replaced_by_native_date_pickers(self):
         out, plan, source = self.generate(self.range_form())
-        self.assertNotIn('CALENDAR.CELL', source); self.assertNotIn('calendar', source.lower().replace('calendar"', ''))
+        self.assertNotIn('CALENDAR.CELL', source); self.assertNotIn('calendar', source.lower().replace("'calendar'", ''))
         self.assertEqual([b['block'] for b in plan['framework_blocks']], ['CALENDAR'])
         dates = {i['owner']: i for s in plan['sections'] for i in s['items'] if i['owner'].startswith('FILTER.DATUM')}
         self.assertEqual({i['widget'] for i in dates.values()}, {'date'})
         self.assertFalse(any(i['lov'] for i in dates.values())); self.assertFalse(plan['lookups'])
-        self.assertIn('showIcon: true', source); self.assertNotIn('onLovSearch("FILTER.DATUM', source)
+        self.assertIn('showIcon: true', source); self.assertNotIn("this.lov('FILTER.DATUM", source)
         notes = (out / 'frontend/testScreen/MIGRATION_NOTES.md').read_text()
         self.assertIn('## Keretrendszer-blokkok', notes); self.assertIn('KEY-LISTVAL a katalógusban', notes)
 
@@ -188,8 +188,8 @@ class ScreenTests(unittest.TestCase):
         self.assertEqual(sum(i['col'] + i['col_before'] + i['col_after'] + i.get('separator_col', 0) for i in row), 12)
         lines = source.splitlines()
         at = next(n for n, line in enumerate(lines) if 'FILTER.DATUM_IG#separator' in line)
-        self.assertIn('type: "label"', lines[at]); self.assertIn('labelText: "-"', lines[at])
-        self.assertIn('ownId: "FILTER.DATUM_IG"', lines[at + 1]); self.assertIn('labelText: ""', lines[at + 1])
+        self.assertIn("type: 'label'", lines[at]); self.assertIn("labelText: '-'", lines[at])
+        self.assertIn("ownId: 'FILTER.DATUM_IG'", lines[at + 1]); self.assertIn("labelText: ''", lines[at + 1])
         preview = (self.root / 'range/analysis/layout-preview.html').read_text(encoding='utf-8')
         self.assertIn('title="FILTER.DATUM_IG"', preview); self.assertIn('cell sep', preview)
         self.assertIn('grid-column:1 / span', preview); self.assertNotIn('<script', preview)
@@ -216,7 +216,7 @@ class ScreenTests(unittest.TestCase):
         action = next(a for a in plan['actions'] if a['owner'] == 'FILTER.KERES')
         self.assertEqual(action['steps'], [{'op': 'goBlock', 'block': 'RESULT'}, {'op': 'executeQuery'}])
         self.assertEqual(action['framework_calls'], ["qms$event_item('WHEN-BUTTON-PRESSED')"])
-        self.assertIn('"FILTER.KERES": [{ op: "goBlock", block: "RESULT" }, { op: "executeQuery" }],', source)
+        self.assertIn("'FILTER.KERES': [{ op: 'goBlock', block: 'RESULT' }, { op: 'executeQuery' }],", source)
         self.assertNotIn('actionRequested', source)  # routed component: no output events
         notes = (out / 'frontend/testScreen/MIGRATION_NOTES.md').read_text()
         self.assertIn('## Migrációs teendők', notes); self.assertIn('1 felismert gomb', notes)
@@ -247,7 +247,7 @@ class ScreenTests(unittest.TestCase):
           </Block></FormModule>''')
         self.assertEqual(sorted(s['mode'] for s in p['sections']), ['form', 'table'])
         self.assertEqual(next(s for s in p['sections'] if s['mode'] == 'table')['records'], 7)
-        self.assertIn('PageSize = 7', source)
+        self.assertIn('B: frmTable(7, ', source)
 
     def test_tabs_and_accordion_use_real_components_and_preserve_regions(self):
         for mode in ['tabs', 'accordion']:
@@ -307,8 +307,8 @@ class ScreenTests(unittest.TestCase):
           <Item Name="C" ItemType="Check Box" CheckedValue="1" UncheckedValue="0" Required="true" InitialValue="0"/>
           <Item Name="GO" ItemType="Push Button"/></Block></FormModule>''')
         self.assertIn('startValue: false', source); self.assertNotIn('validator: true', source)
-        self.assertIn('control?.addValidators', source); self.assertNotIn('HttpClient', source)
-        self.assertIn('Required=true: validationRules', source)
+        self.assertIn("'B.C': [FrmValidators.checked],", source); self.assertNotIn('HttpClient', source)
+        self.assertIn("B: { c: ['1', '0'] },", source)  # the runtime stores and validates the Forms values
 
     def test_validation_rules_have_implementation_or_explicit_gap(self):
         out, plan, source = self.generate('''<FormModule Name="F" CoordinateSystem="Real" RealUnit="Pixel"><Block Name="B">
@@ -317,15 +317,17 @@ class ScreenTests(unittest.TestCase):
           <Item Name="INT" ItemType="Text Item" DataType="Integer" Precision="5" Scale="0" LowestAllowedValue="1.5" HighestAllowedValue="9.5"/>
           <Item Name="DATE" ItemType="Text Item" DataType="Date" FormatMask="YYYY-MM-DD"/>
           </Block></FormModule>''')
-        self.assertIn('validator: true', source)
-        self.assertIn('Validators.required', source)
-        self.assertIn('Validators.maxLength(4)', source)
-        self.assertIn('Validators.minLength(4)', source)
-        self.assertIn('regexRule:', source)
-        self.assertIn('caseRestriction: true', source)
-        self.assertIn('"max": "99999999999999999999.99"', source)
+        # required, the lengths and the pattern come from the structure: the runtime derives the Angular validators
+        self.assertIn("validator: true, maxLenght: 4, minLenght: 4, regexRule: { regex: /^[^\\p{Ll}]*$/u, example: '' }", source)
+        self.assertNotRegex(source, r'\bValidators\.')
+        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
+        for derived in ('if (field.validator) result.push(Validators.required);', 'Validators.minLength(field.minLenght)',
+                        'Validators.maxLength(field.maxLenght)', 'Validators.pattern(field.regexRule.regex)'):
+            self.assertIn(derived, runtime)
+        self.assertIn("'B.NUMBER': [FrmValidators.number({ min: '0.01', max: '99999999999999999999.99', precision: 30, scale: 2 })],", source)
         self.assertIn('min: 2, max: 9', source)
-        self.assertIn('dateFormat: "yy-mm-dd"', source)
+        self.assertIn("integer: true", source)
+        self.assertIn("dateFormat: 'yy-mm-dd'", source)
         rules = {(r['owner'], r['property']): r for r in plan['validation_audit']}
         self.assertEqual(rules['B.NUMBER', 'LowestAllowedValue']['status'], 'implemented')
         self.assertEqual(rules['B.NUMBER', 'FormatMask']['status'], 'manual')
@@ -407,7 +409,10 @@ class ScreenTests(unittest.TestCase):
           <Block Name="B"><Item Name="NAME" ItemType="Display Item"/></Block><LOV Name="L" RecordGroupName="RG"><LOVColumnMapping ColumnName="NAME" ReturnItem="B.NAME"/></LOV>
           <RecordGroup Name="RG" RecordGroupQuery="SELECT NAME FROM T WHERE ID=:A.CODE"/></FormModule>''')
         self.assertEqual(plan['lookups'][0]['return_items'], ['B.NAME'])
-        self.assertIn('"B.NAME"', source); self.assertIn('requestId !== this.lovTickets[ownId]', source)
+        self.assertIn("...this.lov('A.CODE', 'L')", source)
+        runtime = (self.root / 'out/frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
+        self.assertIn('if (ticket !== this.lovTickets[ownId]) return;', runtime)  # a late answer never overwrites a newer one
+        self.assertIn('const key = this.keyOf(returnBlock, item);', runtime)  # the return goes to the other block too
 
 
 if __name__ == '__main__': unittest.main()

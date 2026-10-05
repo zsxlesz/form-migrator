@@ -133,13 +133,16 @@ class WebFlowTests(unittest.TestCase):
         self.assertEqual(set(re.findall(r"this\.url\('([^']*)'\)", component)), {v.lstrip('/') for v in paths.values()})
         self.assertNotIn('ACTION_CGNVW011PBRESZLETEKACTIONA6B26D41_PATH', java)
         self.assertNotIn("'/api/", component)  # the server and module path come from ServiceBase
-        self.assertIn('export class TesztComponent extends ServiceBase', component)
-        self.assertIn('  constructor() {\n    super();', component)
-        self.assertIn("WFF.err('Hiba', error);", component)
+        self.assertIn('export class TesztComponent extends FrmFormsScreen', component)  # FrmFormsScreen extends ServiceBase
+        self.assertIn("aitSearch(body: unknown) { return this.send('aitSearch', this.http.post(this.url('ait/query/search'), body)); }", component)
         self.assertNotIn('@Input', component)
         self.assertNotIn('@Output', component)  # a routed component, not a child
-        self.assertIn('if (this.runSteps(this.actionSteps[ownId] ?? null)) return;', component)
-        self.assertIn('if (this.searchLov(ownId, lov, event.query, requestId)) return;', component)
+        self.assertIn("INPTIP: { call: request => this.lovInptip(request), columns: {", component)
+        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
+        self.assertIn('export abstract class FrmFormsScreen extends ServiceBase', runtime)
+        self.assertIn("WFF.err('Hiba', error);", runtime)
+        self.assertIn('if (this.runSteps(this.actionSteps[ownId] ?? null)) return;', runtime)
+        self.assertIn('spec.call({ term: event.query || null, parameters, limit: 50 }).subscribe({', runtime)
         self.assertIn('## Backend-hívások', (out / 'frontend/teszt/MIGRATION_NOTES.md').read_text(encoding='utf-8'))
         plan = json.loads((out / 'analysis/screen-plan.json').read_text(encoding='utf-8'))
         self.assertEqual(plan['backend_calls']['queries'], {'AIT': 'aitSearch'})
@@ -150,8 +153,9 @@ class WebFlowTests(unittest.TestCase):
         component = (out / 'frontend/teszt/teszt.component.ts').read_text(encoding='utf-8')
         self.assertNotIn('HttpClient', component)
         self.assertNotIn('@Output', component)
-        self.assertIn('extends ServiceBase', component)
-        self.assertIn('this.setLovSuggestions(ownId, [], requestId);', component)
+        self.assertIn('extends FrmFormsScreen', component)
+        self.assertNotIn('protected override readonly lovs', component)  # no LOV endpoint: the runtime offers no choices
+        self.assertIn('if (!spec) return this.setLovSuggestions(ownId, [], ticket);', (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8'))
 
 if __name__ == '__main__':
     unittest.main()

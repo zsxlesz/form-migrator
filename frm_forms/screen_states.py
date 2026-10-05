@@ -8,12 +8,12 @@ that does anything else is listed for manual review, never half-translated.
 """
 from __future__ import annotations
 
-import json
 import re
 
 from .common import name
 from .forms_context import NORMAL_MODE, normal_mode_expression
 from .plsql import Unsupported, parse
+from .ts_code import sq
 
 PROPERTIES = {'ENABLED': 'enabled', 'VISIBLE': 'visible', 'DISPLAYED': 'visible', 'REQUIRED': 'required',
               'UPDATE_ALLOWED': 'editable', 'INSERT_ALLOWED': 'editable'}
@@ -34,7 +34,7 @@ def targets(plan: dict) -> dict:
         for item in section['items']:
             if item.get('spacer') or item['widget'] in {'image', 'tree', 'unsupported'}:
                 continue
-            result[item['owner']] = {'region': section['key'], 'block': section['block'], 'structure': section['property'] + 'Structure',
+            result[item['owner']] = {'region': section['key'], 'block': section['block'],
                                      'key': None if item['widget'] == 'button' else item['key'],
                                      'checkbox': [item['checked'], item['unchecked']] if item['widget'] == 'checkbox' else None}
     return result
@@ -60,6 +60,8 @@ class Translator:
                 if node.get('handlers'):
                     raise Unsupported('kivételkezelő')
                 lines += self.statements(node['body'], indent)
+            elif op == 'if' and self.toggle(node, lines, indent):
+                continue
             elif op == 'if':
                 for index, branch in enumerate(node['branches']):
                     lines.append(indent + ('if (' if index == 0 else '} else if (') + self.expression(branch['condition']) + ') {')
@@ -81,34 +83,77 @@ class Translator:
                     lines.append(indent + '// ' + owner + ' nincs a képernyőn (rejtett vagy táblázatos mező): állapota nem jelenik meg.')
                     continue
                 self.touched.add(owner)
-                state = PROPERTIES[args[1]['name']]
-                lines.append(indent + f"this.setItemState({json.dumps(owner)}, {{ {state}: {str(VALUES[args[2]['name']]).lower()} }});")
+                self.set_state(lines, indent, owner, PROPERTIES[args[1]['name']], str(VALUES[args[2]['name']]).lower())
             elif op == 'call' and node['name'] == 'MESSAGE' and node['args']:
-                lines.append(indent + f"this.toast.warning('Üzenet', String({self.expression(node['args'][0])} ?? ''), true, TOAST_LIFE.warning);")
+                lines.append(indent + f"this.toast.warning('Üzenet', String({self.expression(node['args'][0])} ?? ''), true, this.toastLife.warning);")
             elif op == 'assign':
                 owner = self.owner(node['target'])
                 if owner not in self.controls or self.controls[owner]['key'] is None:
                     raise Unsupported('értékadás képernyőn nem szereplő mezőnek: ' + owner)
-                lines.append(indent + f"this.setItemValue({json.dumps(owner)}, {self.expression(node['value'])});")
+                lines.append(indent + f"this.setItemValue({sq(owner)}, {self.expression(node['value'])});")
             elif op == 'abort':
                 lines.append(indent + 'return;')
             else:
                 raise Unsupported('nem állapotkezelő utasítás: ' + str(node.get('name', op)))
         return lines
 
+    def property_call(self, node: dict):
+        args = node.get('args', [])
+        if node['op'] != 'call' or node['name'] != 'SET_ITEM_PROPERTY' or len(args) != 3 or args[0]['op'] != 'literal' \
+                or args[0]['type'] != 'text' or args[1].get('name') not in PROPERTIES or args[2].get('name') not in VALUES:
+            return None
+        owner = self.owner(args[0]['value'])
+        return (owner, PROPERTIES[args[1]['name']], VALUES[args[2]['name']]) if owner in self.controls else None
+
+    def toggle(self, node: dict, lines: list, indent: str) -> bool:
+        # IF cond THEN property TRUE ELSE property FALSE: the property follows the condition, in one call.
+        if len(node['branches']) != 1 or not node['else'] or not self.boolean(node['branches'][0]['condition']):
+            return False
+        then = [self.property_call(n) for n in node['branches'][0]['body'] if n['op'] != 'noop']
+        other = [self.property_call(n) for n in node['else'] if n['op'] != 'noop']
+        if not then or None in then or None in other or [c[:2] for c in then] != [c[:2] for c in other] \
+                or any(a[2] == b[2] for a, b in zip(then, other)):
+            return False
+        condition = self.expression(node['branches'][0]['condition'])
+        negated = '!' + condition if condition.startswith(('this.', '(')) else '!(' + condition + ')'
+        for owner, state, value in then:
+            self.touched.add(owner)
+            self.set_state(lines, indent, owner, state, condition if value else negated)
+        return True
+
+    @staticmethod
+    def boolean(node: dict) -> bool:
+        if node['op'] == 'is_null' or node['op'] == 'binary' and node['operator'] in COMPARE:
+            return True
+        if node['op'] == 'unary' and node['operator'] == 'NOT':
+            return Translator.boolean(node['value'])
+        return node['op'] == 'binary' and node['operator'] in {'AND', 'OR'} \
+            and Translator.boolean(node['left']) and Translator.boolean(node['right'])
+
+    @staticmethod
+    def set_state(lines: list, indent: str, owner: str, state: str, value: str) -> None:
+        # Consecutive properties of the same item are one call: setItemState('B.X', { enabled: true, required: true }).
+        prefix = indent + 'this.setItemState(' + sq(owner) + ', { '
+        if lines and lines[-1].startswith(prefix) and lines[-1].endswith(' });'):
+            states = dict(part.split(': ') for part in lines[-1][len(prefix):-4].split(', '))
+            states[state] = value
+            lines[-1] = prefix + ', '.join(k + ': ' + v for k, v in states.items()) + ' });'
+            return
+        lines.append(prefix + state + ': ' + value + ' });')
+
     def expression(self, node: dict) -> str:
         if normal_mode_expression(node):
-            return json.dumps(NORMAL_MODE)
+            return sq(NORMAL_MODE)
         op = node['op']
         if op == 'literal':
             if node['type'] == 'null':
                 return 'null'
-            return node['value'] if node['type'] == 'number' else json.dumps(node['value'], ensure_ascii=False)
+            return node['value'] if node['type'] == 'number' else sq(node['value'])
         if op == 'ref':
             owner = self.owner(node['name'])
             if owner not in self.controls or self.controls[owner]['key'] is None:
                 raise Unsupported('feltétel képernyőn nem szereplő mezőre: ' + owner)
-            return f'this.stateValue({json.dumps(owner)})'
+            return f'this.stateValue({sq(owner)})'
         if op == 'is_null':
             test = f"this.isNull({self.expression(node['value'])})"
             return '!' + test if node['negated'] else test

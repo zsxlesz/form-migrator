@@ -45,8 +45,10 @@ class WindowTests(unittest.TestCase):
         self.assertIn('[modal]="true"', confirm); self.assertIn('[closable]="false"', confirm)
         self.assertFalse(p['window_controls']['windows']['EDIT_WINDOW'])
         self.assertFalse(p['window_controls']['canvases']['DETAIL_EXTRA'])
-        self.assertIn('public setWindowVisible(', source); self.assertIn('public showCanvas(', source)
-        self.assertIn('public hideCanvas(', source)
+        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
+        self.assertIn('public setWindowVisible(', runtime); self.assertIn('public showCanvas(', runtime)
+        self.assertIn('public hideCanvas(', runtime)
+        self.assertIn('protected override readonly windowVisible = signal<Record<string, boolean>>({', source)
         self.assertTrue((out / 'analysis/ui-model-strict.json').is_file())
 
     def test_dialog_accordion_keeps_pages_in_one_window(self):
@@ -123,7 +125,9 @@ class WindowTests(unittest.TestCase):
         self.assertIn("@if (windowVisible()['W'])", source)
         _, p, source = self.generate(xml.replace('<Window Name="W" Visible="false"/>', '').replace('WindowName="W"', 'CanvasType="Stacked" Visible="false"'), label='no-window')
         self.assertNotIn('<p-dialog', source); self.assertNotIn('windowVisible', source)
-        self.assertIn('showCanvas(', source); self.assertFalse(p['window_controls']['canvases']['C'])
+        self.assertIn('protected override readonly canvasVisible = signal<Record<string, boolean>>({', source)
+        self.assertIn('C: false,', source); self.assertFalse(p['window_controls']['canvases']['C'])
+        self.assertIn('public showCanvas(canvas: string): void {', (self.root / 'no-window/frontend/frm-forms-screen.ts').read_text(encoding='utf-8'))
 
     def test_inherited_window_properties_are_effective(self):
         library = self.root / 'base_olb.xml'

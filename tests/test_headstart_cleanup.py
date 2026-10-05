@@ -207,15 +207,15 @@ class HeadstartCleanupTests(unittest.TestCase):
     def test_catalogued_spacers_become_empty_elements(self):
         out = self.generate(headstart_form())
         source = (out / 'frontend/teszt/teszt.component.ts').read_text(encoding='utf-8')
-        self.assertIn('{ type: "label", ownId: "V_ELEK_ADLAP.L_URES_1", labelText: "", col: "12" }', source)
-        self.assertIn('ownId: "V_ELEK_ADLAP.L_URES_2", labelText: "", col: "2" }', source)
+        self.assertIn("{ type: 'label', ownId: 'V_ELEK_ADLAP.L_URES_1', labelText: '', col: '12' }", source)
+        self.assertIn("ownId: 'V_ELEK_ADLAP.L_URES_2', labelText: '', col: '2' }", source)
         self.assertNotIn('lUres', source)  # no form control, validator or table column
         plan = json.loads((out / 'analysis/screen-plan.json').read_text(encoding='utf-8'))
         self.assertEqual([s['owner'] for s in plan['spacers']], ['V_ELEK_ADLAP.L_URES_1', 'V_ELEK_ADLAP.L_URES_2', 'AIT.L_URES_3'])
         self.assertIn('## Térköz-mezők', (out / 'frontend/teszt/MIGRATION_NOTES.md').read_text(encoding='utf-8'))
         config = self.root / 'config.json'; config.write_text(json.dumps({'screen_spacer_type': 'divider'}))
         source = (self.generate(headstart_form(), ['--config', str(config)], 'divider') / 'frontend/teszt/teszt.component.ts').read_text(encoding='utf-8')
-        self.assertIn('{ type: "divider", ownId: "V_ELEK_ADLAP.L_URES_1"', source)
+        self.assertIn("{ type: 'divider', ownId: 'V_ELEK_ADLAP.L_URES_1'", source)
 
     def test_spacer_with_behaviour_is_still_empty_space_and_reported(self):
         # The naming convention decides: behaviour (e.g. inherited triggers) is reported, not rendered.
@@ -224,7 +224,7 @@ class HeadstartCleanupTests(unittest.TestCase):
                                          'CanvasName="P1" XPosition="480" YPosition="200" Width="20" Height="20"/>')
         out = self.generate(xml)
         source = (out / 'frontend/teszt/teszt.component.ts').read_text(encoding='utf-8')
-        self.assertIn('{ type: "label", ownId: "V_ELEK_ADLAP.L_URES_2", labelText: "", col: "2" }', source)
+        self.assertIn("{ type: 'label', ownId: 'V_ELEK_ADLAP.L_URES_2', labelText: '', col: '2' }", source)
         self.assertNotIn('lUres', source)
         notices = {n['owner']: n['detail'] for n in json.loads((out / 'analysis/screen-plan.json').read_text(encoding='utf-8'))['notices']
                    if n['code'] == 'SPACER_BEHAVIOUR'}

@@ -53,7 +53,7 @@ class LayoutOverrideTests(unittest.TestCase):
         self.assertEqual(inner['items'][2]['col_before'], 1)
         for row in {i['row'] for i in inner['items']}:
             self.assertEqual(sum(i['col'] + i['col_before'] + i['col_after'] for i in inner['items'] if i['row'] == row), 12)
-        self.assertIn('colBefore: "1"', code)
+        self.assertIn("colBefore: '1'", code)
         self.assertEqual(p['lookup_groups'][0]['buttons'], ['FIELDS.LOOKUP'])
         self.assertEqual(p['lookup_groups'][0]['returns'], ['FIELDS.NAME'])
         _, p, _ = self.sample(label='exact', screen_row_tolerance=0)
@@ -82,7 +82,7 @@ class LayoutOverrideTests(unittest.TestCase):
         outer_end = template.index('</p-fieldset>', inner_end + 1)
         self.assertLess(outer, inner); self.assertLess(inner_end, outer_end)
         for owner in ['CODE', 'LOOKUP', 'NAME', 'ACTIVE', 'NOTE', 'EDGE']:
-            self.assertEqual(code.count('ownId: "FIELDS.' + owner + '"'), 1)
+            self.assertEqual(code.count("ownId: 'FIELDS." + owner + "'"), 1)
 
     def test_reviewed_widget_is_in_model_notes_and_applied_snapshot(self):
         rules = self.activate(self.rules(), 'FIELDS.ACTIVE', widget='checkbox', label='Aktív állapot')
@@ -92,7 +92,7 @@ class LayoutOverrideTests(unittest.TestCase):
         ui = json.loads((out / 'analysis/ui-model.json').read_text())
         i = next(i for b in ui['blocks'] for i in b['items'] if i['owner'] == 'FIELDS.ACTIVE')
         self.assertEqual(i['type_source'], 'override'); self.assertIn('ellenőrizve', i['inference_reason'])
-        self.assertTrue(i['validation']['required']); self.assertIn('{ required: true }', code)
+        self.assertTrue(i['validation']['required']); self.assertIn("'FIELDS.ACTIVE': [FrmValidators.checked]", code)
         self.assertIn('Aktív állapot', code)
         notes = (out / 'frontend/testScreen/MIGRATION_NOTES.md').read_text()
         self.assertIn('Fejlesztő által ellenőrizve.', notes)

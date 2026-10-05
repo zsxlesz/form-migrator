@@ -1,23 +1,14 @@
 """Backend calls of the generated screen, in the company pattern.
 
-The component extends ServiceBase; every endpoint gets its own method:
+Every endpoint gets its own one-line method; frm-forms-screen.ts (send) logs the successful response first with
+WFF.debug(<module>.<method>, res) and reports errors with WFF.err:
 
-    searchAit(body: unknown) {
-      return this.http.post(this.url('searchait'), body)
-        .pipe(
-          tap((res) => WFF.debug(this.modName + '.searchAit', res)),
-          catchError((error) => {
-            WFF.err('Hiba', error);
-            throw error;
-          })
-        );
-    }
+    searchAit(body: unknown) { return this.send('searchAit', this.http.post(this.url('searchait'), body)); }
 
-The argument of this.url(...) is the endpoint as the CL names it (its Constants path without the
-leading '/'; in the company format exactly the <METHOD>_NAME value), so a text search finds the
-call in CL, DPS, WBS and the component alike. ServiceBase.url adds the server and module path.
-Every successful response is logged first by WFF.debug(<module>.<method>, res) (modName: the module's route);
-errors are reported by WFF.err; results, empty queries and messages by the ToastService.
+The argument of this.url(...) is the endpoint as the CL names it (its Constants path without the leading '/'; in
+the company format exactly the <METHOD>_NAME value), so a text search finds the call in CL, DPS, WBS and the
+component alike. ServiceBase.url adds the server and module path. The screen gives the rest as data (queries,
+lovs, rowKeys, actionEndpoints ...): frm-forms-screen.ts runs them.
 """
 from __future__ import annotations
 
@@ -30,10 +21,21 @@ from .common import name
 
 QUERY_LIMIT = 200  # backend list/search limit: 1..200
 DEFAULT_HTTP = {'list': 'get', 'search': 'post', 'create': 'post', 'update': 'put', 'delete': 'delete'}
-# Component members the endpoint methods must not shadow.
-RESERVED = {'constructor', 'url', 'http', 'toast', 'executeQuery', 'searchLov', 'runAction', 'runSteps', 'showRows', 'showRecord',
-            'value', 'payload', 'wireText', 'lovChoice', 'applyOracleValues', 'onAction', 'onLovSearch', 'setLovSuggestions',
-            'queryActionBlocks', 'activeQueryActions'}
+# Members of the screen and of frm-forms-screen.ts the endpoint methods must not shadow.
+RESERVED = {'constructor', 'url', 'http', 'toast', 'toastLife', 'labels', 'router', 'modName', 'send', 'button', 'lov', 'fields',
+            'blockOf', 'cursor', 'oracleName', 'keyOf', 'onFormGroupGenerated', 'watch', 'fieldValidators', 'updateField', 'locate',
+            'validBefore', 'onAction', 'navigate', 'onLovSearch', 'setLovSuggestions', 'lovChoice', 'applyLovReturns',
+            'setItemState', 'applyItemState', 'setItemValue', 'stateValue', 'isNull', 'cmp', 'setWindowVisible', 'showCanvas',
+            'hideCanvas', 'payload', 'wireText', 'value', 'rowFields', 'fromDto', 'showRecord', 'applyOracleValues', 'screenBlocks',
+            'recordOf', 'executeQuery', 'criterion', 'showRows', 'selectedRecords', 'clearTable', 'runSteps', 'runAction',
+            'formsGlobals', 'rememberGlobals', 'requestContext', 'formsStatus', 'runCommands', 'screenBlockNames', 'formsQuery',
+            'formsItemProperty', 'clearBlock', 'formsCall', 'formsKey', 'recordGroup', 'askAlert', 'answerAlert', 'markPristine',
+            'formsDelete', 'onToolbar', 'applyChanged', 'formsCommit', 'structures', 'tables', 'validators', 'queries', 'lovs',
+            'actionEndpoints', 'actionSteps', 'queryActionBlocks', 'checkboxValues', 'oracleNames', 'rowKeys', 'commitBlocks',
+            'commitEndpoint', 'alertDefinitions', 'formRoutes', 'navigations', 'manualNavigations', 'changeHandlers',
+            'recordHandlers', 'buttonHandlers', 'initAction', 'windowVisible', 'canvasVisible', 'activeContentCanvas',
+            'canvasTargets', 'formGroups', 'formValues', 'itemStates', 'originals', 'pendingDeletes', 'activeQueryActions',
+            'paramLists', 'recordGroups', 'formsAlert', 'cursorBlock', 'cursorItem', 'changeDetector', 'destroyRef'}
 
 
 def load_api(output: Path) -> dict | None:
@@ -146,313 +148,62 @@ def wiring(plan: dict, ui: dict, api: dict | None, key: str, forms: list, tables
             'commit_points': bool(commit) and bool(forms) and any(a.get('commit_point') for a in api['actions'].values())}
 
 
-def declarations(w: dict) -> list[str]:
-    if w.get('runtime'):
-        return []  # FrmPage, FrmActionResult, FrmCommitResult and localIso: frm-forms-screen.ts
-    result = []
-    if w['queries'] or w.get('query_actions'):
-        nullable = ' | null' if w.get('query_actions') else ''
-        result.append('interface ' + w['prefix'] + 'Page {\n  rows?: Record<string, unknown>[]' + nullable + ';\n  messages?: string[];\n}')
-    if w['actions']:
-        result.append('interface ' + w['prefix'] + 'ActionResult {\n  blocks?: Record<string, Record<string, string | null>>;\n  messages?: string[];\n'
-                      '  /** A Forms-hívások felületi utasításként, sorrendben: [művelet, argumentumok...]. */\n'
-                      '  commands?: (string | null)[][];\n  /** A kód által írt :GLOBAL értékek. */\n'
-                      '  globals?: Record<string, string | null>;\n}')
-    if w.get('commit'):
-        result.append('interface ' + w['prefix'] + 'CommitResult {\n  blocks?: Record<string, Record<string, string | null>>;\n'
-                      '  messages?: string[];\n  commands?: (string | null)[][];\n  globals?: Record<string, string | null>;\n'
-                      '  /** A mentett rekordok blokkonként: <blokk>Rows. */\n  [rows: string]: unknown;\n}')
-    result.append('''function localIso(value: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${value.getFullYear()}-${p(value.getMonth() + 1)}-${p(value.getDate())}T${p(value.getHours())}:${p(value.getMinutes())}:${p(value.getSeconds())}`;
-}''')
+def oracle_exceptions(oracle_names: dict) -> dict:
+    """The items whose Oracle name frm-forms-screen.ts cannot derive from the control key (VEVO_NEV <-> vevoNev)."""
+    result = {}
+    for block, names in oracle_names.items():
+        for control, oracle in names.items():
+            derived_key = re.sub(r'_+([a-z0-9])', lambda m: m.group(1).upper(), oracle.lower())
+            derived_name = re.sub(r'([A-Z])', r'_\1', control).upper()
+            if not re.fullmatch(r'[A-Z][A-Z0-9_]*', oracle) or derived_key != control or derived_name != oracle:
+                result.setdefault(block, {})[control] = oracle
     return result
 
 
 def fields(w: dict) -> list[str]:
-    result = ['  private readonly http = inject(HttpClient);']
-    # With the shared runtime (frm-forms-screen.ts) the screen only gives its data: override of the base fields.
-    shared = 'protected override readonly' if w.get('runtime') else 'private readonly'
-    if w['queries'] or w.get('query_actions'):
-        result.append('  // Forms EXECUTE_QUERY: blokk -> a keresés/lista kritériumai a képernyő mezőiből.\n'
-                      '  private readonly queries: Record<string, { limit: number; criteria?: readonly { field: string; block: string; key: string; context?: string }[] }> = '
-                      + ts({b: {k: v for k, v in q.items() if k in {'limit', 'criteria'}} for b, q in w['queries'].items()}, 1) + ';')
-    if w['queries'] or w['actions'] or w.get('commit'):
-        result.append('  // Backend DTO-mező -> képernyő-vezérlő, blokkonként.\n  ' + shared + ' rowKeys: Record<string, Record<string, string>> = '
-                      + ts(w['row_keys'], 1) + ';')
+    """The screen's backend data for frm-forms-screen.ts."""
+    from .angular_single import Code
+    from .ts_code import record
+    result = []
+    if w['queries']:
+        queries = {}
+        for block, q in w['queries'].items():
+            call = 'request => this.' + q['call'] + ('(request.offset, request.limit)' if q['kind'] == 'list' else '(request)')
+            spec = {'call': Code(call)}
+            if q.get('criteria'):
+                spec['criteria'] = {c['field']: ':' + c['context'] if c.get('context') else c['block'] + '.' + c['key'] for c in q['criteria']}
+            queries[block] = spec
+        result.append('  protected override readonly queries: Record<string, FrmQuery> = ' + record(queries) + ';')
     if w['lovs']:
-        result.append('  private readonly lovEndpoints: Record<string, { binds: readonly { source: string; block: string; key: string }[]; '
-                      'columns: readonly { column: string; returnItem: string }[] }> = '
-                      + ts({l: {'binds': e['binds'], 'columns': e['columns']} for l, e in w['lovs'].items()}, 1) + ';')
+        lovs = {lov: {'call': Code('request => this.' + e['call'] + '(request)'), 'columns': {c['column']: c['returnItem'] for c in e['columns']},
+                      **({'binds': {b['source']: b['block'] + '.' + b['key'] for b in e['binds']}} if e['binds'] else {})}
+                for lov, e in w['lovs'].items()}
+        result.append('  protected override readonly lovs: Record<string, FrmLov> = ' + record(lovs) + ';')
+    if w['row_keys'] and (w['queries'] or w['actions'] or w.get('commit')):
+        rows = {block: [field if field == control else [field, control] for field, control in keys.items()] for block, keys in w['row_keys'].items()}
+        result.append('  protected override readonly rowKeys = ' + record(rows) + ';')
+    exceptions = oracle_exceptions(w['oracle_names'])
+    if exceptions:
+        result.append('  protected override readonly oracleNames = ' + record(exceptions) + ';')
     if w['actions']:
         calls = {owner: Code('request => this.' + method + '(request)') for owner, method in w['actions'].items()}
-        result.append('  // Gomb (Oracle BLOKK.ITEM) -> a generált akció-végpont hívása.\n'
-                      '  ' + shared + ' actionEndpoints: Record<string, (request: { blocks: Record<string, Record<string, string | null>>; '
-                      'parameters: Record<string, string>; offset?: number; limit?: number }) => Observable<unknown>> = ' + ts(calls, 1) + ';')
-    if w['actions'] or w.get('commit'):
-        result.append('  // Képernyő-vezérlő -> Oracle mezőnév (az ActionRequest szerződése), blokkonként.\n'
-                      '  ' + shared + ' oracleNames: Record<string, Record<string, string>> = ' + ts(w['oracle_names'], 1) + ';')
-        from .screen_emulation import emulation_fields
-        result += emulation_fields(w)
+        result.append('  protected override readonly actionEndpoints: Record<string, FrmActionCall> = ' + record(calls) + ';')
     if w.get('query_actions'):
-        result.append('  ' + shared + ' queryActionBlocks: Record<string, string> = ' + ts(w['query_actions'], 1) + ';')
-        if not w.get('runtime'):
-            result.append('  private readonly activeQueryActions: Record<string, string> = {};')
-    if w['checkbox_values']:
-        result.append('  ' + shared + ' checkboxValues: Record<string, Record<string, readonly [string, string]>> = '
-                      + ts(w['checkbox_values'], 1) + ';')
+        result.append('  protected override readonly queryActionBlocks = ' + record(w['query_actions']) + ';')
     return result
 
 
-def endpoint_method(w: dict, e: dict) -> str:
-    """One backend call as the company writes it: this.url('<CL endpoint>'), WFF.debug on success, WFF.err on error."""
-    url = "this.url('" + e['url'].replace('\\', '\\\\').replace("'", "\\'") + "')"
+def endpoint_method(e: dict) -> str:
+    """One backend call: this.url('<CL endpoint>'), logged and reported by send (frm-forms-screen.ts)."""
+    from .ts_code import sq
+    url = 'this.url(' + sq(e['url']) + ')'
     if e['http'] == 'get':
         signature, call = f'offset = 0, limit = {QUERY_LIMIT}', f'this.http.get({url}, {{ params: {{ offset, limit }} }})'
     elif e['http'] == 'delete':
         signature, call = 'body: unknown', f'this.http.delete({url}, {{ body }})'
     else:
         signature, call = 'body: unknown', f"this.http.{e['http']}({url}, body)"
-    return (f"  /** {w['constants_class']}.{e['constant']} ({e['http'].upper()}) */\n"
-            f"  {e['method']}({signature}) {{\n"
-            f"    return {call}\n"
-            "      .pipe(\n"
-            f"        tap((res) => WFF.debug(this.modName + '.{e['method']}', res)),\n"
-            "        catchError((error) => {\n"
-            "          WFF.err('Hiba', error);\n"
-            "          throw error;\n"
-            "        })\n"
-            "      );\n"
-            "  }")
-
-
-def methods(w: dict, form_values: bool) -> list[str]:
-    p = w['prefix']
-    result = [endpoint_method(w, e) for e in w['endpoints']]
-    runtime = bool(w.get('runtime'))  # payload, wireText, value, showRecord, runAction ... are in frm-forms-screen.ts
-    if (w['queries'] or w['lovs'] or w['actions']) and not runtime:
-        envelope = w.get('envelope')
-        where = (': a ' + envelope + ' boríték adatmezője (a mezőnév-lista itt igazítható), boríték nélkül maga a válasz'
-                 if envelope else '; ha boríték érkezik, annak adatmezője')
-        result.append('''  /** A válasz hasznos tartalma__WHERE__. */
-  private payload<T>(response: unknown): T {
-    if (response && typeof response === 'object') {
-      for (const field of ['data', 'result', 'payload', 'body', 'content']) {
-        const value = (response as Record<string, unknown>)[field];
-        if (value && typeof value === 'object') return value as T;
-      }
-    }
-    return response as T;
-  }'''.replace('__WHERE__', where))
-    checkbox = ('''    const pair = this.checkboxValues[block]?.[key];
-    if (pair && typeof value === 'boolean') return value ? pair[0] : pair[1];
-''' if w['checkbox_values'] else '')
-    if not runtime:
-        result.append('''  private wireText(block: string, key: string, value: unknown): string | null {
-__CHECKBOX__    if (value === null || value === undefined || value === '') return null;
-    if (value instanceof Date) return localIso(value);
-    return String(value);
-  }'''.replace('__CHECKBOX__', checkbox))
-    if w['queries'] or w.get('query_actions'):
-        cases = ''
-        for block, q in w['queries'].items():
-            call = (f"this.{q['call']}(0, query.limit)" if q['kind'] == 'list'
-                    else f"this.{q['call']}({{ criteria, offset: 0, limit: query.limit }})")
-            cases += f"      case {json.dumps(block)}: request = {call}; break;\n"
-        table_cases = ''.join(f"      case {json.dumps(block)}: this.{prop}Rows = mapped as unknown as {p}{name(prop, 'pascal')}Row[]; this.{prop}Selection = null; return;\n"
-                              for block, prop in w['tables'] if block in w['queries'] or block in w.get('query_actions', {}).values())
-        form_case = "      default: this.showRecord(block, mapped[0] ?? {});\n" if form_values else '      default: return;\n'
-        if form_values and (w['actions'] or w.get('commit')):
-            # The queried record as the backend sent it (ROWID and hidden keys too): the original of the save chain.
-            form_case = ('      default:\n        this.originals[block] = rows[0] ? { ...rows[0] } : null;\n'
-                         '        this.showRecord(block, mapped[0] ?? {});\n        this.markPristine(block);\n')
-        result.append('''  /** Forms EXECUTE_QUERY a blokk generált keresés/lista végpontján. false: nincs hozzá végpont.
-   *  done: a sorok megjelenítése után (képernyőpont: utána folytatódik a gomb kódja). */
-  public __OVERRIDE__executeQuery(block: string, done?: () => void): boolean {
-__ACTIVE_QUERY__
-    const query = this.queries[block];
-    if (!query) return false;
-__CRITERIA__    let request: Observable<unknown>;
-    switch (block) {
-__CASES__      default: return false;
-    }
-    request.subscribe({
-      next: response => {
-        const page = this.payload<__PAGE__>(response);
-        this.showRows(block, page.rows ?? []);
-        if (!page.rows?.length) this.toast.warning('Nincs találat', 'A lekérdezés nem adott vissza rekordot.', true, TOAST_LIFE.warning);
-        if (page.messages?.length) this.toast.warning('Üzenet', page.messages.join(' '), true, TOAST_LIFE.warning);
-        done?.();
-      },
-      error: () => undefined, // WFF.err már jelezte
-    });
-    return true;
-  }'''.replace('__CRITERIA__', '    const criteria = Object.fromEntries((query.criteria ?? []).map(c => [c.field, __CONTEXT__this.wireText(c.block, c.key, this.value(c.block, c.key))]));\n'
-                  if any(q['kind'] != 'list' for q in w['queries'].values()) else '')
-        .replace('__CASES__', cases).replace('__PAGE__', 'FrmPage' if runtime else p + 'Page').replace('__OVERRIDE__', 'override ' if runtime else '')
-        .replace('__CONTEXT__', 'c.context ? this.requestContext([])[c.context] ?? null : ' if w['actions'] or w.get('commit') else '')
-        .replace('__ACTIVE_QUERY__',
-            '    const action = this.activeQueryActions[block];\n    if (action) return this.runAction(action'
-            + (', [], 0, done' if runtime else '') + ');'
-            if w.get('query_actions') else ''))
-        result.append('''  __SHOW_ROWS__showRows(block: string, rows: readonly Record<string, unknown>[]): void {
-    this.changeDetector.markForCheck();
-    const keys = this.rowKeys[block] ?? {};
-    const mapped = rows.map(row => Object.fromEntries(Object.entries(row).filter(([field]) => field in keys).map(([field, value]) => [keys[field], value])));
-    switch (block) {
-__TABLES____FORM__    }
-  }'''.replace('__TABLES__', table_cases).replace('__FORM__', form_case)
-            .replace('__SHOW_ROWS__', 'protected override ' if runtime else 'private '))
-    if w['actions'] and w['buttons'] and not runtime:
-        from .screen_emulation import steps_method
-        result.append(steps_method())
-    elif w['queries'] and w['buttons'] and not runtime:
-        result.append('''  /** Felismert gomblépések: go_block + execute_query. true: a komponens lefuttatta. */
-  private runSteps(steps: readonly { op: string; block?: string }[] | null): boolean {
-    if (!steps?.length) return false;
-    let block = '';
-    const blocks: string[] = [];
-    for (const step of steps) {
-      if (step.op === 'goBlock' && step.block) block = step.block.toUpperCase();
-      else if (step.op === 'executeQuery' && block && this.queries[block]) blocks.push(block);
-      else return false;
-    }
-    for (const target of blocks) this.executeQuery(target);
-    return blocks.length > 0;
-  }''')
-    if runtime:
-        pass  # value and showRecord: frm-forms-screen.ts (stateRecord is the screen's hook)
-    elif form_values:
-        result.append('''  private value(block: string, key: string): unknown {
-    return this.formValues[block]?.[key];
-  }''')
-        result.append('''  private showRecord(block: string, record: Record<string, unknown>): void {
-    this.changeDetector.markForCheck();
-    Object.assign(this.formValues[block] ??= {}, record);
-    for (const [region, group] of Object.entries(this.formGroups)) {
-      if (this.regionBlocks[region] === block) group.patchValue(record, { emitEvent: false });
-    }
-__RECORD_STATES__  }'''.replace('__RECORD_STATES__', '    this.stateRecord(block); // Forms WHEN-NEW-RECORD-INSTANCE / POST-QUERY állapotai\n' if w.get('record_states') else ''))
-    else:
-        result.append('''  private value(_block: string, _key: string): unknown {
-    return null;
-  }''')
-    if w['lovs']:
-        cases = ''.join(f"      case {json.dumps(lov)}: request = this.{e['call']}(body); break;\n" for lov, e in w['lovs'].items())
-        result.append('''  private searchLov(ownId: string, lov: string, query: string, requestId: number): boolean {
-    const endpoint = this.lovEndpoints[lov];
-    if (!endpoint) return false;
-    const parameters: Record<string, string> = {};
-    for (const bind of endpoint.binds) {
-      const value = this.wireText(bind.block, bind.key, this.value(bind.block, bind.key));
-      if (value !== null) parameters[bind.source] = value;
-    }
-    const body = { term: query || null, parameters, limit: 50 };
-    let request: Observable<unknown>;
-    switch (lov) {
-__CASES__      default: return false;
-    }
-    request.subscribe({
-      next: response => {
-        const rows = this.payload<{ rows?: Record<string, unknown>[] }>(response).rows ?? [];
-        this.setLovSuggestions(ownId, rows.map(row => this.lovChoice(ownId, endpoint.columns, row)), requestId);
-      },
-      error: () => this.setLovSuggestions(ownId, [], requestId), // WFF.err már jelezte
-    });
-    return true;
-  }'''.replace('__CASES__', cases))
-        result.append('''  private lovChoice(ownId: string, columns: readonly { column: string; returnItem: string }[], row: Record<string, unknown>): __P__LovChoice {
-    const own = columns.find(c => c.returnItem === ownId)?.column ?? columns[0]?.column ?? Object.keys(row)[0] ?? '';
-    const raw = row[own];
-    const value = typeof raw === 'number' ? raw : raw === null || raw === undefined ? null : String(raw);
-    const shown = (columns.length ? columns.map(c => row[c.column]) : [raw]).filter(v => v !== null && v !== undefined && v !== '');
-    const returnValues: Record<string, unknown> = {};
-    for (const c of columns) if (c.returnItem) returnValues[c.returnItem] = row[c.column];
-    return { label: shown.map(v => String(v)).join(' – '), value, returnValues };
-  }'''.replace('__P__', p))
-    if runtime:
-        from .screen_emulation import runtime_hooks
-        return result + runtime_hooks(w)
-    if w['actions']:
-        selections = ''.join(f"    if (this.{prop}Selection) records[{json.dumps(block)}] = {{ ...this.{prop}Selection }};\n" for block, prop in w['tables'])
-        form_copy = ('    for (const [block, values] of Object.entries(this.formValues)) records[block] = { ...values };\n' if form_values else '')
-        result.append('''  /** Gomb a generált akció-végponton: aktuális rekordok Oracle nevekkel, a válasz visszaírva.
-   *  answers: az eddigi alert-válaszok (a kód újrafut, és ezeket kapja a SHOW_ALERT).__RESUME_DOC__ */
-  private runAction(ownId: string, answers: readonly number[] = []__RESUME_ARG__): boolean {
-    const call = this.actionEndpoints[ownId];
-    if (!call) return false;
-    const records: Record<string, Record<string, unknown>> = {};
-__FORMS____SELECTIONS__    const blocks: Record<string, Record<string, string | null>> = {};
-    for (const [block, values] of Object.entries(records)) {
-      const names = this.oracleNames[block] ?? {};
-      blocks[block] = Object.fromEntries(Object.entries(values).filter(([key]) => key in names).map(([key, value]) => [names[key], this.wireText(block, key, value)]));
-    }
-__PARAMETERS__    call({ blocks, parameters__PARAMETERS_VALUE____QUERY_REQUEST__ }).subscribe({
-      next: response => {
-__QUERY_RESPONSE__
-        const result = this.payload<__P__ActionResult>(response);
-        const alert = result.commands?.find(command => command[0] === 'SHOW_ALERT');
-        if (alert) {
-          // Forms SHOW_ALERT: a kérés munkája visszagörgetve; a válasszal a kód elölről fut.
-          this.askAlert(alert, choice => this.runAction(ownId, [...answers, choice]__RESUME_PASS__));
-          return;
-        }
-__COMMIT_POINT__        if (result.globals) this.rememberGlobals(result.globals);
-        for (const [block, values] of Object.entries(result.blocks ?? {})) this.applyOracleValues(block, values);
-        this.runCommands(result.commands ?? []);
-        if (result.messages?.length) this.toast.success('Üzenet', result.messages.join(' '), true, TOAST_LIFE.success);
-        else if (ownId !== __INIT__) this.toast.success('Kész', 'A művelet sikeresen lefutott.', true, TOAST_LIFE.success);
-      },
-      error: () => undefined, // WFF.err már jelezte
-    });
-    return true;
-  }'''.replace('__FORMS__', form_copy).replace('__SELECTIONS__', selections).replace('__P__', p)
-            .replace('__RESUME_DOC__', '\n   *  resume: mentési pont után a folytatás (FRM.RESUME; COMMIT_FORM a kód közepén).' if w.get('commit_points') else '')
-            .replace('__RESUME_ARG__', ', resume = 0' if w.get('commit_points') else '')
-            .replace('__RESUME_PASS__', ', resume' if w.get('commit_points') else '')
-            .replace('__PARAMETERS__', ('    const parameters: Record<string, string> = { ...this.requestContext(answers), ...(resume ? { \'FRM.RESUME\': String(resume) } : {}) };\n'
-                                        if w.get('commit_points') else ''))
-            .replace('__PARAMETERS_VALUE__', '' if w.get('commit_points') else ': this.requestContext(answers)')
-            .replace('__COMMIT_POINT__', '''        const point = result.commands?.find(command => command[0] === 'FRM_COMMIT');
-        if (point) {
-          // COMMIT_FORM a kód közepén: a mentés előtti értékek a képernyőre, mentés (a backend a mentési pontig
-          // újrafuttatja a gomb kódját ugyanebben a tranzakcióban), majd a kód folytatása a pont után.
-          if (result.globals) this.rememberGlobals(result.globals);
-          for (const [block, values] of Object.entries(result.blocks ?? {})) this.applyChanged(block, values);
-          this.formsCommit({ action: ownId, actionBlocks: blocks, actionParameters: { ...parameters, 'FRM.COMMIT_POINT': point[1] ?? '', 'FRM.COMMIT_STATE': point[2] ?? '' } },
-                           () => this.runAction(ownId, [], Number(point[1])));
-          return;
-        }
-''' if w.get('commit_points') else '')
-            .replace('__INIT__', json.dumps(w.get('init') or '@INIT'))
-            .replace('__QUERY_REQUEST__', ', ...(this.queryActionBlocks[ownId] ? { offset: 0, limit: ' + str(QUERY_LIMIT) + ' } : {})'
-                     if w.get('query_actions') else '')
-            .replace('__QUERY_RESPONSE__', '''        const target = this.queryActionBlocks[ownId];
-        if (target) {
-          const page = this.payload<__P__Page>(response);
-          if (page.rows != null) {
-            this.activeQueryActions[target] = ownId;
-            this.showRows(target, page.rows);
-            if (!page.rows.length) this.toast.warning('Nincs találat', 'A lekérdezés nem adott vissza rekordot.', true, TOAST_LIFE.warning);
-          }
-          if (page.messages?.length) this.toast.warning('Üzenet', page.messages.join(' '), true, TOAST_LIFE.warning);
-          return;
-        }'''.replace('__P__', p) if w.get('query_actions') else ''))
-        apply_body = ('''    const names = this.oracleNames[block] ?? {};
-    const keys = Object.fromEntries(Object.entries(names).map(([key, oracle]) => [oracle, key]));
-    const record = Object.fromEntries(Object.entries(values).filter(([oracle]) => oracle in keys).map(([oracle, value]) => [keys[oracle], value]));
-    this.showRecord(block, record);''' if form_values else '    void block; void values;')
-    if w['actions'] or w.get('commit'):
-        apply_body = ('''    const names = this.oracleNames[block] ?? {};
-    const keys = Object.fromEntries(Object.entries(names).map(([key, oracle]) => [oracle, key]));
-    const record = Object.fromEntries(Object.entries(values).filter(([oracle]) => oracle in keys).map(([oracle, value]) => [keys[oracle], value]));
-    this.showRecord(block, record);''' if form_values else '    void block; void values;')
-        result.append('''  private applyOracleValues(block: string, values: Record<string, string | null>): void {
-__BODY__
-  }'''.replace('__BODY__', apply_body))
-        from .screen_emulation import emulation_methods
-        result += emulation_methods(w, form_values)
-    return result
+    return f"  {e['method']}({signature}) {{ return this.send({sq(e['method'])}, {call}); }}"
 
 
 def summary(w: dict | None) -> dict | None:
@@ -499,8 +250,9 @@ def notes(w: dict | None) -> list[str]:
     if not w:
         return ['', '## Backend-hívások', '', 'Nincs generált backend (frontend-only): a komponens nem hív backendet.']
     lines = ['', '## Backend-hívások', '',
-             'A komponens a `ServiceBase`-ből öröklődik. Minden végpontnak saját metódusa van, a céges mintára: '
-             "`this.http.<ige>(this.url('<végpont>'))` és `pipe(catchError(...))`, amelyben `WFF.err('Hiba', error)` jelez. "
+             'A komponens a közös `FrmFormsScreen`-t (frm-forms-screen.ts) örökli. Minden végpontnak egysoros metódusa van: '
+             "`this.send('<metódus>', this.http.<ige>(this.url('<végpont>')))`. A `send` a sikeres választ legelőször "
+             "`WFF.debug(this.modName + '.<metódus>', res)` hívással naplózza, hibánál `WFF.err('Hiba', error)` jelez. "
              'A `this.url(...)` argumentuma a végpont neve úgy, ahogy a CL használja: rákeresve a CL-ben, a DPS-ben, '
              'a WBS-ben és a komponensben is megtalálható.', '',
              '| Metódus | Hívás | CL-konstans | Használja |', '|---|---|---|---|']

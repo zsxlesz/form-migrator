@@ -132,7 +132,7 @@ class ReplicaTests(unittest.TestCase):
     def test_start_up_code_is_the_init_endpoint(self):
         self.assertEqual(self.model['init_plan']['status'], 'generated')
         self.assertEqual(self.plan['api']['init'], '@INIT')
-        self.assertIn('this.runAction("@INIT")', self.screen)
+        self.assertIn("this.runAction('@INIT')", self.screen)
         self.assertIn("frm_group('CREATE_GROUP', 'RG_ALLAPOT')", self.service)
 
     def test_commit_chain_in_forms_order_with_the_master_key(self):
@@ -141,7 +141,8 @@ class ReplicaTests(unittest.TestCase):
         self.assertEqual(order, sorted(order))
         self.assertIn('row.rendelesId = saved.id;', commit)
         self.assertIn('PlsqlValues.number(values, "RENDELES", "ID")', commit)
-        self.assertIn("onToolbar('save')", self.screen)
+        self.assertIn('<frm-toolbar (action)="onToolbar($event)" />', self.screen)
+        self.assertIn("if (action === 'save') return this.formsCommit();", self.screen)
         self.assertIn('protected formsCommit(prelude: Record<string, unknown> | null = null, then: (() => void) | null = null): void {', self.screen)
 
     def test_generated_java_compiles(self):

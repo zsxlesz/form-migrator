@@ -26,9 +26,9 @@ def screen_source(out: Path) -> str:
 
 
 def ts_method(source: str, name: str) -> str | None:
-    """The TypeScript method `name` of the source (any visibility, override included), or None."""
+    """The TypeScript method or getter `name` of the source (any visibility, override included), or None."""
     visible = mask(source)
-    match = re.search(r'^  (?:private |public |protected )?(?:override )?' + re.escape(name) + r'(?:<[^>]+>)?\([^\n]*\)[^\n]*\{',
+    match = re.search(r'^  (?:private |public |protected )?(?:override )?(?:get )?' + re.escape(name) + r'(?:<[^>]+>)?\([^\n]*\)[^\n]*\{',
                       visible, re.M)
     if not match:
         return None

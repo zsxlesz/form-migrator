@@ -221,7 +221,8 @@ class ReplicaFlowTests(unittest.TestCase):
         if not shutil.which('node'):
             self.skipTest('Node with TypeScript stripping required')
         methods = '\n'.join(self.method(name) for name in ('runAction', 'applyChanged', 'formsCommit', 'screenBlocks', 'recordOf',
-                                                            'wireText', 'payload', 'showRecord', 'applyOracleValues'))
+                                                            'wireText', 'payload', 'showRecord', 'applyOracleValues', 'rowFields',
+                                                            'fromDto', 'oracleName', 'keyOf', 'blockOf', 'fields'))
         self.assertIn('commitEndpoint = (request: Record<string, unknown>) => this.', self.screen)
         script = self.root / 'commit-flow.ts'
         script.write_text('''import assert from 'node:assert/strict';
@@ -235,13 +236,13 @@ class Screen {
   queryActionBlocks = {};
   activeQueryActions = {};
   checkboxValues = {};
-  stateRecord() {}
   selectedRecords() { return {}; }
   formValues: Record<string, Record<string, unknown>> = {RENDELES: {id: 7, statusz: 'N', vevo: 'V1'}, CTRL: {utolso: null}};
   formGroups = {rendeles: new Group(), ctrl: new Group()};
-  regionBlocks = {rendeles: 'RENDELES', ctrl: 'CTRL'};
-  oracleNames = {RENDELES: {id: 'ID', statusz: 'STATUSZ', vevo: 'VEVO'}, CTRL: {utolso: 'UTOLSO'}};
-  rowKeys = {RENDELES: {id: 'id', statusz: 'statusz', vevo: 'vevo'}};
+  structures = {rendeles: [{ownId: 'RENDELES.ID'}], ctrl: [{ownId: 'CTRL.UTOLSO'}]};
+  recordHandlers = {};
+  oracleNames = {};
+  rowKeys = {RENDELES: ['id', 'statusz', 'vevo']};
   commitBlocks = {RENDELES: {request: 'changesRendeles', result: 'rowsRendeles', operations: ['create', 'update', 'delete']}};
   originals: Record<string, Record<string, unknown> | null> = {RENDELES: {id: 7, statusz: 'N', vevo: 'V1'}};
   pendingDeletes = {};
@@ -265,7 +266,7 @@ class Screen {
   rememberGlobals() {}
   runCommands(commands) { this.ran = commands; }
   askAlert() { throw new Error('no alert'); }
-  markPristine(block) { for (const [region, group] of Object.entries(this.formGroups)) if (this.regionBlocks[region] === block) group.markAsPristine(); }
+  markPristine(block) { for (const [region, group] of Object.entries(this.formGroups)) if (this.blockOf(region) === block) group.markAsPristine(); }
 __METHODS__
 }
 const screen = new Screen();

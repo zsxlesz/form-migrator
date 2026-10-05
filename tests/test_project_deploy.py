@@ -261,7 +261,7 @@ class DeployTests(unittest.TestCase):
         tools.write_text('package hu.ceg.common;\npublic final class CommonMigrateTools { static final String VERSION = "4"; }\n')
         runtime = self.root / 'rendszer-ui/src/app/shared/frm-forms-screen.ts'
         runtime.parent.mkdir(parents=True)
-        runtime.write_text("export const FRM_FORMS_SCREEN_VERSION = '2';\n")
+        runtime.write_text((self.output / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8'), encoding='utf-8')  # the current one
         report = deploy([self.output], None, folders)  # generated with the default packages: the deploy fits them
         self.assertEqual(set(report['counts']), {'new'})
         dps, wbs, cl, ui = (Path(folders[key]) for key in ('DPS', 'WBS', 'CL', 'frontend'))

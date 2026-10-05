@@ -3,11 +3,10 @@
 // A generált képernyők a FRM_FORMS_SCREEN_VERSION változatot várják: ha a migrátor újat ad, ezt az egy fájlt kell cserélni.
 import { ChangeDetectorRef, Directive, inject } from '@angular/core';
 import { FormGroup } from '@angular/forms';
-import { Router } from '@angular/router';
 import { Observable } from 'rxjs';
-// TODO: importáld a saját csomagodból: ServiceBase (java-imports.json).
+// TODO: importáld a saját csomagodból: ServiceBase, F (java-imports.json).
 
-export const FRM_FORMS_SCREEN_VERSION = '2';
+export const FRM_FORMS_SCREEN_VERSION = '3';
 
 /** Helyi idő ISO-alakban, időzóna nélkül (Oracle DATE). */
 export function localIso(value: Date): string {
@@ -102,7 +101,12 @@ export abstract class FrmFormsScreen extends ServiceBase {
   protected abstract readonly toast: FrmToast;
   protected abstract readonly toastLife: FrmToastLife;
   protected readonly changeDetector = inject(ChangeDetectorRef);
-  protected readonly router = inject(Router);
+  // A router a ServiceBase-ből jön (this.router).
+
+  /** A modul neve az útvonalából: a kérések naplójában (WFF.debug) ez áll a függvénynév előtt. */
+  get modName(): string {
+    return F.trim(this.router.url, '/');
+  }
 
   // A képernyő adatai: a generált képernyő felülírja őket.
   protected readonly formGroups: Record<string, FormGroup> = Object.create(null);

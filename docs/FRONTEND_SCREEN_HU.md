@@ -71,15 +71,15 @@ Az Angular- és a publikus Optimus-importok automatikusak. Kizárólag
 A fogadó projektben az Optimus témája és a Tailwind már legyen konfigurálva.
 
 A privát FormBlock importútvonala nincs a feltöltött projektben. Ezért alapból a
-generált fájl elején egyetlen TODO jelzi az `AnkFormBlockComponent` és a
+generált fájl elején egyetlen TODO jelzi a `FormBlocksComponent` és a
 `FormBlock.Structure` importját. Töltsd ki egyszer a saját csomagútvonalaiddal,
 vagy konfiguráld az automatikus importot az alábbi kulcsokkal:
 
 | Kulcs | Érték |
 |---|---|
 | `emit_imports` | `true` |
-| `optimus_import_path` | A valódi AnkFormBlockComponent exportútvonal |
-| `optimus_form_block_symbol` | `AnkFormBlockComponent` vagy a tényleges exportált név |
+| `optimus_import_path` | A valódi FormBlocksComponent exportútvonal |
+| `optimus_form_block_symbol` | Üresen `FormBlocksComponent`; más exportált névnél azt add meg |
 | `form_block_type_import_path` | A valódi FormBlock namespace exportútvonal |
 
 A képernyőváz nem igényel environment-importot, mert nem indít HTTP-kéréseket.
@@ -459,6 +459,7 @@ export class XyComponent extends ServiceBase {
   searchAit(body: unknown) {
     return this.http.post(this.url('searchait'), body)
       .pipe(
+        tap((res) => WFF.debug(this.modName + '.searchAit', res)),
         catchError((error) => {
           WFF.err('Hiba', error);
           throw error;
@@ -474,12 +475,16 @@ export class XyComponent extends ServiceBase {
   komponensben is megtalálható. A szerver- és modulútvonalat a `ServiceBase.url()` teszi elé.
 - **Ki hívja:** a lekérdező gombok (`go_block` + `execute_query`), a LOV-keresés és a PL/SQL-es gombok
   maguk hívják a saját metódusukat. A mentés metódusai elkészülnek, bekötésük a fejlesztőé.
+- **Naplózás:** minden sikeres válasz legelőször a `WFF.debug(this.modName + '.<metódus>', res)` hívásba
+  kerül (`tap`), ahol a `<metódus>` a végpontmetódus neve. A `modName` a modul útvonala
+  (`F.trim(this.router.url, '/')`): a `frm-forms-screen.ts`-ben van, futtató nélküli képernyőn a
+  komponensben. A `router` a `ServiceBase`-ből jön, a képernyő nem injektál saját routert.
 - **Hibák:** a `catchError` a `WFF.err('Hiba', error)` hívással jelez. Az üres találatot, a
   backend-üzeneteket és a sikeres műveletet a `ToastService` mutatja.
 - **Válaszboríték:** céges módban a válasz `RestResponseDto`-ban érkezik. Az adatot a `payload()`
   metódus veszi ki; a keresett mezőnevek listája ott, egy helyen igazítható.
 - **Be nem kötött gombok:** a kézzel átültetendő gombok az `onAction`-ben toasttal jeleznek.
-- **Importok:** a `ServiceBase`, a `WFF`, a `ToastService` és a FormBlock-osztályok a
+- **Importok:** a `ServiceBase`, a `WFF`, az `F`, a `ToastService` és a FormBlock-osztályok a
   `java-imports.json` `/`-es bejegyzéseiből kapnak importot (lásd AUTOMATIZALAS_HU.md). Ami nincs a
   térképben, arra TODO-sor és az `analysis/ts-imports.json` riport figyelmeztet.
 

@@ -1,4 +1,15 @@
-# FRM Forms Migrator 4.18.0 — használat
+# FRM Forms Migrator 4.19.0 — használat
+
+**4.19 – frontend: FormBlocksComponent, kérésnaplózás, modName:**
+
+- **FormBlocksComponent:** a generált képernyő a `FormBlocksComponent`-et importálja (eddig
+  `AnkFormBlockComponent`).
+- **Kérésnaplózás:** minden sikeres HTTP-válasz legelőször a `WFF.debug(this.modName + '.<metódus>', res)`
+  hívásba kerül.
+- **`frm-forms-screen.ts` 3-as változat:** új `modName` getter (`F.trim(this.router.url, '/')`); a saját
+  router-injektálás kikerült, a `router` a `ServiceBase`-ből jön.
+
+Részletek: [JAVITASOK_4_19_HU.md](JAVITASOK_4_19_HU.md).
 
 **4.18 – célmappák a generálás elején, pontosan oda:**
 

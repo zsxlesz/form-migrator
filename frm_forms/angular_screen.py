@@ -249,6 +249,25 @@ def screen_navigations(resolution, forms, config) -> dict:
     return result
 
 
+def drop_unused_helpers(source: str) -> str:
+    """The value conversions nothing calls (a list screen without search and buttons): strict TypeScript
+    (noUnusedLocals) rejects an unused private method or function."""
+    helpers = [('  private wireText(', 'this.wireText('), ('  private value(', 'this.value('), ('function localIso(', 'localIso(')]
+    changed = True
+    while changed:
+        changed = False
+        for start, call in helpers:
+            at = source.find('\n\n' + start)
+            if at < 0:
+                continue
+            end = source.find('\n  }' if start.startswith('  ') else '\n}', at + 2)
+            body = source[at:end + (4 if start.startswith('  ') else 2)]
+            rest = source[:at] + source[at + len(body):]
+            if call not in rest.replace(start.strip(), ''):
+                source, changed = rest, True
+    return source
+
+
 def generate(resolution, ui, output, config, module, discovery):
     if config['html_selectors']['table'] != 'p-table':
         raise MigrationError('SCREEN_TABLE_CONTRACT: a képernyőváz az Optimus p-table komponensét használja.')
@@ -261,7 +280,7 @@ def generate(resolution, ui, output, config, module, discovery):
     apply_screen_types(ui, plan)
     plan['ui_issue_counts'] = dict(sorted(Counter(i['code'] for i in ui['issues']).items()))
     key = plan['module']['key']; root = output / 'frontend' / key
-    form_symbol = config['optimus_form_block_symbol'] or 'AnkFormBlockComponent'
+    form_symbol = config['optimus_form_block_symbol'] or 'FormBlocksComponent'
     form_type = config['form_block_structure_type']
     forms = [s for s in plan['sections'] if s['mode'] == 'form']
     tables = [s for s in plan['sections'] if s['mode'] == 'table']
@@ -325,9 +344,8 @@ def generate(resolution, ui, output, config, module, discovery):
         shared = ['FrmFormsScreen'] + (['FrmPage'] if wiring['queries'] or wiring.get('query_actions') else [])
         imports.append("import { " + ', '.join(shared) + " } from '" + screen_emulation.RUNTIME_IMPORT + "';")
     else:
-        imports.append('// TODO: importáld a saját csomagodból: ServiceBase' + (', WFF' if wiring else '') + ' (java-imports.json).')
-    if (navigations or manual_navs or emulation) and not runtime:
-        imports.append("import { Router } from '@angular/router';")
+        imports.append('// TODO: importáld a saját csomagodból: ServiceBase' + (', WFF, F' if wiring else '') + ' (java-imports.json).')
+    # The router comes from ServiceBase (this.router): the component injects none.
     life = config['toast_life_ms']
     declarations.append('/** Toast élettartamok (ms); a figyelmeztetés tovább marad. */\n'
                         f"const TOAST_LIFE = {{ success: {life['success']}, warning: {life['warning']}, danger: {life['danger']} }} as const;")
@@ -336,7 +354,7 @@ def generate(resolution, ui, output, config, module, discovery):
                   '  protected readonly toastLife = TOAST_LIFE;')
     if wiring:
         imports.append("import { HttpClient } from '@angular/common/http';")
-        imports.append("import { Observable, catchError } from 'rxjs';")
+        imports.append("import { Observable, catchError, tap } from 'rxjs';")
         declarations.extend(screen_api.declarations(wiring))
     if forms:
         form_imports = ['FormGroup']
@@ -370,8 +388,6 @@ def generate(resolution, ui, output, config, module, discovery):
                 if known else '{}')
         fields.append('  ' + ('protected override readonly' if runtime else 'private readonly') + ' actionSteps: Record<string, readonly '
                       + prefix + 'FormsStep[]> = ' + body + ';')
-        if (navigations or manual_navs or emulation) and not runtime:
-            fields.append('  private readonly router = inject(Router);')
         if navigations:
             fields.append('  // Forms CALL_FORM/OPEN_FORM/NEW_FORM -> Angular útvonal, a paraméterlistával (MIGRATION_NOTES: Navigáció).\n'
                           '  private readonly navigations: Record<string, { route: string; params: readonly { name: string; block?: string; key?: string; value?: string }[] }> = '
@@ -723,10 +739,13 @@ __UPDATES__
         methods.extend(state_methods(states, forms, form_type, runtime))
         if not has_lov and not wiring:
             fields.append('  private readonly changeDetector = inject(ChangeDetectorRef);')
-    if emulation and not buttons and not runtime:
-        fields.append('  private readonly router = inject(Router);')  # CALL_FORM of the start-up code
     if wiring:
         fields.extend(screen_api.fields(wiring))
+        if not runtime:  # frm-forms-screen.ts has it
+            fields.append('  /** A modul neve az útvonalából: a kérések naplójában (WFF.debug) ez áll a függvénynév előtt. */\n'
+                          '  get modName(): string {\n'
+                          "    return F.trim(this.router.url, '/');\n"
+                          '  }')
         if not has_lov:
             if not runtime:
                 fields.append('  private readonly changeDetector = inject(ChangeDetectorRef);')
@@ -748,6 +767,8 @@ __UPDATES__
         methods[0] = methods[0].rstrip()[:-1].rstrip() + '\n    this.runAction(' + quoted(wiring['init']) + '); // indítási kód (PRE-FORM, WHEN-NEW-FORM-INSTANCE)\n  }'
     base = 'FrmFormsScreen' if runtime else 'ServiceBase'
     source += 'export class ' + plan['module']['class'] + ' extends ' + base + (' implements OnDestroy' if forms else '') + ' {\n' + '\n\n'.join(fields) + '\n\n' + '\n\n'.join(methods) + '\n}\n'
+    if not runtime:
+        source = drop_unused_helpers(source)
     # Imports from java-imports.json ("/" paths): ServiceBase, WFF, ToastService, FormBlock...
     from . import java_imports, ts_imports
     source, ts_report = ts_imports.tidy(source, java_imports.load_ts(config))

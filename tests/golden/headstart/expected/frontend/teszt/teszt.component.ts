@@ -1,11 +1,11 @@
 // CREATE_ONCE: szerkeszthető képernyőváz. Migrációs részletek: MIGRATION_NOTES.md.
 import { Component, OnDestroy, ChangeDetectorRef, inject } from '@angular/core';
 // TODO: importáld a saját csomagodból: ToastService (config: toast_service_import_path).
-// TODO: importáld a saját csomagodból: ServiceBase, WFF (java-imports.json).
+// TODO: importáld a saját csomagodból: ServiceBase, WFF, F (java-imports.json).
 import { HttpClient } from '@angular/common/http';
-import { Observable, catchError } from 'rxjs';
+import { Observable, catchError, tap } from 'rxjs';
 import { FormGroup, ValidatorFn, Validators } from '@angular/forms';
-// TODO: importáld a saját csomagodból: AnkFormBlockComponent és FormBlock.Structure.
+// TODO: importáld a saját csomagodból: FormBlocksComponent és FormBlock.Structure.
 import { TableModule } from '@openng/optimus-ui/table';
 
 /** Toast élettartamok (ms); a figyelmeztetés tovább marad. */
@@ -46,7 +46,7 @@ export interface TesztLovChoice {
 @Component({
   selector: "app-teszt",
   standalone: true,
-  imports: [AnkFormBlockComponent, TableModule],
+  imports: [FormBlocksComponent, TableModule],
   template: `
     <section class="flex flex-col gap-2">
     <ank-form-block [formStructure]="vElekAdlapStructure" (formGroupGenerated)="onFormGroupGenerated('V_ELEK_ADLAP', 'vElekAdlapRegion1', $event)" />
@@ -210,6 +210,11 @@ export class TesztComponent extends ServiceBase implements OnDestroy {
     }
   };
 
+  /** A modul neve az útvonalából: a kérések naplójában (WFF.debug) ez áll a függvénynév előtt. */
+  get modName(): string {
+    return F.trim(this.router.url, '/');
+  }
+
   constructor() {
     super();
   }
@@ -303,6 +308,7 @@ export class TesztComponent extends ServiceBase implements OnDestroy {
   aitUpdate(body: unknown) {
     return this.http.put(this.url('ait/update'), body)
       .pipe(
+        tap((res) => WFF.debug(this.modName + '.aitUpdate', res)),
         catchError((error) => {
           WFF.err('Hiba', error);
           throw error;
@@ -314,6 +320,7 @@ export class TesztComponent extends ServiceBase implements OnDestroy {
   aitSearch(body: unknown) {
     return this.http.post(this.url('ait/query/search'), body)
       .pipe(
+        tap((res) => WFF.debug(this.modName + '.aitSearch', res)),
         catchError((error) => {
           WFF.err('Hiba', error);
           throw error;
@@ -325,6 +332,7 @@ export class TesztComponent extends ServiceBase implements OnDestroy {
   lovInptip(body: unknown) {
     return this.http.post(this.url('lov/inptip'), body)
       .pipe(
+        tap((res) => WFF.debug(this.modName + '.lovInptip', res)),
         catchError((error) => {
           WFF.err('Hiba', error);
           throw error;
@@ -336,6 +344,7 @@ export class TesztComponent extends ServiceBase implements OnDestroy {
   commitForm(body: unknown) {
     return this.http.post(this.url('commit'), body)
       .pipe(
+        tap((res) => WFF.debug(this.modName + '.commitForm', res)),
         catchError((error) => {
           WFF.err('Hiba', error);
           throw error;

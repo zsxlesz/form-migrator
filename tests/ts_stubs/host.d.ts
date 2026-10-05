@@ -27,6 +27,7 @@ declare module 'rxjs' {
   export interface Observer<T> { next?: (v: T) => void; error?: (e: unknown) => void; }
   export class Observable<T> { subscribe(o: Observer<T>): { unsubscribe(): void }; pipe(...ops: ((s: Observable<T>) => Observable<T>)[]): Observable<T>; }
   export function catchError<T>(fn: (error: unknown) => never): (s: Observable<T>) => Observable<T>;
+  export function tap<T>(fn: (value: T) => void): (s: Observable<T>) => Observable<T>;
 }
 declare module '@openng/optimus-ui/table' { export class TableModule {} }
 declare module '@openng/optimus-ui/button' { export class ButtonModule {} }

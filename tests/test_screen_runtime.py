@@ -30,6 +30,15 @@ SIMPLE = '''<Module><FormModule Name="EGYSZERU" Title="Egyszerű"><Coordinate Co
   XPosition="10" YPosition="10" Width="100" Height="20"/></Block>
  <Canvas Name="C" CanvasType="Content" WindowName="W"/><Window Name="W" Title="Egyszerű"/></FormModule></Module>'''
 
+# A list screen without buttons: backend calls, but no runtime (the component has its own modName).
+LISTAS = '''<Module><FormModule Name="LISTAS" Title="Listás"><Coordinate CoordinateSystem="Real" RealUnit="Pixel"/>
+ <Block Name="PARTNER" DatabaseDataBlock="true" QueryDataSourceName="PARTNER" RecordsDisplayCount="5">
+  <Item Name="KOD" ItemType="Text Item" DataType="Char" Prompt="Kód" CanvasName="C" ColumnName="KOD" PrimaryKey="true"
+   XPosition="10" YPosition="10" Width="100" Height="20"/>
+  <Item Name="NEV" ItemType="Text Item" DataType="Char" Prompt="Név" CanvasName="C" ColumnName="NEV"
+   XPosition="120" YPosition="10" Width="100" Height="20"/></Block>
+ <Canvas Name="C" CanvasType="Content" WindowName="W"/><Window Name="W" Title="Listás"/></FormModule></Module>'''
+
 
 def generate(root: Path, source: Path, module: str) -> Path:
     config = root / (module + '.json')
@@ -51,6 +60,9 @@ class ScreenRuntimeTests(unittest.TestCase):
         simple = cls.root / 'egyszeru_fmb.xml'
         simple.write_text(SIMPLE, encoding='utf-8')
         cls.simple = generate(cls.root, simple, 'egyszeru')
+        listas = cls.root / 'listas_fmb.xml'
+        listas.write_text(LISTAS, encoding='utf-8')
+        cls.listas = generate(cls.root, listas, 'listas')
 
     @classmethod
     def tearDownClass(cls):
@@ -82,11 +94,31 @@ class ScreenRuntimeTests(unittest.TestCase):
         self.assertFalse((self.simple / 'frontend' / RUNTIME).exists())
         self.assertIn('extends ServiceBase', component(self.simple))
 
+    def test_every_successful_request_is_logged_first_with_the_module_and_method_name(self):
+        source = component(self.out)
+        self.assertIn("tap((res) => WFF.debug(this.modName + '.rendelesList', res)),\n        catchError(", source)
+        self.assertEqual(source.count('this.http.'), source.count('WFF.debug(this.modName'))
+        runtime = (self.out / 'frontend' / RUNTIME).read_text(encoding='utf-8')
+        self.assertIn("get modName(): string {\n    return F.trim(this.router.url, '/');\n  }", runtime)
+        self.assertNotIn('inject(Router)', runtime)  # the router comes from ServiceBase
+        self.assertNotIn("from '@angular/router'", runtime)
+        self.assertNotIn('get modName', source)  # the runtime has it
+        # without the runtime the component has its own modName
+        listas = component(self.listas)
+        self.assertFalse((self.listas / 'frontend' / RUNTIME).exists())
+        self.assertIn("get modName(): string {\n    return F.trim(this.router.url, '/');\n  }", listas)
+        self.assertIn("WFF.debug(this.modName + '.partnerList', res)", listas)
+        self.assertIn('ServiceBase, WFF, F (java-imports.json)', listas)
+        for text in (source, listas, component(self.simple)):
+            self.assertNotIn('inject(Router)', text)
+            self.assertNotIn('AnkFormBlockComponent', text)
+        self.assertIn('imports: [FormBlocksComponent', source)
+
     def test_typescript_strict(self):
         tsc = os.environ.get('FRM_TSC') or shutil.which('tsc')
         if not tsc:
             self.skipTest('tsc required (FRM_TSC=<path to tsc>)')
-        for out in (self.out, self.simple):
+        for out in (self.out, self.simple, self.listas):
             with self.subTest(out=out.name):
                 work = self.root / ('ts-' + out.name)
                 shutil.copytree(out / 'frontend', work / 'frontend')
@@ -95,7 +127,7 @@ class ScreenRuntimeTests(unittest.TestCase):
                 for path in (work / 'frontend').rglob('*.ts'):
                     depth = len(path.relative_to(work / 'frontend').parts)
                     text = path.read_text(encoding='utf-8')
-                    names = [n for n in ('ServiceBase', 'WFF', 'ToastService', 'AnkFormBlockComponent', 'FormBlock')
+                    names = [n for n in ('ServiceBase', 'WFF', 'F', 'ToastService', 'FormBlocksComponent', 'FormBlock')
                              if re.search(r'\b' + n + r'\b', code(text))]  # used in code, not only in a TODO comment
                     if names:
                         text = 'import { ' + ', '.join(names) + " } from '" + '../' * depth + "company';\n" + text

@@ -5,6 +5,7 @@ The component extends ServiceBase; every endpoint gets its own method:
     searchAit(body: unknown) {
       return this.http.post(this.url('searchait'), body)
         .pipe(
+          tap((res) => WFF.debug(this.modName + '.searchAit', res)),
           catchError((error) => {
             WFF.err('Hiba', error);
             throw error;
@@ -15,7 +16,8 @@ The component extends ServiceBase; every endpoint gets its own method:
 The argument of this.url(...) is the endpoint as the CL names it (its Constants path without the
 leading '/'; in the company format exactly the <METHOD>_NAME value), so a text search finds the
 call in CL, DPS, WBS and the component alike. ServiceBase.url adds the server and module path.
-Errors are reported by WFF.err; results, empty queries and messages by the ToastService.
+Every successful response is logged first by WFF.debug(<module>.<method>, res) (modName: the module's route);
+errors are reported by WFF.err; results, empty queries and messages by the ToastService.
 """
 from __future__ import annotations
 
@@ -203,7 +205,7 @@ def fields(w: dict) -> list[str]:
 
 
 def endpoint_method(w: dict, e: dict) -> str:
-    """One backend call as the company writes it: this.url('<CL endpoint>') + catchError(WFF.err)."""
+    """One backend call as the company writes it: this.url('<CL endpoint>'), WFF.debug on success, WFF.err on error."""
     url = "this.url('" + e['url'].replace('\\', '\\\\').replace("'", "\\'") + "')"
     if e['http'] == 'get':
         signature, call = f'offset = 0, limit = {QUERY_LIMIT}', f'this.http.get({url}, {{ params: {{ offset, limit }} }})'
@@ -215,6 +217,7 @@ def endpoint_method(w: dict, e: dict) -> str:
             f"  {e['method']}({signature}) {{\n"
             f"    return {call}\n"
             "      .pipe(\n"
+            f"        tap((res) => WFF.debug(this.modName + '.{e['method']}', res)),\n"
             "        catchError((error) => {\n"
             "          WFF.err('Hiba', error);\n"
             "          throw error;\n"
@@ -269,8 +272,7 @@ __CHECKBOX__    if (value === null || value === undefined || value === '') retur
 __ACTIVE_QUERY__
     const query = this.queries[block];
     if (!query) return false;
-    const criteria = Object.fromEntries((query.criteria ?? []).map(c => [c.field, __CONTEXT__this.wireText(c.block, c.key, this.value(c.block, c.key))]));
-    let request: Observable<unknown>;
+__CRITERIA__    let request: Observable<unknown>;
     switch (block) {
 __CASES__      default: return false;
     }
@@ -285,7 +287,9 @@ __CASES__      default: return false;
       error: () => undefined, // WFF.err már jelezte
     });
     return true;
-  }'''.replace('__CASES__', cases).replace('__PAGE__', 'FrmPage' if runtime else p + 'Page').replace('__OVERRIDE__', 'override ' if runtime else '')
+  }'''.replace('__CRITERIA__', '    const criteria = Object.fromEntries((query.criteria ?? []).map(c => [c.field, __CONTEXT__this.wireText(c.block, c.key, this.value(c.block, c.key))]));\n'
+                  if any(q['kind'] != 'list' for q in w['queries'].values()) else '')
+        .replace('__CASES__', cases).replace('__PAGE__', 'FrmPage' if runtime else p + 'Page').replace('__OVERRIDE__', 'override ' if runtime else '')
         .replace('__CONTEXT__', 'c.context ? this.requestContext([])[c.context] ?? null : ' if w['actions'] or w.get('commit') else '')
         .replace('__ACTIVE_QUERY__',
             '    const action = this.activeQueryActions[block];\n    if (action) return this.runAction(action'

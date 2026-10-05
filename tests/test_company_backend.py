@@ -44,6 +44,19 @@ class CompanyBackendTests(unittest.TestCase):
     def source(self, out, layer, suffix):
         return (out / 'backend' / layer / ('Rt' + suffix + '.java')).read_text()
 
+    def test_dps_service_impl_extends_the_module_service_base(self):
+        out, _ = self.generate()
+        base = self.source(out, 'DPS', 'ServiceBase')
+        self.assertIn('public abstract class RtServiceBase extends ModuleServiceBase<DpsLogHelper> implements RtService {', base)
+        self.assertIn('public String getModuleName() {\n        return RtConstants.NAME;', base)
+        self.assertRegex(base, r'import [\w.]+\.ModuleServiceBase;')
+        self.assertRegex(base, r'import [\w.]+\.DpsLogHelper;')
+        service = self.source(out, 'DPS', 'ServiceImpl')
+        self.assertIn('@XSlf4j\n@Service\npublic class RtServiceImpl extends RtServiceBase {', service)
+        self.assertNotRegex(service, r'import [\w.]+\.ModuleServiceBase;')  # moved to the base
+        plan = json.loads((out / 'analysis/backend-plan.json').read_text())
+        self.assertIn('RtServiceBase.java', plan['files']['DPS'])
+
     def test_dps_hierarchy_and_request_header_contract(self):
         out, _ = self.generate()
         interface = self.source(out, 'DPS', 'Controller')
@@ -200,8 +213,9 @@ class CompanyBackendTests(unittest.TestCase):
     def test_qualified_service_base_is_not_treated_as_missing_package_imports(self):
         out, _ = self.generate(config={'java_service_base_dps': 'hu.company.common.ModuleServiceBase<hu.company.common.DpsLogHelper>'})
         self.assertEqual(self.report(out)['missing_company_imports'], [])
-        self.assertIn('extends hu.company.common.ModuleServiceBase<hu.company.common.DpsLogHelper>',
-                      self.source(out, 'DPS', 'ServiceImpl'))
+        self.assertIn('extends hu.company.common.ModuleServiceBase<hu.company.common.DpsLogHelper> implements RtService',
+                      self.source(out, 'DPS', 'ServiceBase'))
+        self.assertIn('public class RtServiceImpl extends RtServiceBase {', self.source(out, 'DPS', 'ServiceImpl'))
 
     def test_action_only_and_empty_modules_need_no_row_dtos(self):
         form = ET.fromstring(runtime.fixture())

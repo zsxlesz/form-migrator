@@ -116,3 +116,14 @@ class JobAnswer(BaseModel):
     screen_primary_window: str | None = Field(default=None, min_length=1, max_length=240)
     # Answer of a 'windows' question: the windows to generate (at least one).
     screen_windows: list[str] | None = Field(default=None, min_length=1, max_length=50)
+
+
+class DeployRequest(BaseModel):
+    """Deploy a job's (or a batch's) generated files into the developer's project folder."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    project: str = Field(min_length=1, max_length=1000)
+    # Where the automatic mapping is not enough: CL / DPS / WBS / frontend -> folder relative to the project.
+    layout: dict[str, str] = Field(default_factory=dict, max_length=4)
+    dry_run: bool = True
+    force: bool = False

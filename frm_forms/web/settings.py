@@ -43,6 +43,8 @@ class Settings:
     cors_allow_credentials: bool = False
     # Web jobs: generated endpoints live at once (MODULE_REVIEWED = true). FRM_BACKEND_LIVE=false: review first.
     backend_live_default: bool = True
+    # Deploy into a project (POST .../deploy): when set, only folders inside these (FRM_PROJECT_ROOTS, comma list).
+    project_roots: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         for origin in self.extra_cors_origins:
@@ -100,4 +102,5 @@ class Settings:
                    extra_cors_origins=env_list('FRM_CORS_ORIGINS'),
                    extra_cors_headers=env_list('FRM_CORS_HEADERS'),
                    cors_allow_credentials=env_bool('FRM_CORS_ALLOW_CREDENTIALS'),
-                   backend_live_default=env_bool('FRM_BACKEND_LIVE', True))
+                   backend_live_default=env_bool('FRM_BACKEND_LIVE', True),
+                   project_roots=env_list('FRM_PROJECT_ROOTS'))

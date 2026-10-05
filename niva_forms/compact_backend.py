@@ -173,6 +173,10 @@ def action_method(o, block, gated, discovery, model, log1x, user_type):
         info.append('Hívott Forms-eljárások (PlsqlUnits): ' + ', '.join(prepared['units']))
     if prepared.get('unresolved'):
         info.append(unresolved_note(prepared['unresolved'], model))
+    if prepared.get('screen_points'):
+        info.append('Képernyőpont (' + str(prepared['screen_points']) + '): a képernyő a NIVA_RESUME utasításra végrehajtja '
+                    'a lépést (EXECUTE_QUERY …), majd NIVA.RESUME-mal a pont után folytatja. A pont előtti '
+                    'adatbázis-módosítások a ponton véglegesednek (a Formsban a következő mentéskor).')
     info.append('Eredeti kód: analysis/backend-evidence.md')
     arguments = ',\n                '.join(params)  # no backslash inside the f-string: Python 3.10/3.11
     if prepared.get('commit_points'):

@@ -33,6 +33,7 @@ from .portfolio import TRIGGER_ID, load, normalize
 from .rules import BLOCKING_SCOPES, DATA_KEYS, WRITE_APPROVAL
 
 SURVEY_VERSION = 2
+STARTUP_REASON = 'Az indítási végpont (PRE-FORM, WHEN-NEW-FORM-INSTANCE) nem generálható: '
 MAX_EXAMPLES = 3
 MAX_LINES = 40
 MAX_CHARS = 2400
@@ -221,9 +222,24 @@ APPROXIMATIONS = {
         'Az eszköztár Mentés / Lekérdezés / Új rekord / Törlés gombja az alapműveletet hívja, a trigger saját logikája nem fut.',
         'Az eszköztár gombja a KEY-trigger kódját futtatja (DO_KEY-beágyazás, mentési pont).'),
     'other_key': (
-        'Egyéb saját logikájú billentyű-trigger (KEY-NEXT-ITEM, KEY-Fn, KEY-EXIT …)', 'trigger',
-        'Nincs webes megfelelője: a billentyűhöz kötött logika nem fut.',
+        'Saját logikájú billentyű-trigger webes megfelelővel (KEY-NEXT-ITEM, KEY-Fn, KEY-LISTVAL, KEY-CLRBLK …)', 'trigger',
+        'Nem fut: a billentyűhöz kötött logikának nincs párja a képernyőn.',
         'Billentyűparancs vagy gomb a képernyőn; a KEY-NEXT-ITEM logikája jellemzően mezőelhagyáskor futtatható.'),
+    'forms_only_key': (
+        'A Forms-felület billentyűi (KEY-HELP, KEY-ENTQRY, KEY-EXIT, KEY-CLRFRM, KEY-OTHERS …)', 'trigger',
+        'Nem fut: a webes képernyőn nincs lekérdező mód, Forms-súgó vagy blokkmenü; a súgót és a kilépést a host '
+        'alkalmazás adja.',
+        'Többnyire nincs teendő. A KEY-EXIT logikáját (mentetlen változások, visszanavigálás) érdemes átnézni.'),
+    'item_event': (
+        'Mezőesemény, amely nem fut (vezérlőblokk WHEN-VALIDATE-ITEM / POST-CHANGE, WHEN-*-CHANGED)', 'trigger',
+        'Nem fut: nincs végpont, amely futtatná (vezérlőblokk mezője, vagy a kód nem csak mezőállapotot állít).',
+        'Mezőesemény-végpont a gombokéhoz hasonlóan (eredeti PL/SQL az adatbázisban, Forms-hívások képernyő-utasításként), '
+        'amelyet a képernyő a mező elhagyásakor vagy változásakor hív.'),
+    'screen_event': (
+        'Képernyőesemény, amely nem fut (WHEN-NEW-BLOCK/RECORD/ITEM-INSTANCE, WHEN-WINDOW-*, WHEN-CUSTOM-ITEM-EVENT …)',
+        'trigger',
+        'Nem fut: a képernyő legfeljebb a mezőállapot-szabályokat (SET_ITEM_PROPERTY) veszi át belőle.',
+        'Navigációs eseménynél a képernyő horga és egy akció-végpont; ablak-, időzítő- és egyedi eseménynél kézi átültetés.'),
     'mid_code_step': (
         'Képernyőlépés a kód közepén (EXECUTE_QUERY, CLEAR_BLOCK, CALL_FORM …)', 'trigger',
         'Kézi feladat: a lépés után még kód fut, a képernyő viszont a lépést csak a kód végén hajtaná végre.',
@@ -243,10 +259,17 @@ DEFAULT_KEY_BUILTINS['KEY-COMMIT'] = {'COMMIT_FORM', 'COMMIT'}
 QUIET_WORDS = frozenset({'BEGIN', 'END', 'NULL'})
 VALIDATION_EVENTS = {'WHEN-VALIDATE-ITEM': 'item_validation', 'POST-CHANGE': 'item_validation',
                      'WHEN-VALIDATE-RECORD': 'record_validation'}
+# Keys of the Forms user interface itself: the web screen has no counterpart (query mode, Forms help ...).
+FORMS_ONLY_KEYS = {'KEY-HELP', 'KEY-ENTQRY', 'KEY-CQUERY', 'KEY-EXIT', 'KEY-CLRFRM', 'KEY-MENU', 'KEY-OTHERS',
+                   'KEY-ENTER', 'KEY-PRINT', 'KEY-EDIT'}
+ITEM_EVENTS = {'WHEN-VALIDATE-ITEM', 'POST-CHANGE', 'WHEN-CHECKBOX-CHANGED', 'WHEN-LIST-CHANGED', 'WHEN-RADIO-CHANGED',
+               'WHEN-LIST-ACTIVATED', 'WHEN-IMAGE-PRESSED', 'WHEN-TREE-NODE-SELECTED'}
+SCREEN_EVENT_PREFIXES = ('WHEN-NEW-BLOCK-', 'WHEN-NEW-RECORD-', 'WHEN-NEW-ITEM-', 'WHEN-WINDOW-', 'WHEN-MOUSE-', 'WHEN-TAB-PAGE-', 'WHEN-TIMER-', 'WHEN-CUSTOM-ITEM-',
+                         'PRE-BLOCK', 'POST-BLOCK', 'PRE-RECORD', 'POST-RECORD', 'PRE-TEXT-ITEM', 'POST-TEXT-ITEM')
 # The generator's refusals of a screen step that is not the last step of the code.
 STEP_REASONS = (re.compile(r'\b([A-Z][A-Z_]+) után további adat- vagy mezőművelet következik'),
                 re.compile(r'\b([A-Z][A-Z_]+) a DO_KEY-val beágyazott KEY-trigger kódjában'),
-                re.compile(r'\b(COMMIT_FORM) a kód közepén'))
+                re.compile(r'\b([A-Z][A-Z_]+) a kód közepén'))
 
 
 def records_displayed(block: dict) -> int:
@@ -302,9 +325,15 @@ def approximations(model: dict, form: str, names: bool, rows: dict, totals: Coun
         if event in VALIDATION_EVENTS and trigger.get('target') == 'backend':
             found.append((VALIDATION_EVENTS[event], [event] + (['többsoros blokkon'] if many else [])))
         elif event.startswith('KEY-') and not default_key(event, source):
-            found.append(('data_key' if event in DATA_KEYS else 'other_key', [event]))
+            kind = 'data_key' if event in DATA_KEYS else 'forms_only_key' if event in FORMS_ONLY_KEYS else 'other_key'
+            found.append((kind, [event]))
         elif event in ('ON-ERROR', 'ON-MESSAGE'):
             found.append(('on_error', [event]))
+        elif trigger.get('status') == 'review' and event in ITEM_EVENTS and (not block.get('database')
+                                                                             or event not in VALIDATION_EVENTS):
+            found.append(('item_event', [event] + ([] if block.get('database') else ['vezérlőblokkon'])))
+        elif trigger.get('status') == 'review' and event.startswith(SCREEN_EVENT_PREFIXES):
+            found.append(('screen_event', [event]))
         elif event == 'POST-QUERY' and trigger.get('target') == 'backend' and many:
             shape = constructs(source)
             lookup = 'SELECT … INTO' in shape and not shape & {'INSERT', 'UPDATE', 'DELETE', 'MERGE'}
@@ -396,6 +425,21 @@ def collect(out: Path, entries: list[dict], names: bool = False) -> dict:
         if plan.get('module_gate', {}).get('required'):
             totals['module_gate_forms'] += 1
 
+        init = model.get('init_plan') or {}
+        failed_init = set(init.get('triggers', [])) if init.get('status') == 'manual' else set()
+        if failed_init:
+            # No init endpoint is generated at all: counted as a blocked start-up endpoint, with the reason.
+            operations['action']['total'] += 1
+            operations['action']['blocked'] += 1
+            row = causes[('STARTUP', scrub(normalize(STARTUP_REASON + (init.get('reason') or '')), names))]
+            row['endpoints'] += 1
+            row['sole'] += 1
+            row['forms'].add(form)
+            row['operations']['action'] += 1
+            add_example(row, {'form': form, 'event': ' + '.join(t.split(':', 1)[-1] for t in init['triggers']),
+                              'code': Shaper(names).shape('\n'.join(by_trigger.get(t, {}).get('source', '')
+                                                                    for t in init['triggers']))})
+
         for endpoint in plan.get('endpoints', []):
             op = endpoint.get('operation')
             if not op:
@@ -442,6 +486,8 @@ def collect(out: Path, entries: list[dict], names: bool = False) -> dict:
                 continue
             reason = trigger.get('reason') or ''
             issue = issues.get((trigger.get('id') or '') + ': ' + reason, {})
+            if trigger.get('id') in failed_init:
+                reason = STARTUP_REASON + (init.get('reason') or '')
             scope = issue.get('scope', 'review')
             row = triggers[(trigger.get('event') or '', scrub(normalize(reason), names))]
             row['triggers'] += 1

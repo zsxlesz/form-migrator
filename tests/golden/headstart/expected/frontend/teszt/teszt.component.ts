@@ -362,8 +362,9 @@ export class TesztComponent extends ServiceBase implements OnDestroy {
     return String(value);
   }
 
-  /** Forms EXECUTE_QUERY a blokk generált keresés/lista végpontján. false: nincs hozzá végpont. */
-  public executeQuery(block: string): boolean {
+  /** Forms EXECUTE_QUERY a blokk generált keresés/lista végpontján. false: nincs hozzá végpont.
+   *  done: a sorok megjelenítése után (képernyőpont: utána folytatódik a gomb kódja). */
+  public executeQuery(block: string, done?: () => void): boolean {
 
     const query = this.queries[block];
     if (!query) return false;
@@ -379,6 +380,7 @@ export class TesztComponent extends ServiceBase implements OnDestroy {
         this.showRows(block, page.rows ?? []);
         if (!page.rows?.length) this.toast.warning('Nincs találat', 'A lekérdezés nem adott vissza rekordot.', true, TOAST_LIFE.warning);
         if (page.messages?.length) this.toast.warning('Üzenet', page.messages.join(' '), true, TOAST_LIFE.warning);
+        done?.();
       },
       error: () => undefined, // WFF.err már jelezte
     });

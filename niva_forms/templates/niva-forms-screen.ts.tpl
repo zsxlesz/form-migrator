@@ -7,7 +7,7 @@ import { Router } from '@angular/router';
 import { Observable } from 'rxjs';
 // TODO: importáld a saját csomagodból: ServiceBase (java-imports.json).
 
-export const NIVA_FORMS_SCREEN_VERSION = '1';
+export const NIVA_FORMS_SCREEN_VERSION = '2';
 
 /** Helyi idő ISO-alakban, időzóna nélkül (Oracle DATE). */
 export function localIso(value: Date): string {
@@ -145,8 +145,9 @@ export abstract class NivaFormsScreen extends ServiceBase {
 
   // ---------------------------------------------------------------- hook-ok: a képernyő felülírja
 
-  /** Forms EXECUTE_QUERY a blokk generált keresés/lista végpontján. false: nincs hozzá végpont. */
-  public executeQuery(_block: string): boolean {
+  /** Forms EXECUTE_QUERY a blokk generált keresés/lista végpontján. false: nincs hozzá végpont.
+   *  done: a sorok megjelenítése után hívódik (képernyőpont: utána folytatódik a gomb kódja). */
+  public executeQuery(_block: string, _done?: () => void): boolean {
     return false;
   }
 
@@ -265,8 +266,9 @@ export abstract class NivaFormsScreen extends ServiceBase {
 
   /** Gomb a generált akció-végponton: aktuális rekordok Oracle nevekkel, a válasz visszaírva.
    *  answers: az eddigi alert-válaszok (a kód újrafut, és ezeket kapja a SHOW_ALERT).
-   *  resume: mentési pont után a folytatás (NIVA.RESUME; COMMIT_FORM a kód közepén). */
-  protected runAction(ownId: string, answers: readonly number[] = [], resume = 0): boolean {
+   *  resume: mentési pont vagy képernyőpont után a folytatás (NIVA.RESUME; COMMIT_FORM vagy képernyőlépés a kód közepén).
+   *  after: lekérdező gombnál a sorok megjelenítése után hívódik. */
+  protected runAction(ownId: string, answers: readonly number[] = [], resume = 0, after?: () => void): boolean {
     const call = this.actionEndpoints[ownId];
     if (!call) return false;
     const blocks = this.screenBlocks();
@@ -282,6 +284,7 @@ export abstract class NivaFormsScreen extends ServiceBase {
             if (!page.rows.length) this.toast.warning('Nincs találat', 'A lekérdezés nem adott vissza rekordot.', true, this.toastLife.warning);
           }
           if (page.messages?.length) this.toast.warning('Üzenet', page.messages.join(' '), true, this.toastLife.warning);
+          after?.();
           return;
         }
         const result = this.payload<NivaActionResult>(response);
@@ -303,7 +306,16 @@ export abstract class NivaFormsScreen extends ServiceBase {
         }
         if (result.globals) this.rememberGlobals(result.globals);
         for (const [block, values] of Object.entries(result.blocks ?? {})) this.applyOracleValues(block, values);
-        this.runCommands(result.commands ?? []);
+        const commands = result.commands ?? [];
+        const step = commands.find(command => command[0] === 'NIVA_RESUME');
+        if (step) {
+          // Képernyőlépés a kód közepén (EXECUTE_QUERY, CLEAR_BLOCK …): a lépés a képernyőn – a lekérdezést
+          // megvárva –, majd a kód folytatása a pont után, a képernyő új értékeivel.
+          if (result.messages?.length) this.toast.success('Üzenet', result.messages.join(' '), true, this.toastLife.success);
+          this.runCommands(commands.slice(0, commands.indexOf(step)), () => this.runAction(ownId, [], Number(step[1])));
+          return;
+        }
+        this.runCommands(commands);
         if (result.messages?.length) this.toast.success('Üzenet', result.messages.join(' '), true, this.toastLife.success);
         else if (ownId !== this.initAction) this.toast.success('Kész', 'A művelet sikeresen lefutott.', true, this.toastLife.success);
       },
@@ -354,8 +366,14 @@ export abstract class NivaFormsScreen extends ServiceBase {
     return groups.some(([, group]) => group.dirty) ? 'CHANGED' : 'QUERY';
   }
 
-  /** A backend által visszaadott Forms-hívások végrehajtása, sorrendben. */
-  protected runCommands(commands: readonly (readonly (string | null)[])[]): void {
+  /** A backend által visszaadott Forms-hívások végrehajtása, sorrendben.
+   *  then: ha minden lépés – a lekérdezések is – befejeződött (képernyőpont folytatása). */
+  protected runCommands(commands: readonly (readonly (string | null)[])[], then?: () => void): void {
+    let pending = 1;
+    const finished = () => {
+      pending -= 1;
+      if (pending === 0) then?.();
+    };
     for (const [op, ...args] of commands) {
       const arg = (index: number) => (args[index] ?? '').toUpperCase();
       switch (op) {
@@ -365,7 +383,7 @@ export abstract class NivaFormsScreen extends ServiceBase {
           this.cursorBlock = target.split('.')[0]; this.cursorItem = target;
           break;
         }
-        case 'EXECUTE_QUERY': this.formsQuery(this.cursorBlock); break;
+        case 'EXECUTE_QUERY': pending += 1; this.formsQuery(this.cursorBlock, finished); break;
         case 'SET_ITEM_PROPERTY': case 'SET_ITEM_INSTANCE_PROPERTY':
           if (op === 'SET_ITEM_PROPERTY') this.formsItemProperty(arg(0), arg(1), arg(2));
           else this.formsItemProperty(arg(0), arg(2), arg(3));
@@ -391,10 +409,13 @@ export abstract class NivaFormsScreen extends ServiceBase {
       }
     }
     this.changeDetector.markForCheck();
+    finished();
   }
 
-  protected formsQuery(block: string): void {
-    if (!this.executeQuery(block)) this.toast.warning('Lekérdezés', 'Ehhez a blokkhoz nincs generált lekérdezés: ' + block, true, this.toastLife.warning);
+  protected formsQuery(block: string, done?: () => void): void {
+    if (this.executeQuery(block, done)) return;
+    this.toast.warning('Lekérdezés', 'Ehhez a blokkhoz nincs generált lekérdezés: ' + block, true, this.toastLife.warning);
+    done?.();
   }
 
   protected formsItemProperty(item: string, property: string, value: string): void {

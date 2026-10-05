@@ -27,29 +27,44 @@ from .plsql_structure import apply, parse
 
 PLACEHOLDER = 'niva_commit_form(NIVA_POINT)'
 PURPOSE = 'COMMIT_FORM a kód közepén'
+# A screen step (EXECUTE_QUERY, CLEAR_BLOCK ...) followed by more code: the request stops there too, the screen
+# carries out the step and calls the button again with NIVA.RESUME (screen point; no save, no prelude).
+SCREEN_PLACEHOLDER = "niva_screen_point(NIVA_POINT, 'NIVA_OP')"
+MARK = 'NIVA_POINT'
+POINT = re.compile(r"niva_(?:commit_form\(NIVA_POINT\)|screen_point\(NIVA_POINT, '[A-Z_]+'\))")
 
 
-def walk(nodes, path, found, sig, text):
+def screen_placeholder(step: str) -> str:
+    return SCREEN_PLACEHOLDER.replace('NIVA_OP', step)
+
+
+def purpose(body: str) -> str:
+    """'EXECUTE_QUERY a kód közepén' ...: the steps of the points, for the refusal messages."""
+    steps = ['COMMIT_FORM' if m.group().startswith('niva_commit') else m.group().split("'")[1] for m in POINT.finditer(body)]
+    return ', '.join(dict.fromkeys(steps or ['COMMIT_FORM'])) + ' a kód közepén'
+
+
+def walk(nodes, path, found, sig, text, why=PURPOSE):
     """Points in program order with their path: [(list, index, node), ...]."""
     for index, node in enumerate(nodes):
         here = path + [(id(nodes), index, node)]
         segment = text[sig[node.start][2]:sig[node.end][3]]
-        if PLACEHOLDER not in segment:
+        if MARK not in segment:
             continue
         if node.kind == 'simple':
-            if segment.strip().rstrip(';').strip() != PLACEHOLDER:
-                raise Unsupported('COMMIT_FORM a kód közepén: kifejezésben vagy összetett utasításban.')
+            if not POINT.fullmatch(segment.strip().rstrip(';').strip()):
+                raise Unsupported(why + ': kifejezésben vagy összetett utasításban.')
             found.append(here)
         elif node.kind == 'opaque':
-            raise Unsupported('COMMIT_FORM a kód közepén: ciklusban vagy CASE utasításban a folytatási pont nem követhető.')
+            raise Unsupported(why + ': ciklusban vagy CASE utasításban a folytatási pont nem követhető.')
         elif node.kind == 'if':
             for _, _, branch in node.branches:
-                walk(branch, here, found, sig, text)
+                walk(branch, here, found, sig, text, why)
         else:
             for handler in node.handlers:
-                if any(PLACEHOLDER in text[sig[n.start][2]:sig[n.end][3]] for n in handler):
-                    raise Unsupported('COMMIT_FORM a kód közepén: kivételkezelőben a folytatási pont nem követhető.')
-            walk(node.body, here, found, sig, text)
+                if any(MARK in text[sig[n.start][2]:sig[n.end][3]] for n in handler):
+                    raise Unsupported(why + ': kivételkezelőben a folytatási pont nem követhető.')
+            walk(node.body, here, found, sig, text, why)
 
 
 def declared_names(sig, first, last):
@@ -72,12 +87,13 @@ def declared_names(sig, first, last):
 
 
 def transform(body: str) -> tuple[str, int]:
-    """The body with numbered commit points and resume guards; (text, number of points)."""
-    sig, root = parse(body, PURPOSE)
+    """The body with numbered commit and screen points and resume guards; (text, number of points)."""
+    why = purpose(body)
+    sig, root = parse(body, why)
     if any(t[0] == 'ident' and t[1].upper() == 'GOTO' for t in sig):
-        raise Unsupported(PURPOSE + ': GOTO mellett a folytatási pont nem követhető.')
+        raise Unsupported(why + ': GOTO mellett a folytatási pont nem követhető.')
     points, top = [], [root]
-    walk(top, [], points, sig, body)
+    walk(top, [], points, sig, body, why)
     if not points:
         return body, 0
     number = {id(path[-1][2]): k + 1 for k, path in enumerate(points)}
@@ -142,12 +158,12 @@ def transform(body: str) -> tuple[str, int]:
                         later = {t[1].upper() for t in sig[stop.end + 1:node.end] if t[0] == 'ident'}
                         for name in names:
                             if name in before and name in later:
-                                raise Unsupported('COMMIT_FORM a kód közepén: a(z) ' + name + ' helyi változó a mentés előtt '
-                                                  'kaphat értéket és utána is használt; a folytatás új kérésben indul.')
+                                raise Unsupported(why + ': a(z) ' + name + ' helyi változó a pont előtt kaphat értéket és '
+                                                  'utána is használt; a folytatás új kérésben indul.')
     for path in points:
         node = path[-1][2]
         start, end = sig[node.start][2], sig[node.end][2]
-        edits.append((start, end, 'niva_commit_form(' + str(number[id(node)]) + ')', 2))
+        edits.append((start, end, body[start:end].strip().replace(MARK, str(number[id(node)])), 2))
     return apply(body, edits), len(points)
 
 
@@ -167,21 +183,38 @@ def state_expression(binds, var) -> str:
     return ' || CHR(29) || '.join(parts) if parts else 'NULL'
 
 
-def declarations(resume_var: str, mode_var: str, state: str) -> tuple[list[str], list[str]]:
-    """(variables, subprograms) of a block with commit points."""
-    items = [f'  niva_resume PLS_INTEGER := NVL(TO_NUMBER({resume_var}), 0);',
-             f'  niva_commit_mode VARCHAR2(10) := {mode_var};',
-             '  niva_commit_at PLS_INTEGER;',
-             '  niva_commit_state VARCHAR2(32767);',
-             '  niva_commit_pending EXCEPTION;']
-    subprograms = ['  PROCEDURE niva_commit_form(p_point PLS_INTEGER) IS',
-                   '  BEGIN',
-                   '    IF p_point <> niva_resume THEN',
-                   '      niva_commit_at := p_point;',
-                   f'      niva_commit_state := SUBSTR({state}, 1, 32000);',
-                   '      RAISE niva_commit_pending;',
-                   '    END IF;',
-                   '  END;']
+def declarations(resume_var: str, mode_var: str, state: str, commit: bool = True,
+                 screen: bool = False) -> tuple[list[str], list[str]]:
+    """(variables, subprograms) of a block with commit points and/or screen points."""
+    items = [f'  niva_resume PLS_INTEGER := NVL(TO_NUMBER({resume_var}), 0);']
+    if commit:
+        items += [f'  niva_commit_mode VARCHAR2(10) := {mode_var};']
+    items += ['  niva_commit_at PLS_INTEGER;']
+    if commit:
+        items += ['  niva_commit_state VARCHAR2(32767);']
+    if screen:
+        items += ["  niva_point_kind VARCHAR2(10) := 'COMMIT';"]
+    items += ['  niva_commit_pending EXCEPTION;']
+    subprograms = []
+    if commit:
+        subprograms += ['  PROCEDURE niva_commit_form(p_point PLS_INTEGER) IS',
+                        '  BEGIN',
+                        '    IF p_point <> niva_resume THEN',
+                        '      niva_commit_at := p_point;',
+                        f'      niva_commit_state := SUBSTR({state}, 1, 32000);',
+                        '      RAISE niva_commit_pending;',
+                        '    END IF;',
+                        '  END;']
+    if screen:
+        subprograms += ['  PROCEDURE niva_screen_point(p_point PLS_INTEGER, p_step VARCHAR2) IS',
+                        '  BEGIN',
+                        '    IF p_point <> niva_resume THEN',
+                        '      niva_cmd(p_step);',
+                        '      niva_commit_at := p_point;',
+                        "      niva_point_kind := 'STEP';",
+                        '      RAISE niva_commit_pending;',
+                        '    END IF;',
+                        '  END;']
     return items, subprograms
 
 
@@ -190,6 +223,22 @@ HANDLER = ("  WHEN niva_commit_pending THEN\n"
            "      ROLLBACK TO SAVEPOINT niva_start;\n"
            "    END IF;\n"
            "    niva_cmd('NIVA_COMMIT', TO_CHAR(niva_commit_at), niva_commit_state);")
+# A screen point: the work before it stays (the request ends normally), the screen resumes after the step.
+SCREEN_HANDLER = ("  WHEN niva_commit_pending THEN\n"
+                  "    niva_cmd('NIVA_RESUME', TO_CHAR(niva_commit_at));")
+BOTH_HANDLER = ("  WHEN niva_commit_pending THEN\n"
+                "    IF niva_point_kind = 'STEP' THEN\n"
+                "      niva_cmd('NIVA_RESUME', TO_CHAR(niva_commit_at));\n"
+                "    ELSE\n"
+                "      IF niva_commit_mode IS NULL THEN\n"
+                "        ROLLBACK TO SAVEPOINT niva_start;\n"
+                "      END IF;\n"
+                "      niva_cmd('NIVA_COMMIT', TO_CHAR(niva_commit_at), niva_commit_state);\n"
+                "    END IF;")
+
+
+def handler(commit: int, screen: int) -> str:
+    return BOTH_HANDLER if commit and screen else SCREEN_HANDLER if screen else HANDLER
 
 
 def placeholder_count(text: str) -> int:

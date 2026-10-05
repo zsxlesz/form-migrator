@@ -560,6 +560,15 @@ class Rewriter:
                     self.needs.add('ui')
                     self.commands.append('COMMIT_FORM')
                     return end
+                if self.commit_points and key is None and word in emu.SCREEN_STEPS:
+                    # A screen step followed by more code: a screen point; the screen carries out the step,
+                    # then the code resumes after it with the screen's new values.
+                    from .commit_points import screen_placeholder
+                    replace[token[2]] = (end, screen_placeholder(word) + ';')
+                    self.points += 1
+                    self.needs.add('ui')
+                    self.commands.append(word)
+                    return end
                 raise Unsupported(reason)
         self.needs.add('ui')
         self.commands.append(word)
@@ -805,13 +814,20 @@ def java_lines(text: str, indent: str = '                ') -> str:
 PACKAGE_HEADER = re.compile(r'^\s*PACKAGE\s+(BODY\s+)?([A-Za-z][\w$#]*(?:\.[A-Za-z][\w$#]*)?)\s+(?:IS|AS)\b', re.I)
 
 
-def package_declarations(name: str, unit: dict) -> tuple[str, str, list[str]]:
-    """A local package as declarations of an anonymous block: (variables, subprograms, member names).
+INIT_REFUSED = {'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'COMMIT', 'ROLLBACK', 'SAVEPOINT'}
+
+
+def package_declarations(name: str, unit: dict) -> tuple[str, str, list[str], str]:
+    """A local package as declarations of an anonymous block: (variables, subprograms, member names, init block).
 
     The specification's variables, constants, types and cursors come first, then the subprograms:
-    the specification's forward declarations and the body. Package state lives for one request.
+    the specification's forward declarations and the body. Package state lives for one request, so the
+    initialisation part (BEGIN at the end of the body) runs at the start of the block, once per request,
+    as a nested block (its exception handler included). It may read and compute; writing data or the
+    screen there would happen in every request instead of once per Forms session, so that is refused.
     """
-    items, subprograms, members = [], [], []
+    from . import forms_emulation as emu
+    items, subprograms, members, init = [], [], [], ''
     for part in ('spec', 'body'):
         text = decode_line_escapes(unit.get(part) or '').strip()
         if not text:
@@ -829,7 +845,13 @@ def package_declarations(name: str, unit: dict) -> tuple[str, str, list[str]]:
         for element in package_elements(inner):
             kind, text_part, member = element
             if kind == 'init':
-                raise Unsupported('A csomagnak inicializáló része van (BEGIN a törzs végén): kézi átültetés.')
+                words = {t[1].upper() for t in significant(scan(text_part)) if t[0] == 'ident'}
+                refused = sorted(words & (INIT_REFUSED | emu.COMMANDS | emu.TAIL_COMMANDS))
+                if refused:
+                    raise Unsupported('A csomag inicializáló része adatot vagy képernyőt módosít (' + ', '.join(refused)
+                                      + '): a Formsban munkamenetenként egyszer, itt kérésenként futna; kézi átültetés.')
+                init = text_part.rstrip() + '\nEND;'
+                continue
             if member:
                 members.append(member)
             if kind == 'item':
@@ -838,7 +860,7 @@ def package_declarations(name: str, unit: dict) -> tuple[str, str, list[str]]:
                 subprograms.insert(len([x for x in subprograms if x.startswith('  -- forward')]), '  ' + text_part)
             elif kind == 'subprogram':
                 subprograms.append('  ' + text_part)
-    return '\n'.join(items), '\n'.join(subprograms), sorted(set(members))
+    return '\n'.join(items), '\n'.join(subprograms), sorted(set(members)), init
 
 
 def package_elements(text: str):
@@ -849,47 +871,15 @@ def package_elements(text: str):
         word = tokens[i][1].upper()
         start = tokens[i][2]
         if word in {'PROCEDURE', 'FUNCTION'}:
+            from .libraries import header_end, subprogram_end
             member = tokens[i + 1][1].upper() if i + 1 < n else ''
-            j, depth = i + 1, 0
-            while j < n:  # the header: up to ';' (forward) or IS/AS outside parentheses
-                value = tokens[j][1].upper()
-                if value == '(':
-                    depth += 1
-                elif value == ')':
-                    depth -= 1
-                elif depth == 0 and value in {';', 'IS', 'AS'}:
-                    break
-                j += 1
-            if j >= n:
-                raise Unsupported('Lezáratlan alprogram a csomagban: ' + member)
-            if tokens[j][1] == ';':
-                yield 'forward', text[start:tokens[j][3]], member
-                i = j + 1
-                continue
-            stack, began, k = [], False, j + 1
-            while k < n:
-                value = tokens[k][1].upper() if tokens[k][0] == 'ident' else tokens[k][1]
-                if value in {'PROCEDURE', 'FUNCTION'} and not began:
-                    raise Unsupported('Beágyazott alprogram a csomag ' + member + ' tagjában: kézi átültetés.')
-                if value in {'BEGIN', 'IF', 'LOOP', 'CASE'}:
-                    if value == 'BEGIN' and not stack:
-                        began = True
-                    stack.append(value)
-                elif value == 'END':
-                    following = tokens[k + 1][1].upper() if k + 1 < n else ''
-                    if stack:
-                        stack.pop()
-                    if following in {'IF', 'LOOP', 'CASE'}:
-                        k += 1
-                    elif began and not stack:
-                        while k < n and tokens[k][1] != ';':
-                            k += 1
-                        break
-                k += 1
-            if k >= n:
-                raise Unsupported('Lezáratlan alprogram a csomagban: ' + member)
-            yield 'subprogram', text[start:tokens[k][3]], member
-            i = k + 1
+            try:
+                # Nested procedures and functions inside the member are its own declarations: kept as written.
+                head, last = header_end(tokens, i), subprogram_end(tokens, i)
+            except Unsupported as exc:
+                raise Unsupported('Lezáratlan alprogram a csomagban: ' + member + ' (' + str(exc) + ').')
+            yield ('forward' if tokens[head][1] == ';' else 'subprogram'), text[start:tokens[last][3]], member
+            i = last + 1
             continue
         if word == 'BEGIN':
             yield 'init', text[start:], ''
@@ -948,7 +938,7 @@ def unit_library(units: dict, items: dict, prefixes: tuple, procedures: dict | N
             declared[name] = exc
     members = {m for d in declared.values() if not isinstance(d, Unsupported) for m in d[2]}
     for name, unit in units.items():
-        entry = {'kind': unit['kind'], 'source': unit['text'], 'text': '', 'items': '', 'members': [], 'binds': {},
+        entry = {'kind': unit['kind'], 'source': unit['text'], 'text': '', 'items': '', 'init': '', 'members': [], 'binds': {},
                  'needs': set(), 'calls': [], 'unresolved': [], 'out_args': [], 'error': None, 'commands': [],
                  'library': unit.get('library')}
         rewriter = Rewriter(None, items, prefixes, other_blocks=True, parameters=True, transaction=False,
@@ -964,10 +954,11 @@ def unit_library(units: dict, items: dict, prefixes: tuple, procedures: dict | N
             if unit['kind'] == 'package':
                 if isinstance(declared[name], Unsupported):
                     raise declared[name]
-                variables, subprograms, entry['members'] = declared[name]
+                variables, subprograms, entry['members'], init = declared[name]
                 validate_structure(subprograms)
                 entry['items'] = rewriter.rewrite(variables) if variables.strip() else ''
                 entry['text'] = rewriter.rewrite(subprograms).rstrip() if subprograms.strip() else ''
+                entry['init'] = rewriter.rewrite(init).rstrip() if init else ''
             else:
                 validate_structure(decode_line_escapes(unit['text']))
                 entry['text'] = rewriter.rewrite(decode_line_escapes(unit['text']).strip()).rstrip().rstrip(';') + ';'
@@ -1044,6 +1035,10 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     if any(library[n]['kind'] == 'package' for n in order):
         rewriter.notes.append('Helyi csomag beágyazva (' + ', '.join(n for n in order if library[n]['kind'] == 'package')
                               + '): a csomagváltozók kérésenként újraindulnak.')
+    inits = [n for n in order if library[n].get('init')]
+    if inits:
+        rewriter.notes.append('A(z) ' + ', '.join(inits) + ' csomag inicializáló része a blokk elején fut (kérésenként; '
+                              'a Formsban az első hivatkozáskor, munkamenetenként egyszer).')
     body_tokens = significant(scan(body))
     if not body_tokens:
         raise Unsupported('A triggerben nincs végrehajtható forrás; az export ellenőrzése szükséges.')
@@ -1059,31 +1054,40 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     if 'failure' in rewriter.needs and not any(re.search(r'\bFORM_TRIGGER_FAILURE\b', code, re.I)
                                                for code in [body] + [library[n]['text'] for n in order]):
         rewriter.needs.discard('failure')  # only the pruned IF NOT TRUE THEN RAISE FORM_TRIGGER_FAILURE used it
-    points = 0
+    points = screen_points = 0
     if rewriter.points:
         from . import commit_points as cp
-        body, points = cp.transform('BEGIN\n' + body + '\nEND;')  # the body is a statement list of the outer block
+        why = cp.purpose(body)
+        body, total = cp.transform('BEGIN\n' + body + '\nEND;')  # the body is a statement list of the outer block
+        screen_points = body.count('niva_screen_point(')
+        points = total - screen_points
         stateful = [n for n in order if library[n]['kind'] == 'package' and library[n]['items'].strip()]
         if stateful:
-            raise Unsupported('COMMIT_FORM a kód közepén: a(z) ' + ', '.join(stateful) + ' helyi csomag változói a '
+            raise Unsupported(why + ': a(z) ' + ', '.join(stateful) + ' helyi csomag változói a '
                               'folytatásig nem őrizhetők meg (a folytatás új kérésben indul).')
         rewriter.parameter_bind('NIVA.RESUME')
-        rewriter.parameter_bind('NIVA.COMMIT')
-        rewriter.notes.append('COMMIT_FORM a kód közepén -> mentési pont (' + str(points) + '): a képernyő ment, majd a kód '
-                              'a pont után folytatódik (NIVA.RESUME).')
+        if points:
+            rewriter.parameter_bind('NIVA.COMMIT')
+            rewriter.notes.append('COMMIT_FORM a kód közepén -> mentési pont (' + str(points) + '): a képernyő ment, majd a kód '
+                                  'a pont után folytatódik (NIVA.RESUME).')
+        if screen_points:
+            rewriter.notes.append('Képernyőlépés a kód közepén -> képernyőpont (' + str(screen_points) + '): a képernyő '
+                                  'végrehajtja a lépést, majd a kód a pont után folytatódik (NIVA.RESUME). A pont előtti '
+                                  'adatbázis-módosítások a ponton véglegesednek (a Formsban a következő mentéskor).')
     if ui:
         rewriter.needs.add('ui')
         handlers = []
         if 'alert' in rewriter.needs:
             # A pending dialog: the work of this request is undone, the screen asks and sends it again.
             handlers.append('  WHEN niva_alert_pending THEN\n    ROLLBACK TO SAVEPOINT niva_start;')
-        if points:
-            from .commit_points import HANDLER
-            handlers.append(HANDLER)
+        if points or screen_points:
+            from .commit_points import handler
+            handlers.append(handler(points, screen_points))
         if handlers:
             body = 'BEGIN\n  SAVEPOINT niva_start;\n' + body + '\nEXCEPTION\n' + '\n'.join(handlers) + '\nEND;'
     binds = list(rewriter.binds.values())
-    code = body + '\n' + '\n'.join(library[n]['items'] + '\n' + library[n]['text'] for n in order)
+    code = body + '\n' + '\n'.join(library[n]['items'] + '\n' + library[n]['text'] + '\n' + library[n].get('init', '')
+                                    for n in order)
     visible = ''.join(t[1] for t in scan(code) if t[0] not in {'string', 'comment'})
     targets = assigned_vars(visible)
     for arg in rewriter.out_args:  # OUT arguments of known procedures write the item too
@@ -1106,9 +1110,11 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     head += [f"  {var(b['source'])}_o {SQL_TYPES[b['type']]}; -- {b['source']} (védett)" for b in guarded]
     emulated_items, helpers = emu.declarations(rewriter.needs) if ui else ([], [])
     commit_subprograms = []
-    if points:
+    if points or screen_points:
         from . import commit_points as cp
-        commit_items, commit_subprograms = cp.declarations(var('NIVA.RESUME'), var('NIVA.COMMIT'), cp.state_expression(binds, var))
+        commit_items, commit_subprograms = cp.declarations(var('NIVA.RESUME'), var('NIVA.COMMIT') if points else '',
+                                                           cp.state_expression(binds, var), commit=bool(points),
+                                                           screen=bool(screen_points))
         emulated_items += commit_items
     head += emulated_items
     head += [library[n]['items'] for n in order if library[n]['items'].strip()]  # package variables: before any subprogram
@@ -1121,6 +1127,8 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     checks = [f"  IF {v} <> {v}_o OR ({v} IS NULL AND {v}_o IS NOT NULL) OR ({v} IS NOT NULL AND {v}_o IS NULL) THEN\n"
               f"    RAISE_APPLICATION_ERROR(-20998, '{b['source']}: a trigger módosította, de ebben az eseményben nem írható vissza.');\n  END IF;"
               for b in guarded for v in [var(b['source'])]]
+    # Package initialisation parts, callees first (order): once per request, before the code.
+    start += ['  -- ' + n + ' inicializálása\n' + library[n]['init'] for n in inits]
     tail = (start + [body] + checks + [f"  ? := {var(b['source'])};" for b in outs]
             + [f"  ? := {var(b['source'])};" for b in globals_out] + ['  ? := niva_messages;'] + (['  ? := niva_ui;'] if ui else []))
     if 'failure' in rewriter.needs:
@@ -1141,7 +1149,8 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     return {'sql': sql, 'head': head_text, 'head_parts': head_parts, 'tail': tail_text, 'binds': binds, 'outs': outs,
             'notes': rewriter.notes,
             'units': order, 'assigned': sorted(assigned), 'unresolved': rewriter.unresolved, 'guarded': [b['source'] for b in guarded],
-            'ui': ui, 'globals': globals_out, 'commands': list(dict.fromkeys(rewriter.commands)), 'commit_points': points}
+            'ui': ui, 'globals': globals_out, 'commands': list(dict.fromkeys(rewriter.commands)), 'commit_points': points,
+            'screen_points': screen_points}
 
 
 def assigned_vars(visible: str) -> set[str]:

@@ -36,6 +36,9 @@ COMMANDS = set('''GO_ITEM GO_BLOCK GO_RECORD NEXT_ITEM PREVIOUS_ITEM NEXT_BLOCK 
 TAIL_COMMANDS = set('''EXECUTE_QUERY COUNT_QUERY ENTER_QUERY COMMIT_FORM POST CLEAR_FORM CLEAR_BLOCK CLEAR_RECORD
  CREATE_RECORD DELETE_RECORD DUPLICATE_RECORD EXIT_FORM CALL_FORM OPEN_FORM NEW_FORM GO_FORM DO_KEY
  LIST_VALUES'''.split())
+# Tail commands that may stand in the middle of a button's code as a screen point: the request stops, the screen
+# carries out the step, then the code resumes with the screen's new values (commit_points.SCREEN_PLACEHOLDER).
+SCREEN_STEPS = {'EXECUTE_QUERY', 'CLEAR_BLOCK', 'CLEAR_RECORD', 'CREATE_RECORD', 'CLEAR_FORM'}
 # Built-ins that move the cursor: a later DO_KEY may run another block's or item's KEY trigger.
 NAVIGATION = set('''GO_ITEM GO_BLOCK GO_FORM NEXT_ITEM PREVIOUS_ITEM NEXT_BLOCK PREVIOUS_BLOCK NEXT_FORM PREVIOUS_FORM
  SET_INPUT_FOCUS'''.split())

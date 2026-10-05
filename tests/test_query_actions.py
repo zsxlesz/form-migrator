@@ -312,7 +312,7 @@ class QueryActionTests(unittest.TestCase):
         self.assertIn('if (page.rows != null)', component)
         self.assertIn('this.showRows(target, page.rows)', component)
         self.assertIn('this.activeQueryActions[target] = ownId', component)
-        self.assertIn('if (action) return this.runAction(action)', component)
+        self.assertIn('if (action) return this.runAction(action, [], 0, done)', component)
         self.assertIn('value ? pair[0] : pair[1]', component)
 
     def test_company_contract_uses_the_same_query_request_and_page_in_every_layer(self):

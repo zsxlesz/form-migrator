@@ -28,8 +28,17 @@ def replica_variant() -> str:
         '&amp;#10;END IF;"/>',
         '   <Trigger Name="KEY-NEXT-ITEM" TriggerText="cikk_ellenor(:TETEL.CIKK);&amp;#10;NEXT_ITEM;"/>',
         '   <Trigger Name="KEY-NXTBLK" TriggerText="NEXT_BLOCK;"/>', pre]), 1)
-    return xml.replace('TriggerText="blokk_frissit;"', 'TriggerText="GO_BLOCK(&apos;TETEL&apos;);&amp;#10;EXECUTE_QUERY;'
-                       '&amp;#10;:CTRL.UTOLSO := :TETEL.CIKK;"', 1)
+    # a screen step that cannot be a screen point (4.15): where the cursor goes after DELETE_RECORD is not certain
+    xml = xml.replace('TriggerText="blokk_frissit;"', 'TriggerText="GO_BLOCK(&apos;TETEL&apos;);&amp;#10;DELETE_RECORD;'
+                      '&amp;#10;:CTRL.UTOLSO := :TETEL.CIKK;"', 1)
+    ctrl = '<Block Name="CTRL" DatabaseDataBlock="false" RecordsDisplayCount="1">'
+    xml = xml.replace(ctrl, ctrl + '\n   <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="ctrl_ellenor;"/>', 1)
+    xml = xml.replace(pre, '   <Trigger Name="WHEN-NEW-BLOCK-INSTANCE" TriggerText="tetel_init(:TETEL.ID);"/>\n' + pre, 1)
+    form_key = '<Trigger Name="KEY-EXIT"'
+    xml = xml.replace(form_key, '<Trigger Name="KEY-HELP" TriggerText="sugo_megnyit(:SYSTEM.CURSOR_ITEM);"/>\n  ' + form_key, 1)
+    # start-up code the init endpoint cannot run: the survey shows why
+    startup = "SET_ITEM_PROPERTY(&apos;CTRL.EV&apos;, VISUAL_ATTRIBUTE, &apos;VA_DISPLAY&apos;);"
+    return xml.replace(startup, startup + '&amp;#10;    :CTRL.SZURO := GET_APPLICATION_PROPERTY(CONNECT_STRING);', 1)
 
 
 class ShapeTests(unittest.TestCase):
@@ -70,6 +79,13 @@ class ApproximationHelperTests(unittest.TestCase):
         self.assertFalse(survey.default_key('KEY-NEXT-ITEM', 'ellenor(:B.I); NEXT_ITEM;'))
         self.assertFalse(survey.default_key('KEY-EXIT', 'NULL;'))  # the key no longer exits: a difference
 
+    def test_token_errors_keep_the_reason_of_the_database_passthrough(self):
+        from niva_forms.portfolio import normalize
+        text = ("Nem támogatott token a(z) 57. karakternél: '%' x. Átfuttatás az adatbázisban sem lehetséges: "
+                "A(z) PKG helyi csomag nem futtatható: 12 hiba")
+        self.assertEqual(normalize(text), "Nem támogatott token a(z) N. karakternél: '%'… Átfuttatás az adatbázisban sem "
+                                          "lehetséges: A(z) PKG helyi csomag nem futtatható: N hiba")
+
     def test_mid_code_steps_come_from_the_generator_reasons(self):
         reasons = ['Átfuttatás az adatbázisban sem lehetséges: EXECUTE_QUERY után további adat- vagy mezőművelet '
                    'következik (:B.I): a webes képernyő a EXECUTE_QUERY lépést a kód végén hajtja végre.',
@@ -107,7 +123,8 @@ class ApproximationRunTests(unittest.TestCase):
         self.assertEqual(set(self.rows), set(survey.APPROXIMATIONS))
         counts = {kind: row['count'] for kind, row in self.rows.items()}
         self.assertEqual(counts, {'multi_record_write': 2, 'item_validation': 2, 'record_validation': 1, 'data_key': 3,
-                                  'other_key': 1, 'mid_code_step': 1, 'on_error': 1, 'post_query_rows': 1})
+                                  'other_key': 1, 'forms_only_key': 1, 'item_event': 1, 'screen_event': 1,
+                                  'mid_code_step': 1, 'on_error': 1, 'post_query_rows': 1})
         self.assertEqual(self.report['totals']['multi_record_blocks'], 2)
 
     def test_details_say_what_to_fix_first(self):
@@ -115,11 +132,24 @@ class ApproximationRunTests(unittest.TestCase):
         self.assertEqual(self.rows['item_validation']['details'].get('többsoros blokkon'), 1)
         self.assertEqual(self.rows['data_key']['details'], {'KEY-COMMIT': 1, 'KEY-EXEQRY': 1, 'KEY-CREREC': 1})
         self.assertEqual(self.rows['other_key']['details'], {'KEY-NEXT-ITEM': 1})  # KEY-NXTBLK only does NEXT_BLOCK
-        self.assertEqual(self.rows['mid_code_step']['details'], {'EXECUTE_QUERY': 1})
+        self.assertEqual(self.rows['forms_only_key']['details'], {'KEY-HELP': 1})
+        self.assertEqual(self.rows['item_event']['details'], {'WHEN-VALIDATE-ITEM': 1, 'vezérlőblokkon': 1})
+        self.assertEqual(self.rows['screen_event']['details'], {'WHEN-NEW-BLOCK-INSTANCE': 1})
+        self.assertEqual(self.rows['mid_code_step']['details'], {'DELETE_RECORD': 1})
         self.assertEqual(self.rows['post_query_rows']['details'], {'SELECT … INTO (kikeresés)': 1})
         events = [e['event'] for row in self.rows.values() for e in row['examples']]
         self.assertNotIn('KEY-EXIT', events)  # qms$ framework call only
         self.assertNotIn('KEY-NXTBLK', events)
+
+    def test_a_start_up_endpoint_that_cannot_be_generated_is_counted_with_its_reason(self):
+        startup = [c for c in self.report['causes'] if c['code'] == 'STARTUP']
+        self.assertEqual(len(startup), 1)
+        self.assertEqual((startup[0]['endpoints'], startup[0]['sole']), (1, 1))
+        self.assertIn('GET_APPLICATION_PROPERTY', startup[0]['reason'])
+        self.assertTrue(startup[0]['examples'])
+        self.assertGreaterEqual(self.report['operations']['action']['blocked'], 2)  # the init endpoint and PB_FRISSIT
+        events = {t['event']: t['reason'] for t in self.report['triggers']}
+        self.assertTrue(events['WHEN-NEW-FORM-INSTANCE'].startswith(survey.STARTUP_REASON))
 
     def test_the_section_is_shareable(self):
         section = self.text[self.text.index('## Eltérések a Forms-működéstől'):self.text.index('## Okok a tiltott')]
@@ -127,7 +157,8 @@ class ApproximationRunTests(unittest.TestCase):
         self.assertIn('- **Javítás:**', section)
         self.assertIn('Többsoros adatbázis-blokk összesen: 2, ebből írható: 2.', section)
         self.assertIn('SELECT N1 INTO :B1.I1 FROM N2 WHERE N3 = :B1.I2;', section)  # the POST-QUERY lookup, anonymised
-        for secret in ('CIKK', 'TETEL', 'RENDELES', 'cikk_ellenor', 'hiba_kezelo', 'ank_', 'UTOLSO', 'Túl nagy'):
+        for secret in ('CIKK', 'TETEL', 'RENDELES', 'cikk_ellenor', 'hiba_kezelo', 'ank_', 'UTOLSO', 'Túl nagy',
+                       'sugo_megnyit', 'ctrl_ellenor', 'tetel_init', 'SZURO'):
             self.assertNotIn(secret, section)
 
 

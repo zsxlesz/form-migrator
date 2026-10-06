@@ -414,11 +414,11 @@ def blockers(plan, model):
 
 def message_comments(units: dict | None, indent: str) -> str:
     """The local alert/message procedures the screen shows as a message (toast): their original code, commented."""
-    lines = []
-    for name, source in (units or {}).items():
-        lines.append(name + ' (helyi alert/üzenet-eljárás): a webes képernyőn üzenetként jelenik meg. Az eredeti kódja, ha később kellene:')
-        lines += source.splitlines()
-    return ''.join(indent + ('// ' + line.replace('\\', '[backslash]') if line.strip() else '//') + '\n' for line in lines)
+    if not units:
+        return ''
+    from .query_java import region
+    return region('Eredeti Forms-kód: ' + ', '.join(units), [(name + ' (helyi alert/üzenet-eljárás): a webes képernyőn üzenetként '
+                  'jelenik meg. Az eredeti kódja, ha később kellene:', source) for name, source in units.items()], indent)
 
 
 def java_method(operation, block, gated, log1x, user_type, support):
@@ -528,6 +528,13 @@ def java_method(operation, block, gated, log1x, user_type, support):
 
 
 def evidence(plan):
+    if plan.get('java'):
+        java = plan['java']
+        return '\n'.join(['Java lekérdezés: ' + java['unit'] + ' -> ' + java['target'],
+                          'A WHERE a képernyő értékeiből, Java if-ekkel épül; a :BLOKK.MEZŐ hivatkozások JDBC bindek.',
+                          'Kötött értékek: ' + (', '.join(':' + s for s in java['binds']) or '—'),
+                          'Kimaradt Forms-hívások: ' + (', '.join(java['left_out']) or '—'),
+                          'Üzenetként: ' + (', '.join(java['called']) or '—')])
     lines = ['DEFAULT_WHERE adapter: ' + plan['unit'] + ' -> ' + plan['target'],
              'PL/SQL: az eredeti IF ágak Oracle-ben futnak; a három Forms-hívás szerveroldali szűrőeredményre fordul.',
              'A kliens csak mezőértékeket küldhet, SQL-szöveget nem.',

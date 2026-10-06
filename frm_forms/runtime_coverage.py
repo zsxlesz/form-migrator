@@ -62,7 +62,8 @@ def coverage(model, backend=None, screen=None):
             linked = [e for e in endpoints if e.get('owner') == owner and e['operation'] == 'action']
             automatic = owner in visible and owner in calls.get('actions', {})
             query = trigger.get('query_action')
-            row.update(status='backend' if linked else 'manual', engine='plsql-query' if query else 'plsql',
+            row.update(status='backend' if linked else 'manual',
+                       engine=('java-query' if query.get('java') else 'plsql-query') if query else 'plsql',
                        execution='Gombnyomás → Angular HTTP → DPS ServiceImpl.' if automatic else 'Akció-végpont; a hívását a hostnak kell bekötnie.')
             if not automatic:
                 row['gaps'].append('Nincs hozzá automatikusan hívó, megjelenített Angular gomb.')

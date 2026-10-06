@@ -537,7 +537,7 @@ def generate(resolution, ui, output, config, module, discovery):
         methods.append('  private ' + m['method'] + '(): void {\n'
                        + ('    const selected = { ' + rows + ' };\n    void selected;\n' if rows else '')
                        + '    // Mintának: void this.router.navigate([\'/<cél modul útvonala>\'], { queryParams: { /* Forms-paraméterek */ } });\n'
-                       + '    // Eredeti Forms-kód (kiindulásnak):\n' + comment + '\n'
+                       + '    //#region Eredeti Forms-kód (kiindulásnak)\n' + comment + '\n    //#endregion\n'
                        + "    this.toast.warning('Nincs bekötve', 'A navigációt kézzel kell befejezni: " + owner.replace('\\', '\\\\').replace("'", "\\'") + "', true, this.toastLife.warning);\n  }")
 
     # ---------------------------------------------------------------- the source

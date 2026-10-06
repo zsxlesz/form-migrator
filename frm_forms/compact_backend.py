@@ -436,21 +436,15 @@ def module_header(model, cls):
 
 
 def manual_source(action, discovery) -> str:
-    """The Forms code of a button that is not ported yet, as Java comments in its method body."""
+    """The Forms code of a button that is not ported yet, as Java comments in its method body (a foldable region)."""
+    from .query_java import region
     codes = discovery.get('_code_index', {})
-    parts = []
-    for cid in action.get('reachable_code', []):
-        code = codes.get(cid)
-        if code:
-            parts += [code['path'] + ':', code['source_view'].rstrip(), '']
-    for cid in action.get('event_code_candidates', []):
-        code = codes.get(cid)
-        if code:
-            parts += ['DO_KEY által indított key-trigger (jelölt): ' + code['path'] + ':', code['source_view'].rstrip(), '']
-    if not parts:
+    sections = [(codes[cid]['path'] + ':', codes[cid]['source_view']) for cid in action.get('reachable_code', []) if cid in codes]
+    sections += [('DO_KEY által indított key-trigger (jelölt): ' + codes[cid]['path'] + ':', codes[cid]['source_view'])
+                 for cid in action.get('event_code_candidates', []) if cid in codes]
+    if not sections:
         return ''
-    text = '\n'.join(['Eredeti Forms-kód kiindulásnak (nem fut; a trigger és az általa hívott helyi eljárások):', ''] + parts).rstrip()
-    return comment_lines(text, '            ') + '\n'
+    return region('Eredeti Forms-kód kiindulásnak (nem fut; a trigger és az általa hívott helyi eljárások)', sections, '            ')
 
 
 def action_evidence(action, discovery):
@@ -857,7 +851,11 @@ public class {cls}ControllerImpl extends {controller_base} implements {cls}Contr
         elif o['op'] == 'action' and o.get('query_action'):
             from .query_actions import java_method, evidence as query_evidence
             target = next(b for b in blocks if b['name'] == o['query_action']['target'])
-            dps_methods.append(java_method(o, target, gated, log1x, user_type, support))
+            if o['query_action'].get('java'):
+                from .query_java import method as java_query_method
+                dps_methods.append(java_query_method(o, target, gated, log1x, user_type, support, model, discovery))
+            else:
+                dps_methods.append(java_method(o, target, gated, log1x, user_type, support))
             evidence.append((o['method'], query_evidence(o['query_action']) + '\n\n' + action_evidence(o['action'], discovery)))
         elif o['op'] == 'action' and o.get('passthrough'):
             dps_methods.append(action_method(o, block, gated, discovery, model, log1x, user_type))
@@ -1005,13 +1003,17 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
     for o in ops:
         entry = {'method': o['method'], 'http': o['http'].upper(), 'constant': cls+'Constants.'+o['constant'], 'implemented': False}
         if o['op'] == 'action':
-            ready = bool(o.get('passthrough')) or bool(o.get('query_action') and not o.get('query_blockers'))
+            java_query = bool((o.get('query_action') or {}).get('java'))
+            # a Java query button runs even with other Forms code untranslated: that is its TODO, not a blocker
+            ready = bool(o.get('passthrough')) or java_query or bool(o.get('query_action') and not o.get('query_blockers'))
             entry.update(block=o['action']['block'] or '@FORM', operation='action', owner=o['action']['owner'],
                          implemented=ready and (not gated or live),
                          ready_after_module_review=ready and gated and not live,
-                         runs='plsql-query' if o.get('query_action') else 'plsql' if o.get('passthrough') else 'manual',
-                         blockers=o.get('query_blockers', []) if o.get('query_action') else [] if o.get('passthrough') else
+                         runs='java-query' if java_query else 'plsql-query' if o.get('query_action') else 'plsql' if o.get('passthrough') else 'manual',
+                         blockers=[] if java_query else o.get('query_blockers', []) if o.get('query_action') else [] if o.get('passthrough') else
                                   [o.get('passthrough_reason') or 'Kézi implementáció szükséges.'])
+            if java_query and o.get('query_blockers'):
+                entry['todo'] = o['query_blockers']
             if o.get('query_action'):
                 entry.update(query_block=o['query_action']['target'], query_unit=o['query_action']['unit'])
             plan = (o.get('query_action') or {}).get('prepared') or o.get('passthrough') or {}

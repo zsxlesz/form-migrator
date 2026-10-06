@@ -47,6 +47,9 @@ DEFAULTS = {"java_package": "hu.company.features", "api_prefix": "/api/forms", "
             # Keep Oracle expression/exception semantics in database triggers. "java" keeps the
             # previous Java-first compiler with PL/SQL fallback for existing integrations.
             "backend_trigger_mode": "plsql",
+            # Query buttons (DEFAULT_WHERE builders): "java" = the SQL request only, in readable Java (query_java);
+            # "plsql" = the 4.x adapter that runs the original builder in Oracle and matches precompiled variants.
+            "query_action_mode": "java",
             # Company backend conventions: every DPS/WBS ServiceImpl and ControllerImpl method runs in
             # log1x(log, <Module>Constants.<METHOD>_NAME, user, null, () -> ...). Set once per company.
             "java_service_base_dps": "ModuleServiceBase<DpsLogHelper>", "java_service_base_wbs": "ModuleServiceBase<WbsLogHelper>",
@@ -130,6 +133,8 @@ def configuration(args) -> dict:
         raise MigrationError("backend_lov_endpoints: true vagy false szükséges.")
     if result["backend_trigger_mode"] not in ("plsql", "java"):
         raise MigrationError("backend_trigger_mode: plsql vagy java szükséges.")
+    if result["query_action_mode"] not in ("java", "plsql"):
+        raise MigrationError("query_action_mode: java vagy plsql szükséges.")
     if result.get("ai_think") not in {None, False, True, "low", "medium", "high"}:
         raise MigrationError("ai_think: null/boolean/low/medium/high szükséges.")
     validate_company_config(result)
@@ -282,7 +287,7 @@ def migration(args, on_progress=None) -> int:
         package = config["java_package"] + "." + name(module).lower()
         emit("analyzing")
         # The framework catalog also classifies triggers: Headstart/Designer plumbing is not backend work.
-        model['options'] = {key: config[key] for key in ('backend_live', 'backend_trigger_mode')}
+        model['options'] = {key: config[key] for key in ('backend_live', 'backend_trigger_mode', 'query_action_mode')}
         analyze(model, metadata, replacements, framework.load(config))
         initial_values(model)
         model['generation_mode'] = generation_mode

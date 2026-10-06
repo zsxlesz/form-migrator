@@ -93,7 +93,8 @@ class QueryActionTests(unittest.TestCase):
         source = self.root / (label + '.xml')
         source.write_bytes(raw if raw is not None else fixture(builder, button, extra))
         settings = self.root / (label + '.json')
-        settings.write_text(json.dumps({'backend_live': True, 'backend_trigger_mode': 'plsql',
+        # the PL/SQL query adapter (query_action_mode: plsql); the Java query buttons: test_query_java
+        settings.write_text(json.dumps({'backend_live': True, 'backend_trigger_mode': 'plsql', 'query_action_mode': 'plsql',
                                        'java_company_imports': COMPANY_IMPORTS, 'java_import_map': '-', **(config or {})}))
         output = self.root / label
         errors = io.StringIO()
@@ -167,9 +168,11 @@ END;'''
         service = (out / 'backend/DPS/QueryServiceImpl.java').read_text(encoding='utf-8')
         self.assertIn("frm_msg('Adatlap kiválasztása nem történt meg!');", service)  # shown as a message
         self.assertIn("--lek_sql:='COL6=;00; and (COL9=;E04;)';", service)  # the SQL comment stays in the PL/SQL
-        self.assertIn('            // WUZENET (helyi alert/üzenet-eljárás): a webes képernyőn üzenetként jelenik meg. '
+        self.assertIn('            //region Eredeti Forms-kód: WUZENET\n'
+                      '            // WUZENET (helyi alert/üzenet-eljárás): a webes képernyőn üzenetként jelenik meg. '
                       'Az eredeti kódja, ha később kellene:\n            // PROCEDURE wuzenet(vv_uzenet varchar2) IS\n'
                       "            //   m_alertdialog  CONSTANT VARCHAR2(15) := 'QMS$INFORMATION';\n", service)
+        self.assertIn('            // END;\n            //endregion\n', service)
         self.assertNotIn('FIND_ALERT ( m_alertdialog )"', service)  # not in the executed PL/SQL
 
     def test_only_procedures_that_just_show_the_text_count_as_messages(self):

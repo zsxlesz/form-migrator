@@ -1043,6 +1043,19 @@ def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | Non
                 # Forms DEFAULT_WHERE builders need an explicit query adapter:
                 # the original PL/SQL builds the filter, JDBC queries the block.
                 from .query_actions import query_action
+                if model.get('options', {}).get('query_action_mode', 'java') == 'java':
+                    # 4.23: only the SQL request, in readable Java (query_java); the PL/SQL adapter is the fallback.
+                    from .query_java import plan as java_query
+                    try:
+                        java = java_query(trigger, source, model, catalog)
+                        trigger['query_action'] = {'target': java['target'], 'unit': java['unit'], 'context': None,
+                                                   'variants': [], 'message_units': {}, 'java': java,
+                                                   'prepared': {'binds': [], 'outs': [], 'inputs': java['inputs']}}
+                        trigger.update(status='converted', target='action')
+                        trigger.pop('reason', None)
+                        continue
+                    except Unsupported as java_error:
+                        trigger['query_java_reason'] = str(java_error)
                 try:
                     trigger['query_action'] = query_action(trigger, source, model, catalog)
                     trigger.update(status='converted', target='action')

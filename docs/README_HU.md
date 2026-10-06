@@ -1,4 +1,18 @@
-# FRM Forms Migrator 4.22.0 — használat
+# FRM Forms Migrator 4.23.0 — használat
+
+**4.23 – egyszerű Java lekérdezőgombok, eredeti kód régióban:**
+
+- **Csak az SQL-kérés:** a `DEFAULT_WHERE`-építő lekérdezőgombból (pl. `LEKERDEZESI_FELTETELEK` + `WUZENET`)
+  olvasható Java-metódus lesz. A képernyő mezőiből olvas, a WHERE-t Java `if`-ekkel rakja össze, és egyetlen
+  JDBC-lekérdezést futtat. A `SET_BLOCK_PROPERTY`, `GO_BLOCK`, `EXECUTE_QUERY` és a `WUZENET` nincs emulálva (az
+  egyszövegű hívás üzenet).
+- **Nem blokkol más trigger:** ami a Formsban még futna, de nem fordult le (pl. form-szintű `POST-QUERY`), az a
+  metódusban `// TODO`, nem 501-es hiba.
+- **Eredeti kód régióban:** az eredeti Forms-kód `//region` … `//endregion` között, összecsukhatóan marad a
+  metódusban. Így van a kézi gombvázakban és a frontend kézi navigációjában (`//#region`) is.
+- **Régi mód:** a korábbi PL/SQL-adapter a `query_action_mode: "plsql"` beállítással kérhető, és tartalékként is fut.
+
+Részletek: [JAVITASOK_4_23_HU.md](JAVITASOK_4_23_HU.md).
 
 **4.22 – alert-párbeszédes üzenetek, fejlesztői bemenetek:**
 
@@ -183,6 +197,8 @@ Részletek: [BACKEND_FORMATUM_4_12_HU.md](BACKEND_FORMATUM_4_12_HU.md).
 **Futtatható backend és mezőállapotok (korábbi CL, AWU_AZON nélkül):**
 - A támogatott adat-triggerek alapértelmezetten az eredeti PL/SQL-t futtatják a DPS ServiceImpl-ből,
   kötött mezőkkel és visszaírással. A korábbi Java-fordítás: `backend_trigger_mode: "java"`.
+- Lekérdezőgombok (`DEFAULT_WHERE`-építő): `query_action_mode: "java"` (alapértelmezés, egyszerű Java-lekérdezés)
+  vagy `"plsql"` (az eredeti eljárás Oracle-ben fut, előre lefordított változatokkal).
 - A `RUNTIME_COVERAGE.md` külön mutatja a kód futtathatóságát és a tényleges eseménybekötést;
   például a szerveroldali WHEN-VALIDATE-ITEM jelenleg mentéskor fut, nem mezőelhagyáskor.
 - Az `backend_live` beállítással (a weben alapból bekapcsolva) a generált backend azonnal éles.

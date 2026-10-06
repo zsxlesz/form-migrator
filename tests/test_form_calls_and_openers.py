@@ -64,7 +64,7 @@ class FormCallsAndOpenersTests(unittest.TestCase):
             method = component[component.index('  private navigateCgnvW011PbReszletek(): void {'):]
             method = method[:method.index('\n  }\n') + 4]
             self.assertIn('const selected = { AIT: this.tables.AIT.selection };', method)
-            self.assertIn('// Eredeti Forms-kód (kiindulásnak):', method)
+            self.assertIn('    //#region Eredeti Forms-kód (kiindulásnak)\n', method); self.assertIn('    //#endregion\n', method)
             self.assertIn('// PROCEDURE rogzitoform_hivasa IS', method)
             self.assertIn("this.toast.warning('Nincs bekötve'", method)
             self.assertIn("'CGNV$W01_1.PB_RESZLETEK': () => this.navigateCgnvW011PbReszletek(),", component)
@@ -78,11 +78,20 @@ class FormCallsAndOpenersTests(unittest.TestCase):
         self.assertNotIn('CGNV$W01_1.PB_RESZLETEK', screen.get('manual_navigations') or {})
 
     def test_query_button_with_a_local_message_procedure_is_recognised(self):
+        runs = lambda plan: [e.get('runs') for e in plan['endpoints'] if e.get('owner') == 'CGNV$W01_1.PB_LEKERDEZES']
         plan, _, _ = self.generate(REAL)
-        self.assertEqual([e.get('runs') for e in plan['endpoints'] if e.get('owner') == 'CGNV$W01_1.PB_LEKERDEZES'], ['plsql-query'])
+        self.assertEqual(runs(plan), ['java-query'])  # 4.23: the SQL request only, in Java
         logging = REAL.replace("  al := show_alert(", "  INSERT INTO naplo(szoveg) VALUES (p_szoveg);&amp;#10;  al := show_alert(")
-        plan, _, _ = self.generate(logging)  # WUZENET does more than show its text: no longer a message
-        self.assertEqual([e.get('runs') for e in plan['endpoints'] if e.get('owner') == 'CGNV$W01_1.PB_LEKERDEZES'], ['manual'])
+        plan, _, _ = self.generate(logging)  # WUZENET is not interpreted: a message, and a TODO for its own logic
+        self.assertEqual(runs(plan), ['java-query'])
+        service = (self.out / 'backend/DPS/XymodulServiceImpl.java').read_text(encoding='utf-8')
+        self.assertIn('TODO: a(z) WUZENET itt csak üzenet, de a Formsban mást is csinál (az eredeti kódja a regionban).', service)
+        self.assertIn('INSERT INTO naplo(szoveg) VALUES (p_szoveg);', service)  # in the region
+        # the PL/SQL query adapter (query_action_mode: plsql) keeps the strict reading
+        plan, _, _ = self.generate(REAL, query_action_mode='plsql')
+        self.assertEqual(runs(plan), ['plsql-query'])
+        plan, _, _ = self.generate(logging, query_action_mode='plsql')
+        self.assertEqual(runs(plan), ['manual'])
 
 if __name__ == '__main__':
     unittest.main()

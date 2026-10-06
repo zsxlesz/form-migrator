@@ -1,9 +1,10 @@
 """4.14: the Forms runtime of the generated screens is shared (frontend/frm-forms-screen.ts).
 
-A screen with buttons or a save chain extends FrmFormsScreen: runAction, formsCommit, runCommands,
-the alerts and the :GLOBAL / :SYSTEM context exist once per project; the component keeps its layout,
-its data (protected override readonly ...) and its hooks. With tsc available (FRM_TSC or on PATH),
-the generated screen and the runtime are type-checked strictly against stubs (tests/ts_stubs).
+Every screen extends FrmFormsScreen: runAction, formsCommit, runCommands, the alerts and the :GLOBAL / :SYSTEM
+context exist once per project; the component keeps its layout, its data (protected override readonly ...) and its
+hooks. With tsc available (FRM_TSC or on PATH), the generated screen and the runtime are type-checked with the
+tsconfig of a new Angular CLI project against stubs (tests/ts_stubs); with the Angular compiler (FRM_NGC=<path to
+ngc>) the templates too (strictTemplates).
 """
 import contextlib
 import io
@@ -20,8 +21,7 @@ from java_support import COMPANY_IMPORTS
 from frm_forms import screen_emulation
 from frm_forms.cli import main
 from frm_forms.screen_api import QUERY_LIMIT
-from frm_forms.ts_imports import code
-from screen_support import RUNTIME, component, runtime
+from screen_support import ANGULAR_CLI_OPTIONS, RUNTIME, component, ngc_check, runtime, with_company_imports
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
@@ -89,6 +89,9 @@ class ScreenRuntimeTests(unittest.TestCase):
                      'screenBlockNames', 'oracleNames'):
             self.assertNotIn(gone, screen)
         self.assertIn("<frm-table [table]=\"tables.TETEL\" />", screen)
+        # structures is a Record: noPropertyAccessFromIndexSignature (Angular CLI default) wants the brackets
+        self.assertIn('<ank-form-block [formStructure]="structures[\'ctrl\']" (formGroupGenerated)="onFormGroupGenerated(\'ctrl\', $event)" />', screen)
+        self.assertNotIn('"structures.', screen)
         self.assertIn('<frm-toolbar (action)="onToolbar($event)" />', screen)
         self.assertIn('<frm-alert [alert]="formsAlert" (answer)="answerAlert($event)" />', screen)
         self.assertIn("{ type: 'button', ownId: 'CTRL.PB_KERES', labelText: 'Keresés', col: '2', ...this.button('CTRL.PB_KERES') },", screen)
@@ -137,6 +140,16 @@ class ScreenRuntimeTests(unittest.TestCase):
             self.assertNotIn('get modName', text)
         self.assertIn('imports: [FormBlocksComponent', source)
 
+    def test_the_constructor_is_always_between_the_fields_and_the_methods(self):
+        for out in (self.out, self.simple, self.listas):
+            screen = component(out)
+            constructor = screen.index('  constructor() {\n    super();\n')
+            fields = [m.start() for m in re.finditer(r'\n  (?:protected|private) (?:override )?readonly ', screen)]
+            methods = [m.start() for m in re.finditer(r'\n  (?:private )?\w+\([^)]*\)(?:: void)? \{', screen) if m.start() != constructor - 1]
+            self.assertLess(max(fields), constructor, out.name)
+            self.assertTrue(all(constructor < m for m in methods), out.name)
+        self.assertIn('  constructor() {\n    super();\n  }\n}\n', component(self.simple))  # nothing to start: still there
+
     def test_typescript_strict(self):
         tsc = os.environ.get('FRM_TSC') or shutil.which('tsc')
         if not tsc:
@@ -146,23 +159,22 @@ class ScreenRuntimeTests(unittest.TestCase):
                 work = self.root / ('ts-' + out.name)
                 shutil.copytree(out / 'frontend', work / 'frontend')
                 shutil.copy(ROOT / 'tests/ts_stubs/company.ts', work / 'company.ts')
-                files = []
-                for path in (work / 'frontend').rglob('*.ts'):
-                    depth = len(path.relative_to(work / 'frontend').parts)
-                    text = path.read_text(encoding='utf-8')
-                    names = [n for n in ('ServiceBase', 'WFF', 'ToastService', 'FormBlocksComponent', 'FormBlock')
-                             if re.search(r'\b' + n + r'\b', code(text))]  # used in code, not only in a TODO comment
-                    if names:
-                        text = 'import { ' + ', '.join(names) + " } from '" + '../' * depth + "company';\n" + text
-                    path.write_text(text, encoding='utf-8')
-                    files.append(str(path))
+                files = with_company_imports(work / 'frontend')
                 (work / 'tsconfig.json').write_text(json.dumps({'compilerOptions': {
-                    'strict': True, 'noImplicitOverride': True, 'noUnusedLocals': True, 'target': 'ES2022', 'module': 'ES2022',
-                    'moduleResolution': 'bundler', 'experimentalDecorators': True, 'useDefineForClassFields': True, 'noEmit': True,
-                    'skipLibCheck': True, 'lib': ['ES2022', 'DOM']}, 'files': [str(ROOT / 'tests/ts_stubs/host.d.ts')] + files}))
+                    **ANGULAR_CLI_OPTIONS, 'noUnusedLocals': True, 'useDefineForClassFields': True, 'noEmit': True},
+                    'files': [str(ROOT / 'tests/ts_stubs/host.d.ts')] + files}))
                 run = subprocess.run([tsc, '-p', str(work / 'tsconfig.json')], capture_output=True, text=True, timeout=180)
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
+    def test_angular_compiler_strict_templates(self):
+        ngc = os.environ.get('FRM_NGC')
+        if not ngc:
+            self.skipTest('Angular compiler required (FRM_NGC=<path to node_modules/.bin/ngc> of an install with '
+                          '@angular/compiler-cli, core, common, forms, router and rxjs)')
+        for out in (self.out, self.simple, self.listas):
+            with self.subTest(out=out.name):
+                code, output = ngc_check(out, ngc)
+                self.assertEqual(code, 0, output)
 
 if __name__ == '__main__':
     unittest.main()

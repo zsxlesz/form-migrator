@@ -324,7 +324,7 @@ class JobManager:
             mapped = map_project(folder, layout)
         except MigrationError as exc:
             raise JobError(str(exc), 422) from exc
-        # the folders really written: a chosen package folder means its src/main/java, the manifest goes above it
+        # the folders really written: a chosen package folder means its src/main/java
         if allowed and not all(any(path.resolve().is_relative_to(root) for root in allowed) for path in mapped_folders(mapped)):
             raise JobError("Egy rész mappája nincs az engedélyezett mappák között (FRM_PROJECT_ROOTS).", 403)
         try:

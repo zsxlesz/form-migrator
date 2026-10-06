@@ -1,4 +1,15 @@
-# FRM Forms Migrator 4.20.0 — használat
+# FRM Forms Migrator 4.21.0 — használat
+
+**4.21 – nincs .frm-deploy.json, Angular-fordítási javítás, konstruktor:**
+
+- **Nincs `.frm-deploy.json`:** a telepítés csak a generált fájlokat írja. A generált fájl mindig frissül, a
+  CREATE_ONCE fájl (ServiceImpl, ControllerImpl, komponens) soha. A korábbi telepítések `.frm-deploy.json` fájljait
+  törli.
+- **TS4111 javítva:** a sablon `structures['…']` alakban hivatkozik a FormBlock-struktúrára (az Angular CLI
+  `noPropertyAccessFromIndexSignature` beállítása miatt).
+- **Konstruktor:** minden komponensben van `constructor() { super(); }`, a változók és a függvények között.
+
+Részletek: [JAVITASOK_4_21_HU.md](JAVITASOK_4_21_HU.md).
 
 **4.20 – frontend: rövidebb, Angularosabb képernyők:**
 

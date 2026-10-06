@@ -373,7 +373,7 @@ LAYOUT_HELP = ("Egy rész mappája: CL, DPS, WBS (a Java-projekt mappája vagy a
 def project_options(parser) -> None:
     parser.add_argument("--project", type=Path, help="Generálás után telepítés a projektbe: a fő projektmappa, amelyben a CL, DPS, WBS és frontend projektet a migrátor megkeresi")
     parser.add_argument("--layout", action="append", default=[], metavar="RÉSZ=MAPPA", help="Generálás után telepítés. " + LAYOUT_HELP)
-    parser.add_argument("--project-force", action="store_true", help="A telepítésnél a projektben módosított generált fájlok felülírása is")
+    parser.add_argument("--project-force", action="store_true", help="Régi kapcsoló, nincs hatása: a generált fájl mindig frissül, a CREATE_ONCE fájl soha")
 
 
 class SinglePath(argparse.Action):
@@ -467,7 +467,7 @@ def main(argv=None) -> int:
     deploy.add_argument("--project", type=Path, help="A fő projektmappa: a --layout-tal meg nem adott részeket a migrátor itt keresi meg")
     deploy.add_argument("--layout", action="append", default=[], metavar="RÉSZ=MAPPA", help=LAYOUT_HELP)
     deploy.add_argument("--dry-run", action="store_true", help="Csak a terv: mi hova kerülne, írás nélkül")
-    deploy.add_argument("--force", action="store_true", help="A projektben módosított generált fájlok felülírása is (CREATE_ONCE soha)")
+    deploy.add_argument("--force", action="store_true", help="Régi kapcsoló, nincs hatása: a generált fájl mindig frissül, a CREATE_ONCE fájl soha")
     deploy.add_argument("--config", type=Path, help="Config a project_layout beállítással")
     deploy.add_argument("--report", type=Path, help="A riport (alap: <első kimenet>/PROJECT_DEPLOY_HU.md)")
     args = parser.parse_args(argv)

@@ -327,7 +327,8 @@ def generate(resolution, ui, output, config, module, discovery):
             shared('FrmTableComponent')
         else:
             fb = config['html_selectors']['form_block']
-            output.append('<' + fb + ' [formStructure]="structures.' + prop + '" (formGroupGenerated)="onFormGroupGenerated('
+            # structures is a Record: noPropertyAccessFromIndexSignature (Angular CLI default) wants structures['x']
+            output.append('<' + fb + ' [formStructure]="structures[' + angular_string(prop) + ']" (formGroupGenerated)="onFormGroupGenerated('
                           + angular_string(prop) + ', $event)" />')
         for item in section['items']:
             if item['widget'] in {'unsupported', 'image', 'tree'}:
@@ -520,13 +521,13 @@ def generate(resolution, ui, output, config, module, discovery):
     fields.extend(screen_windows.runtime(plan))
 
     # ---------------------------------------------------------------- endpoints, start-up and the Forms code
-    if wiring:
-        methods.append('\n'.join(screen_api.endpoint_method(e) for e in wiring['endpoints']))
+    # The company convention: the constructor always, between the fields and the methods.
     starts = [calls[h['method']] for h in handlers if h['moment'] == 'init']
     init = wiring.get('init') if emulation else None
-    if starts or init:
-        methods.append('  constructor() {\n    super();\n' + ''.join('    ' + c + '\n' for c in starts)
-                       + ('    this.runAction(' + sq(init) + ');\n' if init else '') + '  }')
+    methods.append('  constructor() {\n    super();\n' + ''.join('    ' + c + '\n' for c in starts)
+                   + ('    this.runAction(' + sq(init) + ');\n' if init else '') + '  }')
+    if wiring and wiring['endpoints']:
+        methods.append('\n'.join(screen_api.endpoint_method(e) for e in wiring['endpoints']))
     for h in handlers:
         if calls[h['method']] == 'this.' + h['method'] + '();':
             methods.append('  private ' + h['method'] + '(): void {\n' + '\n'.join(h['lines']) + '\n  }')

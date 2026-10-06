@@ -3,7 +3,7 @@
 A fake company project (rendszer-cl, rendszer-dps, rendszer-wbs, rendszer-ui with angular.json) stands in
 for the developer's main folder. The generated replica module is deployed into it: every Java file under
 its package in the right project, the screens next to each other in the Angular app, CREATE_ONCE files
-never overwritten, files changed in the project reported instead of overwritten. The parts can also be
+never overwritten, no record of the deploy left in the project. The parts can also be
 chosen one by one, anywhere, without a main folder (the web UI's "Tallózás…" buttons): the folder browser
 and the operating system's folder dialog (a fake dialog process here) are tested with the web API.
 """
@@ -22,7 +22,7 @@ import unittest
 from java_support import COMPANY_IMPORTS
 from frm_forms.cli import main
 from frm_forms.common import MigrationError
-from frm_forms.project_deploy import MANIFEST, deploy, folder_package, layout_packages, map_project, markdown, parse_layout
+from frm_forms.project_deploy import LEGACY_MANIFEST, deploy, folder_package, layout_packages, map_project, markdown, parse_layout
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
@@ -192,12 +192,10 @@ class DeployTests(unittest.TestCase):
                          {'CommonMigrateTools.java': str(self.root / 'rendszer-cl/src/main/java/hu/company/features/cl/CommonMigrateTools.java'),
                           'frm-forms-screen.ts': str(app / 'frm-forms-screen.ts')})
         self.assertFalse(list(self.root.rglob('*.md')))  # reports and notes stay in the output
-        # the last deploy's hashes: in each part's project folder
-        self.assertFalse((self.root / MANIFEST).exists())
-        ui = json.loads((self.root / 'rendszer-ui' / MANIFEST).read_text(encoding='utf-8'))
-        self.assertIn('src/app/rendeles/rendeles.component.ts', ui['files'])
-        dps_manifest = json.loads((self.root / 'rendszer-dps' / MANIFEST).read_text(encoding='utf-8'))
-        self.assertIn('src/main/java/hu/company/features/rendeles/dps/RendelesServiceImpl.java', dps_manifest['files'])
+        # only the generated files: no record of the deploy anywhere (4.21)
+        self.assertFalse(list(self.root.rglob(LEGACY_MANIFEST)))
+        self.assertEqual([p.name for p in self.root.rglob('*.json')], ['angular.json'])  # the fake project's own
+        self.assertEqual(report['removed'], [])
         files = {f['source']: f for f in report['files']}
         self.assertEqual(files['backend/DPS/RendelesServiceImpl.java']['display'],
                          'DPS: src/main/java/hu/company/features/rendeles/dps/RendelesServiceImpl.java')
@@ -205,23 +203,20 @@ class DeployTests(unittest.TestCase):
         self.assertEqual(report['layout']['DPS'], str(self.root / 'rendszer-dps/src/main/java'))
         self.assertIn('Telepítés a projektbe', markdown(report))
 
-    def test_redeploy_updates_ours_keeps_create_once_and_reports_foreign_changes(self):
+    def test_redeploy_updates_the_generated_files_and_keeps_create_once(self):
         deploy([self.output], self.root)
         self.assertEqual(set(deploy([self.output], self.root)['counts']), {'unchanged'})
         cl = self.root / 'rendszer-cl/src/main/java/hu/company/features/rendeles/cl/RendelesConstants.java'
         impl = self.root / 'rendszer-dps/src/main/java/hu/company/features/rendeles/dps/RendelesServiceImpl.java'
         impl.write_text(impl.read_text(encoding='utf-8') + '\n// kézi folytatás\n', encoding='utf-8')
         cl.write_text(cl.read_text(encoding='utf-8') + '\n// kézi módosítás\n', encoding='utf-8')
-        report = deploy([self.output], self.root)
-        statuses = self.statuses(report)
-        self.assertEqual(statuses['backend/DPS/RendelesServiceImpl.java'], 'kept')
-        self.assertEqual(statuses['backend/CL/RendelesConstants.java'], 'conflict')
-        self.assertIn('// kézi folytatás', impl.read_text(encoding='utf-8'))
-        self.assertIn('// kézi módosítás', cl.read_text(encoding='utf-8'))  # not overwritten
-        forced = self.statuses(deploy([self.output], self.root, force=True))
-        self.assertEqual(forced['backend/CL/RendelesConstants.java'], 'overwritten')
-        self.assertEqual(forced['backend/DPS/RendelesServiceImpl.java'], 'kept')  # never, not even with force
-        self.assertNotIn('// kézi módosítás', cl.read_text(encoding='utf-8'))
+        for force in (False, True):
+            statuses = self.statuses(deploy([self.output], self.root, force=force))
+            self.assertEqual(statuses['backend/DPS/RendelesServiceImpl.java'], 'kept')  # never, not even with force
+            self.assertIn('// kézi folytatás', impl.read_text(encoding='utf-8'))
+        self.assertEqual(self.statuses(deploy([self.output], self.root))['backend/CL/RendelesConstants.java'], 'unchanged')
+        self.assertNotIn('// kézi módosítás', cl.read_text(encoding='utf-8'))  # a generated file: regenerated
+        self.assertFalse(list(self.root.rglob(LEGACY_MANIFEST)))
 
     def test_a_new_generation_updates_the_files_of_the_last_deploy(self):
         deploy([self.output], self.root)
@@ -237,7 +232,7 @@ class DeployTests(unittest.TestCase):
     def test_dry_run_writes_nothing(self):
         report = deploy([self.output], self.root, dry_run=True)
         self.assertEqual(set(report['counts']), {'new'})
-        self.assertFalse(list(self.root.rglob(MANIFEST)))
+        self.assertFalse(list(self.root.rglob(LEGACY_MANIFEST)))
         self.assertFalse((self.root / 'rendszer-ui/src/app/frm-forms-screen.ts').exists())
 
     def test_parts_chosen_one_by_one_get_their_files_without_a_main_folder(self):
@@ -308,22 +303,21 @@ class DeployTests(unittest.TestCase):
         self.assertEqual(placed, 'package hu.ceg.rendszer.wbs.rendeles;\n\n' + before)  # only the package line added
         self.assertEqual(set(report['counts']), {'new'})
 
-    def test_the_hashes_of_a_4_16_deploy_still_tell_our_files_from_changed_ones(self):
-        deploy([self.output], self.root)
-        legacy = {}
-        for part in ('rendszer-cl', 'rendszer-dps', 'rendszer-wbs', 'rendszer-ui'):
-            own = self.root / part / MANIFEST
-            for rel, entry in json.loads(own.read_text(encoding='utf-8'))['files'].items():
-                legacy[part + '/' + rel] = entry
-            own.unlink()
-        (self.root / MANIFEST).write_text(json.dumps({'generator': 'frm-forms-migrator', 'files': legacy}), encoding='utf-8')
-        work = Path(self.work.name) / 'out'
-        shutil.copytree(self.output, work)
-        constants = work / 'backend/CL/RendelesConstants.java'
-        constants.write_text(constants.read_text(encoding='utf-8').replace('listrendeles', 'listrendeles2'), encoding='utf-8')
-        report = deploy([work], self.root)
-        self.assertEqual(self.statuses(report)['backend/CL/RendelesConstants.java'], 'updated')
-        self.assertTrue((self.root / 'rendszer-cl' / MANIFEST).is_file())
+    def test_the_records_of_earlier_deploys_are_removed(self):
+        ours = {'generator': 'frm-forms-migrator', 'version': '4.20.0', 'files': {}}
+        for folder in (self.root, self.root / 'rendszer-cl', self.root / 'rendszer-ui'):
+            (folder / LEGACY_MANIFEST).write_text(json.dumps(ours), encoding='utf-8')
+        foreign = self.root / 'rendszer-dps' / LEGACY_MANIFEST
+        foreign.write_text('{"name": "valaki más fájlja"}', encoding='utf-8')
+        expected = sorted(str(f / LEGACY_MANIFEST) for f in (self.root, self.root / 'rendszer-cl', self.root / 'rendszer-ui'))
+        preview = deploy([self.output], self.root, dry_run=True)
+        self.assertEqual(sorted(preview['removed']), expected)
+        self.assertTrue((self.root / LEGACY_MANIFEST).is_file())  # a preview deletes nothing
+        self.assertIn('Törlendő', markdown(preview))
+        report = deploy([self.output], self.root)
+        self.assertEqual(sorted(report['removed']), expected)
+        self.assertEqual(list(self.root.rglob(LEGACY_MANIFEST)), [foreign])  # only the migrator's own files
+        self.assertIn('Törölve', markdown(report))
 
     def test_a_file_generated_without_package_gets_the_package_of_its_imports(self):
         source = (self.empty_package / 'backend/DPS/RendelesServiceBase.java').read_text(encoding='utf-8')
@@ -429,7 +423,7 @@ class WebDeployTests(unittest.TestCase):
         self.assertEqual(preview.status_code, 200, preview.text)
         self.assertTrue(preview.json()['dry_run'])
         self.assertEqual(preview.json()['layout']['DPS'], str(self.project / 'rendszer-dps/src/main/java'))
-        self.assertFalse(list(self.project.rglob(MANIFEST)))
+        self.assertFalse(list(self.project.rglob(LEGACY_MANIFEST)))
         done = self.client.post(url, json={'project': str(self.project), 'dry_run': False}, headers=HEADERS)
         self.assertEqual(done.status_code, 200, done.text)
         self.assertIn('new', done.json()['counts'])

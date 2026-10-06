@@ -10,9 +10,9 @@ import { FrmFormsScreen, FrmTableComponent, FrmLov, FrmQuery, FrmValidators, frm
   standalone: true,
   imports: [FormBlocksComponent, FrmTableComponent],
   template: `
-    <ank-form-block [formStructure]="structures.vElekAdlap" (formGroupGenerated)="onFormGroupGenerated('vElekAdlap', $event)" />
+    <ank-form-block [formStructure]="structures['vElekAdlap']" (formGroupGenerated)="onFormGroupGenerated('vElekAdlap', $event)" />
     <frm-table [table]="tables.AIT" />
-    <ank-form-block [formStructure]="structures.cgnvW011" (formGroupGenerated)="onFormGroupGenerated('cgnvW011', $event)" />
+    <ank-form-block [formStructure]="structures['cgnvW011']" (formGroupGenerated)="onFormGroupGenerated('cgnvW011', $event)" />
   `,
 })
 export class TesztComponent extends FrmFormsScreen {
@@ -65,6 +65,10 @@ export class TesztComponent extends FrmFormsScreen {
   protected override readonly actionSteps = {
     'CGNV$W01_1.PB_RESZLETEK': [{ op: 'goBlock', block: 'AIT' }, { op: 'executeQuery' }],
   };
+
+  constructor() {
+    super();
+  }
 
   aitUpdate(body: unknown) { return this.send('aitUpdate', this.http.put(this.url('ait/update'), body)); }
   aitSearch(body: unknown) { return this.send('aitSearch', this.http.post(this.url('ait/query/search'), body)); }

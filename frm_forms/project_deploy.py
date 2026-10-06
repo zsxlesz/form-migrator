@@ -21,16 +21,12 @@ and kept in the project. The deploy looks for them there (helpers in the report:
 imports at the copy it found.
 
 Generated files are overwritten; CREATE_ONCE files (ServiceImpl, ControllerImpl, the component) are written
-only when they do not exist yet - the fresh version stays in the output. A generated file changed in the
-project since the last deploy, or a foreign file of the same name, is not overwritten unless force: it is
-reported as a conflict. The hashes of the last deploy are kept in .frm-deploy.json in each part's project
-folder (rendszer-dps/, the Angular project). Nothing is written outside the part folders and no symlink is
-followed. dry_run: the plan only.
+only when they do not exist yet - the fresh version stays in the output. Only the generated files are written:
+no record of the deploy is kept in the project (the .frm-deploy.json of 4.16-4.20 is removed when the migrator
+wrote it). Nothing is written outside the part folders and no symlink is followed. dry_run: the plan only.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -41,7 +37,7 @@ from .common import MigrationError
 LAYERS = ('CL', 'DPS', 'WBS')
 PARTS = (*LAYERS, 'frontend')
 LAYOUT_KEYS = set(PARTS)
-MANIFEST = '.frm-deploy.json'
+LEGACY_MANIFEST = '.frm-deploy.json'  # 4.16-4.20 kept the deploy's hashes in it: removed now
 SKIP_DIRS = {'node_modules', 'target', 'build', 'dist', 'out', 'bin', 'obj', 'coverage', 'tmp', 'temp', 'venv',
              '__pycache__', 'local-data'}
 MAX_DEPTH = 8
@@ -58,13 +54,9 @@ HELPERS = {'backend/CL/' + COMMON_TOOLS: COMMON_TOOLS, 'frontend/' + SCREEN_RUNT
 HELPER_VERSION = {COMMON_TOOLS: re.compile(r'\bVERSION\s*=\s*"(\d+)"'),
                   SCREEN_RUNTIME: re.compile(r"\bFRM_FORMS_SCREEN_VERSION\s*=\s*['\"](\d+)['\"]")}
 RUNTIME_IMPORT = re.compile(r"""(\bfrom\s+['"])((?:\.\.?/)+)frm-forms-screen(['"])""")
-WRITTEN = {'new', 'updated', 'overwritten'}
+WRITTEN = {'new', 'updated'}
 STATUS_TEXT = {'new': 'új', 'updated': 'frissítve', 'unchanged': 'változatlan', 'kept': 'megőrizve (CREATE_ONCE)',
-               'conflict': 'ütközés (nem írtuk felül)', 'overwritten': 'felülírva (force)', 'skipped': 'kihagyva'}
-
-
-def sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+               'skipped': 'kihagyva'}
 
 
 def tokens(path: Path) -> set[str]:
@@ -118,7 +110,7 @@ def required_package(key: str, folder: Path) -> str:
 
 
 def java_home(source_root: Path) -> Path:
-    """Where the part's .frm-deploy.json lives: the Java project folder (…/rendszer-dps)."""
+    """The Java project folder of a source root (…/rendszer-dps): the report shows the paths from it."""
     return source_root.parents[2] if is_java_root(source_root) else source_root
 
 
@@ -161,8 +153,8 @@ def chosen_folder(key: str, value: str, root: Path | None) -> Path:
 
 
 def part_folders(key: str, folder: Path) -> tuple[Path, Path, bool]:
-    """(target, home, exact) of a chosen folder: the files go into (exact) or under the target, the manifest into
-    the home (the Java or Angular project folder)."""
+    """(target, home, exact) of a chosen folder: the files go into (exact) or under the target; the report shows the
+    paths from the home (the Java or Angular project folder)."""
     if key == 'frontend':
         if (folder / 'angular.json').is_file():
             return angular_screens(folder), folder, False
@@ -290,7 +282,7 @@ def map_project(root=None, layout: dict | None = None) -> dict:
 
 
 def mapped_folders(mapped: dict) -> list[Path]:
-    """Every folder a deploy may write into: the part folders and their homes (.frm-deploy.json)."""
+    """Every folder a deploy may write into: the part folders and their homes."""
     return [path for path in [*(mapped[key] for key in PARTS), *mapped['home'].values()] if path is not None]
 
 
@@ -473,25 +465,29 @@ def helper_report(mapped: dict, outputs: list[Path]) -> tuple[list[dict], Path |
     return entries, runtime, tools
 
 
-def load_manifest(folder: Path) -> dict:
-    path = folder / MANIFEST
-    if not path.is_file():
-        return {'generator': 'frm-forms-migrator', 'files': {}}
-    try:
-        data = json.loads(path.read_text(encoding='utf-8'))
-    except ValueError as exc:
-        raise MigrationError('DEPLOY: sérült ' + MANIFEST + ': ' + str(path)) from exc
-    if not isinstance(data.get('files'), dict):
-        raise MigrationError('DEPLOY: sérült ' + MANIFEST + ': ' + str(path))
-    return data
+def legacy_manifests(mapped: dict) -> list[Path]:
+    """The .frm-deploy.json files of earlier deploys (4.16: main folder, 4.17-4.20: each part's home) that the
+    migrator wrote."""
+    found = []
+    for folder in dict.fromkeys(p for p in [mapped['root'], *mapped['home'].values()] if p is not None):
+        path = folder / LEGACY_MANIFEST
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and data.get('generator') == 'frm-forms-migrator' and isinstance(data.get('files'), dict):
+            found.append(path)
+    return found
 
 
 def deploy(outputs, root=None, layout: dict | None = None, dry_run: bool = False, force: bool = False,
            mapped: dict | None = None) -> dict:
     """Place the generated files of migrate outputs into the project's part folders; returns the report.
 
-    mapped: the map_project(root, layout) result when the caller already has it."""
-    from . import __version__
+    mapped: the map_project(root, layout) result when the caller already has it. force: kept for the callers of
+    4.16-4.20; a generated file is always updated, a CREATE_ONCE file never."""
     mapped = mapped or map_project(root, layout)
     folders = output_folders(outputs)
     exact = [key for key in PARTS if mapped['exact'].get(key)]
@@ -500,19 +496,7 @@ def deploy(outputs, root=None, layout: dict | None = None, dry_run: bool = False
                              'telepíthető; a többi modult egyenként telepítsd, vagy válaszd a projekt mappáját.')
     mapped['packages'] = {key: required_package(key, mapped[key]) for key in LAYERS if mapped['exact'].get(key)}
     helpers, runtime, tools = helper_report(mapped, folders)
-    manifests = {}  # home folder -> its .frm-deploy.json
-
-    def manifest(home: Path) -> dict:
-        if home not in manifests:
-            manifests[home] = load_manifest(home)
-        return manifests[home]
-
-    # 4.16 kept one .frm-deploy.json in the main project folder: its hashes still tell our files from changed ones.
-    legacy = {}
-    if mapped['root'] is not None and (mapped['root'] / MANIFEST).is_file():
-        legacy = {str(mapped['root'] / rel): entry for rel, entry in load_manifest(mapped['root'])['files'].items()}
-    results, counts, touched = [], {}, set()
-    stamp = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    results, counts = [], {}
     for output in folders:
         for item in plan_files(output, mapped, runtime, tools):
             status, target, display = 'skipped', item['target'], None
@@ -523,43 +507,31 @@ def deploy(outputs, root=None, layout: dict | None = None, dry_run: bool = False
                 if not inside or links:
                     status, item['reason'] = 'skipped', 'a cél a rész mappáján kívülre vagy symlinkre mutat'
                 else:
-                    rel = target.relative_to(home).as_posix()
-                    display = item['part'] + ': ' + rel
-                    recorded = manifest(home)['files'].get(rel) or legacy.get(str(target)) or {}
+                    display = item['part'] + ': ' + target.relative_to(home).as_posix()
                     if not target.exists():
                         status = 'new'
+                    elif target.read_bytes() == item['data']:
+                        status = 'unchanged'
                     else:
-                        current = target.read_bytes()
-                        if current == item['data']:
-                            status = 'unchanged'
-                        elif item['policy'] == 'create_once':
-                            status = 'kept'
-                        elif recorded.get('sha256') == sha256(current):
-                            status = 'updated'  # ours, untouched since the last deploy
-                        else:
-                            status = 'overwritten' if force else 'conflict'
+                        status = 'kept' if item['policy'] == 'create_once' else 'updated'
                     if status in WRITTEN and not dry_run:
                         target.parent.mkdir(parents=True, exist_ok=True)
                         temporary = target.with_name(target.name + '.frm-tmp')
                         temporary.write_bytes(item['data'])
                         os.replace(temporary, target)
-                    if status in WRITTEN | {'unchanged'} and not dry_run:
-                        manifest(home)['files'][rel] = {'sha256': sha256(item['data']), 'source': item['path'], 'deployed': stamp}
-                        touched.add(home)
             counts[status] = counts.get(status, 0) + 1
             results.append({'output': str(output), 'part': item['part'], 'source': item['path'],
                             'target': str(target) if target is not None and display else None, 'display': display,
                             'status': status, 'policy': item['policy'], **({'reason': item['reason']} if item['reason'] else {})})
-    for home in sorted(touched):
-        data = manifests[home]
-        data.update(generator='frm-forms-migrator', version=__version__, files=dict(sorted(data['files'].items())))
-        temporary = home / (MANIFEST + '.frm-tmp')
-        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-        os.replace(temporary, home / MANIFEST)
+    removed = legacy_manifests(mapped)
+    if not dry_run:
+        for path in removed:
+            path.unlink()
     return {'project': str(mapped['root']) if mapped['root'] is not None else None, 'dry_run': dry_run, 'force': force,
             'layout': {key: (str(mapped[key]) if mapped[key] is not None else None) for key in PARTS},
             'exact': {key: bool(mapped['exact'].get(key)) for key in PARTS}, 'packages': mapped['packages'],
-            'helpers': helpers, 'candidates': mapped['candidates'], 'counts': counts, 'files': results}
+            'helpers': helpers, 'candidates': mapped['candidates'], 'counts': counts, 'files': results,
+            'removed': [str(path) for path in removed]}
 
 
 def markdown(report: dict) -> str:
@@ -573,9 +545,9 @@ def markdown(report: dict) -> str:
               '', '| Fájl | Cél | Állapot |', '|---|---|---|']
     lines += [f"| {r['source']} | {r.get('display') or '—'} | {STATUS_TEXT.get(r['status'], r['status'])}"
               + (f" ({r['reason']})" if r.get('reason') else '') + ' |' for r in report['files']]
-    if any(r['status'] == 'conflict' for r in report['files']):
-        lines += ['', 'Ütközés: a projektben lévő fájl nem a legutóbbi telepítés változata (kézzel módosították, vagy nem a '
-                      'migrátor írta). Nem írtuk felül; a friss változat a generált kimenetben van. Felülírás: `--force`.']
+    if report.get('removed'):
+        lines += ['', ('Törlendő' if report['dry_run'] else 'Törölve') + ' (korábbi telepítés nyilvántartása, a migrátor már nem használja): '
+                  + ', '.join('`' + path + '`' for path in report['removed'])]
     helper_text = {'ok': 'megvan a projektben', 'outdated': 'régebbi változat van a projektben: töltsd le az újat, és cseréld le',
                    'newer': 'újabb változat van a projektben, mint amit ez a generálás vár',
                    'missing': 'nincs a projektben: töltsd le, és tedd a helyére',

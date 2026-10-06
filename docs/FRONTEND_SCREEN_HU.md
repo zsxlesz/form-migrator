@@ -635,14 +635,21 @@ export class RendelesComponent extends FrmFormsScreen {
     TETEL: { call: request => this.searchTetel(request), criteria: { rendelesId: 'RENDELES.id' } },
   };
 
-  searchTetel(body: unknown) { return this.send('searchTetel', this.http.post(this.url('searchtetel'), body)); }
-
   constructor() {
     super();
     this.runAction('@INIT');
   }
+
+  searchTetel(body: unknown) { return this.send('searchTetel', this.http.post(this.url('searchtetel'), body)); }
 }
 ```
+
+- **Konstruktor (4.21):** mindig van `constructor() { super(); }`, a mezők és a függvények között; ha a képernyőnek
+  indulási kódja van (`runAction('@INIT')`, induláskori mezőállapot), az is ide kerül.
+- **Sablon (4.21):** a struktúrákra szögletes zárójellel hivatkozik:
+  `<ank-form-block [formStructure]="structures['ctrl']" (formGroupGenerated)="onFormGroupGenerated('ctrl', $event)" />`.
+  A `structures` típusa `Record<string, …>`, és az Angular CLI alap tsconfigja (`noPropertyAccessFromIndexSignature`)
+  a `structures.ctrl` alakot TS4111 hibával elutasítja.
 
 - **Nincs a komponensben:** kurzorblokk-követés, feliratlista, régió→blokk térkép, Oracle-név térkép
   (csak az eltérések: `oracleNames`), feliratkozás-kezelés (`ngOnDestroy`), toast-élettartam konstans,

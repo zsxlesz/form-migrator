@@ -609,7 +609,7 @@ def passthrough(trigger: dict, block: dict, source: str, model: dict, catalog: d
 
     event: the Forms moment whose write-back rules apply (POST-CHANGE also runs as POST-QUERY).
     """
-    from .plsql_passthrough import items_by_block, local_units, prepare, sql_expression
+    from .plsql_passthrough import input_declarations, input_variable, items_by_block, local_units, prepare, sql_expression
     items = items_by_block(model)
     event = event or trigger["event"]
     def writable(bind):
@@ -624,15 +624,17 @@ def passthrough(trigger: dict, block: dict, source: str, model: dict, catalog: d
                        writable=writable, procedures=model.get("procedures", {}), library=plsql_library(model, catalog),
                        runtime_calls=catalog.get("runtime_calls", ()))
     field = lambda b: items[b["block"]][b["item"]]["field"]
-    params = [f"DbCalls.in(row.{field(b)}, {JDBC_TYPES[b['type']]})" for b in prepared["binds"]]
+    params = [f"DbCalls.in({input_variable(prepared, b) or 'row.' + field(b)}, {JDBC_TYPES[b['type']]})" for b in prepared["binds"]]
     params += [f"DbCalls.out({JDBC_TYPES[b['type']]})" for b in prepared["outs"]] + ["DbCalls.out(java.sql.Types.VARCHAR)"]
     offset = len(prepared["binds"])
-    lines = ["        // Az eredeti PL/SQL fut az adatbázisban (névtelen blokk); a mezők kötött változók.",
-             "        Object[] out = DbCalls.call(jdbc, " + sql_expression(prepared) + ",",
+    lines = ["        // Az eredeti PL/SQL fut az adatbázisban (névtelen blokk); a mezők kötött változók."]
+    lines += input_declarations(prepared, "        ").splitlines()
+    lines += ["        Object[] out = DbCalls.call(jdbc, " + sql_expression(prepared) + ",",
              "            " + ",\n            ".join(params) + ");"]
     lines += [f"        row.{field(b)} = ({JAVA_CASTS[b['type']]}) out[{offset + k}];" for k, b in enumerate(prepared["outs"])]
     lines.append(f"        if (out[{offset + len(prepared['outs'])}] instanceof String) for (String line : ((String) out[{offset + len(prepared['outs'])}]).split(\"\\n\")) if (!line.isBlank()) context.message(line);")
     info = {"binds": [b["source"] for b in prepared["binds"]], "written": [b["source"] for b in prepared["outs"]],
+            "inputs": prepared["inputs"],
             "notes": prepared["notes"], "units": prepared["units"], "unresolved": prepared["unresolved"], "guarded": prepared["guarded"],
             "sql": prepared["sql"]}  # analysis/db-statements.json: verify-db compiles it in the target database
     return "\n".join(lines), info
@@ -1053,6 +1055,7 @@ def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | Non
                     trigger["passthrough_plan"] = action_passthrough(trigger, source, model, catalog)
                     plan = trigger["passthrough_plan"]
                     trigger["passthrough"] = {"binds": [b["source"] for b in plan["binds"]], "written": [b["source"] for b in plan["outs"]],
+                                              "inputs": plan["inputs"],
                                               "globals": [b["source"] for b in plan["globals"]], "commands": plan["commands"],
                                               "notes": plan["notes"], "units": plan["units"], "unresolved": plan["unresolved"], "guarded": plan["guarded"]}
                     trigger.update(status="converted", target="action")  # runs in the button's action endpoint

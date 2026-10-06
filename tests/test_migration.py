@@ -134,9 +134,12 @@ class MigrationTests(unittest.TestCase):
         self.assertTrue(model['blocks'][1]['can_create'])
 
     def test_cross_block_reference_is_not_guessed(self):
+        # 4.22: the value is not guessed either - it is a developer input of the generated method (null, TODO)
         p = self.xml(self.block('<Trigger Name="PRE-INSERT" TriggerText=":B.ID := :OTHER.ID;"/>'))
-        model = plan(p)
-        self.assertEqual(model['triggers'][0]['status'], 'review')
+        trigger = plan(p)['triggers'][0]
+        self.assertEqual(trigger['status'], 'converted')
+        self.assertEqual([(i['source'], i['variable']) for i in trigger['passthrough']['inputs']], [('OTHER.ID', 'otherId')])
+        self.assertIn('String otherId = null;', trigger['java'])
 
     def test_post_query_cannot_corrupt_database_snapshot(self):
         p = self.xml(self.block('<Trigger Name="POST-QUERY" TriggerText=":B.ID := 1;"/>'))

@@ -198,12 +198,12 @@ class Rewriter:
                 if name not in self.binds:
                     self.binds[name] = {'source': name, 'block': 'SYSTEM', 'item': variable, 'type': 'text', 'parameter': True}
                 return self.var(name)
-            raise Unsupported('Forms rendszerváltozó (' + token + '): a webes képernyő nem adja át.')
+            return self.input_bind(name, 'Forms rendszerváltozó, a webes képernyő nem adja át')
         if head == 'SYSTEM':
-            raise Unsupported('Forms rendszerváltozó (' + token + '): az adatbázisban nincs megfelelője.')
+            return self.input_bind(name, 'Forms rendszerváltozó, az adatbázisban nincs megfelelője')
         if head in {'GLOBAL', 'PARAMETER'}:
             if not self.parameters:
-                raise Unsupported('Szerveroldali kontextus (' + token + '): adatműveleti triggerben nem érhető el.')
+                return self.input_bind(name, 'szerveroldali kontextus, adatműveleti triggerben nem érhető el')
             key = name
             if key not in self.binds:
                 self.binds[key] = {'source': key, 'block': head, 'item': name.split('.', 1)[1], 'type': 'text', 'parameter': True}
@@ -212,17 +212,24 @@ class Rewriter:
             if self.block and name in self.items.get(self.block, {}):
                 name = self.block + '.' + name
             else:
-                raise Unsupported('Blokk nélküli mezőhivatkozás (' + token + ') nem egyértelmű.')
+                return self.input_bind(name, 'blokk nélküli mezőhivatkozás, nem egyértelmű')
         block, item = name.split('.', 1)
         info = self.items.get(block, {}).get(item)
         if info is None:
-            raise Unsupported('Ismeretlen mező: ' + token)
-        if block != self.block and not self.other_blocks:
-            raise Unsupported('Másik blokk mezője (' + token + '): a rekordban nem érhető el.')
+            return self.input_bind(name, 'ismeretlen mező, nincs a formban')
         if info['type'] not in SQL_TYPES:
             raise Unsupported('Nem támogatott mezőtípus (' + token + '): ' + str(info['type']))
+        if block != self.block and not self.other_blocks:
+            return self.input_bind(name, 'másik blokk mezője, a rekordban nem érhető el', info['type'])
         if name not in self.binds:
             self.binds[name] = {'source': name, 'block': block, 'item': item, 'type': info['type'], 'parameter': False}
+        return self.var(name)
+
+    def input_bind(self, name: str, reason: str, typ: str = 'text') -> str:
+        """Data the migrated code has no source for: a variable the developer fills (developer_inputs)."""
+        if name not in self.binds:
+            block, _, item = name.rpartition('.')
+            self.binds[name] = {'source': name, 'block': block, 'item': item, 'type': typ, 'parameter': False, 'input': reason}
         return self.var(name)
 
     @staticmethod
@@ -1019,10 +1026,11 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
         for inner in entry['calls']:
             include(inner, stack + [name])
         for key, bind in entry['binds'].items():
+            # what the trigger itself could not read is a developer input in its procedures too
             if bind['parameter'] and not parameters:
-                raise Unsupported('A(z) ' + name + ' eljárás szerveroldali kontextust használ (' + key + ').')
-            if not bind['parameter'] and bind['block'] != block and not other_blocks:
-                raise Unsupported('A(z) ' + name + ' eljárás másik blokk mezőjét használja (' + key + ').')
+                bind = {**bind, 'parameter': False, 'input': 'szerveroldali kontextus, adatműveleti triggerben nem érhető el'}
+            elif not bind['parameter'] and not bind.get('input') and bind['block'] != block and not other_blocks:
+                bind = {**bind, 'input': 'másik blokk mezője, a rekordban nem érhető el'}
             rewriter.binds.setdefault(key, bind)
         rewriter.needs |= entry['needs']
         rewriter.unresolved += [u for u in entry['unresolved'] if u not in rewriter.unresolved]
@@ -1095,14 +1103,19 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
             targets.add(rewriter.bind(arg))
     binds = list(rewriter.binds.values())
     assigned = {b['source'] for b in binds if Rewriter.var(b['source']) in targets}
-    blocked = [b['source'] for b in binds if b['source'] in assigned and not b['parameter'] and not writable(b)]
+    written_inputs = [b['source'] for b in binds if b.get('input') and b['source'] in assigned]
+    if written_inputs:
+        raise Unsupported('A kód olyan értéket ír, amelynek nincs helye a migrált felületen: ' + ', '.join(written_inputs)
+                          + ' (' + '; '.join(dict.fromkeys(b['input'] for b in binds if b['source'] in written_inputs)) + ').')
+    blocked = [b['source'] for b in binds if b['source'] in assigned and not b['parameter'] and not b.get('input')
+               and not writable(b)]
     if blocked:
         raise Unsupported('A trigger ebben az eseményben nem visszaírható mezőt ír: ' + ', '.join(blocked)
                           + ' (lekérdezett adatbázismező, kulcs vagy nem módosítható oszlop).')
     var = Rewriter.var
     # An external routine without signature may write a protected item through an OUT parameter:
     # checked at run time instead of refused at generation (ORA-20998, reported as a migration limit).
-    guarded = [b for b in binds if rewriter.unresolved and not b['parameter'] and not writable(b)]
+    guarded = [b for b in binds if rewriter.unresolved and not b['parameter'] and not b.get('input') and not writable(b)]
     head = ['DECLARE', '  frm_messages VARCHAR2(32767);']
     if 'failure' in rewriter.needs: head.append('  FORM_TRIGGER_FAILURE EXCEPTION;')
     if 'acknowledge' in rewriter.needs: head.append('  ACKNOWLEDGE CONSTANT PLS_INTEGER := 0;\n  NO_ACKNOWLEDGE CONSTANT PLS_INTEGER := 1;')
@@ -1120,7 +1133,7 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     head += [library[n]['items'] for n in order if library[n]['items'].strip()]  # package variables: before any subprogram
     # The fixed helpers by name (CommonMigrateTools.FormsPlsql in the Java code), then the block's own subprograms.
     head += [('helper', 'MSG')] + [('helper', name) for name in helpers] + commit_subprograms
-    outs = [b for b in binds if not b['parameter'] and writable(b)]
+    outs = [b for b in binds if not b['parameter'] and not b.get('input') and writable(b)]
     # Written :GLOBAL values go back to the screen, which keeps them for the following requests.
     globals_out = [b for b in binds if b['parameter'] and b['block'] == 'GLOBAL' and b['source'] in assigned] if ui else []
     start = ['BEGIN'] + [f"  {var(b['source'])}_o := {var(b['source'])};" for b in guarded]
@@ -1150,7 +1163,46 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
             'notes': rewriter.notes,
             'units': order, 'assigned': sorted(assigned), 'unresolved': rewriter.unresolved, 'guarded': [b['source'] for b in guarded],
             'ui': ui, 'globals': globals_out, 'commands': list(dict.fromkeys(rewriter.commands)), 'commit_points': points,
-            'screen_points': screen_points}
+            'screen_points': screen_points, 'inputs': developer_inputs(binds)}
+
+
+# Java types of the developer inputs: what PlsqlValues reads for the same SQL type.
+INPUT_TYPES = {'text': 'String', 'number': 'java.math.BigDecimal', 'datetime': 'java.time.LocalDateTime'}
+# Names the generated methods already use (parameters, locals, lambda arguments): an input never shadows them.
+INPUT_RESERVED = {'values', 'parameters', 'out', 'row', 'rows', 'context', 'request', 'user', 'blocks', 'globals', 'messages',
+                  'commands', 'sql', 'params', 'whereText', 'jdbc', 'log', 'result', 'changes', 'saved', 'current', 'state',
+                  'actionBlocks', 'actionParameters', 'actionCommands', 'offset', 'limit', 'rs', 'rowNum', 'line', 'e'}
+
+
+def developer_inputs(binds: list) -> list[dict]:
+    """The binds the migrated code has no source for (an item that is not in the form, a :GLOBAL in a data trigger,
+    a Forms system variable ...): each is a local variable of the Java method, null until the developer passes the
+    right value (TODO). The code that reads them runs; writing them is refused (prepare)."""
+    result, taken = [], set(INPUT_RESERVED)
+    for bind in binds:
+        if not bind.get('input'):
+            continue
+        words = [w for w in re.split(r'[^A-Za-z0-9]+', bind['source']) if w]
+        variable = (words[0].lower() + ''.join(w[:1].upper() + w[1:].lower() for w in words[1:])) if words else 'input'
+        if not re.match(r'[a-z]', variable):
+            variable = 'v' + variable
+        base, n = variable, 2
+        while variable in taken:
+            variable, n = base + str(n), n + 1
+        taken.add(variable)
+        result.append({'source': bind['source'], 'variable': variable, 'type': bind['type'], 'reason': bind['input']})
+    return result
+
+
+def input_variable(prepared: dict, bind: dict) -> str | None:
+    """The Java variable of a developer input bind, None for any other bind."""
+    return next((i['variable'] for i in prepared.get('inputs', []) if i['source'] == bind['source']), None) if bind.get('input') else None
+
+
+def input_declarations(prepared: dict, indent: str) -> str:
+    """The developer inputs as local variables of the Java method, each with its TODO."""
+    return ''.join(f"{indent}// TODO: :{i['source']} ({i['reason']}): add át ennek a változónak a megfelelő értéket.\n"
+                   f"{indent}{INPUT_TYPES[i['type']]} {i['variable']} = null;\n" for i in prepared.get('inputs', []))
 
 
 def assigned_vars(visible: str) -> set[str]:

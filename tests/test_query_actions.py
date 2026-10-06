@@ -145,6 +145,52 @@ class QueryActionTests(unittest.TestCase):
         default = next(e for e in json.loads((out / 'analysis/backend-plan.json').read_text())['endpoints'] if e['operation'] == 'list')
         self.assertFalse(default['implemented'])
 
+    ALERT_WUZENET = '''PROCEDURE wuzenet(vv_uzenet varchar2) IS
+  m_alertdialog  CONSTANT VARCHAR2(15) := 'QMS$INFORMATION';
+  m_alertid      ALERT;
+  m_alertbutton  NUMBER;
+BEGIN
+      m_alertid := FIND_ALERT ( m_alertdialog );
+      SET_ALERT_PROPERTY( m_alertid, ALERT_MESSAGE_TEXT, vv_uzenet);
+      m_alertbutton := SHOW_ALERT( m_alertid );
+END;'''
+
+    def test_a_local_alert_dialog_procedure_is_a_message_and_its_code_stays_as_a_comment(self):
+        # 4.22: the WUZENET of the real form (FIND_ALERT with a constant, SHOW_ALERT): the query button runs
+        builder = BUILDER.replace("; END IF;\n", ";\n  --lek_sql:='COL6=;00; and (COL9=;E04;)';\nEND IF;\n", 1)
+        root = ET.fromstring(fixture(builder))
+        ET.SubElement(root.find('FormModule'), 'ProgramUnit', Name='WUZENET', ProgramUnitType='Procedure',
+                      ProgramUnitText=self.ALERT_WUZENET)
+        out = self.generate(raw=ET.tostring(root))
+        endpoint = self.action(out)
+        self.assertEqual((endpoint['runs'], endpoint['blockers'], endpoint['implemented']), ('plsql-query', [], True))
+        service = (out / 'backend/DPS/QueryServiceImpl.java').read_text(encoding='utf-8')
+        self.assertIn("frm_msg('Adatlap kiválasztása nem történt meg!');", service)  # shown as a message
+        self.assertIn("--lek_sql:='COL6=;00; and (COL9=;E04;)';", service)  # the SQL comment stays in the PL/SQL
+        self.assertIn('            // WUZENET (helyi alert/üzenet-eljárás): a webes képernyőn üzenetként jelenik meg. '
+                      'Az eredeti kódja, ha később kellene:\n            // PROCEDURE wuzenet(vv_uzenet varchar2) IS\n'
+                      "            //   m_alertdialog  CONSTANT VARCHAR2(15) := 'QMS$INFORMATION';\n", service)
+        self.assertNotIn('FIND_ALERT ( m_alertdialog )"', service)  # not in the executed PL/SQL
+
+    def test_only_procedures_that_just_show_the_text_count_as_messages(self):
+        from frm_forms.query_actions import message_wrapper
+        shown = [self.ALERT_WUZENET,
+                 "PROCEDURE uz(p VARCHAR2) IS\n a ALERT; b NUMBER;\nBEGIN\n a := FIND_ALERT('X');\n IF ID_NULL(a) THEN MESSAGE(p); "
+                 "ELSE SET_ALERT_PROPERTY(a, TITLE, 'Figyelem'); SET_ALERT_PROPERTY(a, ALERT_MESSAGE_TEXT, p); b := SHOW_ALERT(a); "
+                 "END IF;\nEND;",
+                 "PROCEDURE uz(p IN VARCHAR2) IS BEGIN MESSAGE(p); RAISE FORM_TRIGGER_FAILURE; END;"]
+        logic = ["PROCEDURE uz(p VARCHAR2) IS BEGIN INSERT INTO naplo VALUES (p); MESSAGE(p); END;",
+                 "PROCEDURE uz(p VARCHAR2) IS b NUMBER; BEGIN b := SHOW_ALERT('X'); IF b = ALERT_BUTTON1 THEN commit_form; "
+                 "END IF; MESSAGE(p); END;",
+                 "PROCEDURE uz(p VARCHAR2) IS b NUMBER; BEGIN b := SHOW_ALERT('X'); END;",  # does not show the text
+                 "PROCEDURE uz(p VARCHAR2) IS BEGIN MESSAGE(p); x := 'y'; END;",  # writes something of its own
+                 "PROCEDURE uz(p VARCHAR2) IS BEGIN MESSAGE(p); MESSAGE('end if; delete from t'); END;",
+                 "PROCEDURE uz(p VARCHAR2) IS BEGIN RAISE FORM_TRIGGER_FAILURE; MESSAGE(p); END;"]
+        for source in shown:
+            self.assertTrue(message_wrapper(source), source)
+        for source in logic:
+            self.assertFalse(message_wrapper(source), source)
+
     def test_all_checkbox_combinations_and_codes_use_bound_predicates(self):
         out = self.generate()
         trigger = next(t for t in self.model(out)['triggers'] if t['event'] == 'WHEN-BUTTON-PRESSED')

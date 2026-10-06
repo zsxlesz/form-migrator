@@ -37,13 +37,26 @@ class PassthroughTests(unittest.TestCase):
         self.assertEqual(r['sql'].count('?') - 1, 2 + 2 + 1)  # 2 IN, 2 OUT, messages (+1 inside the literal)
 
     def test_refusals_name_the_reason(self):
-        cases = {"go_block('CTRL');": 'Forms beépített hívás: GO_BLOCK', ':B.NEV := :CTRL.X;': 'Másik blokk mezője',
-                 "IF :SYSTEM.RECORD_STATUS = 'NEW' THEN NULL; END IF;": 'Forms rendszerváltozó',
+        cases = {"go_block('CTRL');": 'Forms beépített hívás: GO_BLOCK', ':CTRL.X := :B.NEV;': 'nincs helye a migrált felületen',
+                 ':SYSTEM.MESSAGE_LEVEL := 25;': 'nincs helye a migrált felületen',
                  'kod_pkg.check(:B.KOD);': 'argumentumok száma',
                  "kod_pkg.check(:B.KOD, 'x');": 'OUT paraméter', 'ROLLBACK;': 'Tranzakcióvezérlés'}
         for source, reason in cases.items():
             with self.subTest(source=source), self.assertRaisesRegex(Unsupported, reason):
                 self.prepared(source)
+
+    def test_data_without_a_source_becomes_a_developer_input(self):
+        # 4.22: what the migrated code cannot get anywhere is a variable of the Java method, the developer fills it
+        r = self.prepared("IF :SYSTEM.RECORD_STATUS = 'NEW' THEN :B.NEV := :CTRL.X || :GLOBAL.FELH || :NINCS.ILYEN; END IF;")
+        self.assertEqual([(i['source'], i['variable'], i['type']) for i in r['inputs']],
+                         [('SYSTEM.RECORD_STATUS', 'systemRecordStatus', 'text'), ('CTRL.X', 'ctrlX', 'text'),
+                          ('GLOBAL.FELH', 'globalFelh', 'text'), ('NINCS.ILYEN', 'nincsIlyen', 'text')])
+        self.assertEqual({i['source']: i['reason'] for i in r['inputs']}['CTRL.X'], 'másik blokk mezője, a rekordban nem érhető el')
+        self.assertEqual([b['source'] for b in r['outs']], ['B.NEV'])  # an input is never written back
+        self.assertIn(f"{V('CTRL.X')} VARCHAR2(32767) := ?; -- CTRL.X", r['sql'])  # bound like any value
+        from frm_forms.plsql_passthrough import input_declarations
+        self.assertIn('        // TODO: :CTRL.X (másik blokk mezője, a rekordban nem érhető el): add át ennek a változónak a '
+                      'megfelelő értéket.\n        String ctrlX = null;\n', input_declarations(r, '        '))
 
     def test_unknown_routines_run_and_protected_items_are_checked_at_run_time(self):
         # Forms resolved the name in the database (or an attached library): Oracle decides when it runs.

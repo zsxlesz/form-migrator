@@ -1,4 +1,17 @@
-# FRM Forms Migrator 4.21.0 — használat
+# FRM Forms Migrator 4.22.0 — használat
+
+**4.22 – alert-párbeszédes üzenetek, fejlesztői bemenetek:**
+
+- **Alert-párbeszédes üzenet-eljárások:** a helyi `WUZENET`-féle eljárás (`FIND_ALERT` konstans névvel,
+  `SET_ALERT_PROPERTY`, `SHOW_ALERT`, `IF ID_NULL`) üzenetként fut, így az ilyen gombok (pl. a
+  `LEKERDEZESI_FELTETELEK` lekérdezőgomb) nem maradnak kikommentezve. Az eljárás eredeti kódja megjegyzésként a
+  generált metódusban marad.
+- **Fejlesztői bemenetek:** amit a kód sehonnan nem kaphat meg (a formban nem lévő mező, adattriggerben másik blokk
+  mezője vagy `:GLOBAL`, át nem adott `:SYSTEM` változó), az a Java-metódusban egy `null` kezdőértékű, `// TODO`
+  jelölésű változó lesz. A trigger így lefut, a fejlesztő átadja a változónak a megfelelő értéket. A listájuk:
+  `BACKEND_TASKS.md` → Fejlesztői bemenetek.
+
+Részletek: [JAVITASOK_4_22_HU.md](JAVITASOK_4_22_HU.md).
 
 **4.21 – nincs .frm-deploy.json, Angular-fordítási javítás, konstruktor:**
 

@@ -85,19 +85,22 @@ def key_sources(model: dict, block: dict) -> list:
 
 def trigger_lines(event: str, prepared: dict, indent: str) -> list[str]:
     """PRE-COMMIT / POST-FORMS-COMMIT: the anonymous block with the screen values, outputs merged into the result."""
-    from .plsql_passthrough import sql_expression
+    from .plsql_passthrough import input_declarations, input_variable, sql_expression
     from .rules import JDBC_TYPES
     params = []
     for b in prepared['binds']:
-        if b['parameter']:
+        if b.get('input'):
+            params.append(f"DbCalls.in({input_variable(prepared, b)}, {JDBC_TYPES[b['type']]})")
+        elif b['parameter']:
             params.append(f"DbCalls.in(PlsqlValues.parameter(parameters, {jstr(b['source'])}), java.sql.Types.VARCHAR)")
         else:
             params.append(f"DbCalls.in(PlsqlValues.{READERS[b['type']]}(values, {jstr(b['block'])}, {jstr(b['item'])}), {JDBC_TYPES[b['type']]})")
     params += [f"DbCalls.out({JDBC_TYPES[b['type']]})" for b in prepared['outs']]
     params += ['DbCalls.out(java.sql.Types.VARCHAR)' for _ in prepared['globals']] + ['DbCalls.out(java.sql.Types.VARCHAR)'] * 2
     offset = len(prepared['binds'])
-    lines = [f'// {event}: az eredeti PL/SQL az adatbázisban, a képernyő értékeivel.', '{',
-             '    Object[] out = DbCalls.call(jdbc, ' + sql_expression(prepared) + ',',
+    lines = [f'// {event}: az eredeti PL/SQL az adatbázisban, a képernyő értékeivel.', '{']
+    lines += input_declarations(prepared, '    ').splitlines()
+    lines += ['    Object[] out = DbCalls.call(jdbc, ' + sql_expression(prepared) + ',',
              '        ' + ',\n        '.join(params) + ');']
     lines += [f"    PlsqlValues.put(blocks, {jstr(b['block'])}, {jstr(b['item'])}, out[{offset + k}]);" for k, b in enumerate(prepared['outs'])]
     first = offset + len(prepared['outs'])

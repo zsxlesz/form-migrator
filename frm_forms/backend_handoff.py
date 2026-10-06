@@ -149,6 +149,22 @@ def write_handoff(model, discovery, output, config, module):
                   '| Objektum | Besorolás | Indok |', '|---|---|---|']
         lines += ['| ' + ' | '.join(markdown_cell(a[k]) for k in ('owner', 'category', 'reason')) + ' |'
                   for a in model['skipped_actions']]
+    inputs = []
+    for tr in model['triggers']:
+        plan = (tr.get('query_action') or {}).get('prepared') or tr.get('passthrough') or {}
+        inputs += [(tr['owner'] + ' / ' + tr['event'], i) for i in plan.get('inputs', [])]
+    init = model.get('init_plan') or {}
+    inputs += [('FORM / indítás (' + ', '.join(init.get('triggers', [])) + ')', i) for i in (init.get('plan') or {}).get('inputs', [])]
+    for event, entry in (model.get('commit_plan') or {}).items():
+        inputs += [('FORM / ' + event + ' (mentés)', i) for i in entry['plan'].get('inputs', [])]
+    if inputs:
+        lines += ['', '## Fejlesztői bemenetek', '',
+                  'A kód ezeket az értékeket a migrált felületen nem kapja meg. A generált Java-metódus elején mindegyik egy '
+                  '`null` kezdőértékű változó `// TODO` megjegyzéssel: add át neki a megfelelő értéket (például a bejelentkezett '
+                  'felhasználóból, egy konfigurációból vagy a kérésből). Addig a kód `null` értékkel fut.', '',
+                  '| Trigger | Forms-hivatkozás | Java-változó | Ok |', '|---|---|---|---|']
+        lines += ['| ' + ' | '.join(markdown_cell(v) for v in [owner, ':' + i['source'], i['variable'], i['reason']]) + ' |'
+                  for owner, i in inputs]
     lines += ['', '## Konkrét teendők', '', '| Objektum | Ok | Folytatás |', '|---|---|---|']
     lines += ['| '+' | '.join(markdown_cell(t[k]) for k in ['owner','detail','next_step'])+' |' for t in tasks]
     lines += ['', 'A teljes, géppel is feldolgozható terv: [backend-handoff.json](analysis/backend-handoff.json).',

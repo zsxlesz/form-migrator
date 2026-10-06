@@ -53,8 +53,12 @@ programegység. Saját key-trigger esetén annak teljes logikájához adapter ke
 A `qms$event_item` katalógus szerinti keretrendszeri hívása kimarad. A gomb
 `MESSAGE('...')` figyelmeztetése bekerül a válaszba. A bemutatott, egyetlen állandó
 szöveget átvevő `WUZENET('...')` is üzenetként fordul, ha nincs ilyen nevű helyi
-programegység. Saját helyi `WUZENET` esetén annak üzleti hatásait külön meg kell
-vizsgálni; a migrátor nem dobja el a saját eljárás kódját.
+programegység. A saját helyi `WUZENET` (vagy más nevű üzenet-eljárás) is üzenet, ha csak
+megjeleníti a kapott szöveget: `MESSAGE`, illetve alert-párbeszéd (`FIND_ALERT` akár konstans
+nevével, `SET_ALERT_PROPERTY` az üzenetszöveggel vagy a címmel, `SHOW_ALERT`, `IF ID_NULL(...)`
+ág). Ilyenkor az eljárás eredeti kódja megjegyzésként a generált Java-metódusba kerül (4.22).
+Ha mást is csinál (naplóz, a megnyomott gomb szerint dönt, ír valamit), az üzleti hatásait külön
+meg kell vizsgálni; a migrátor nem dobja el a saját eljárás kódját.
 
 ## A bemutatott három jelölő viselkedése
 

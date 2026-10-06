@@ -74,8 +74,12 @@ def coverage(model, backend=None, screen=None):
                           for variant in query['variants'] for b in variant['binds']]
             if any(b['parameter'] for b in plan.get('binds', [])):
                 row['gaps'].append('GLOBAL/PARAMETER kontextus szükséges; a generált Angular kérés paramétertérképe üres.')
-            if any(b['block'] not in {s['block'] for s in screen.get('sections', [])} for b in binds if not b['parameter']):
+            if any(b['block'] not in {s['block'] for s in screen.get('sections', [])} for b in binds
+                   if not b['parameter'] and not b.get('input')):
                 row['gaps'].append('Képernyőn nem szereplő blokkértékeket is vár; a hostnak kell átadnia őket.')
+            if any(b.get('input') for b in binds):
+                row['gaps'].append('Fejlesztői bemenet: ' + ', '.join(':' + b['source'] for b in binds if b.get('input'))
+                                   + ' (a Java-metódusban TODO változó, értékét a fejlesztő adja át).')
             if query and query['target'] not in {s['block'] for s in screen.get('sections', [])}:
                 row['gaps'].append('A lekérdezett blokk nincs a generált képernyőn; az eredmény megjelenítését külön be kell kötni.')
         else:

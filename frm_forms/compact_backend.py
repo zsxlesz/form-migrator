@@ -133,15 +133,23 @@ def skipped_blocks(model):
     return result
 
 
+def input_note(prepared) -> str:
+    """The developer inputs of a generated method, for its comment."""
+    return ('Fejlesztői bemenet (a metódus elején, null; TODO): ' + ', '.join(':' + i['source'] + ' -> ' + i['variable']
+            for i in prepared['inputs']) + '. A kód ezekkel fut; add át nekik a megfelelő értéket.')
+
+
 def action_method(o, block, gated, discovery, model, log1x, user_type):
     """A button whose trigger only needs the database: its PL/SQL runs as written, in one transaction."""
     from .rules import JDBC_TYPES
-    from .plsql_passthrough import sql_expression
+    from .plsql_passthrough import input_declarations, input_variable, sql_expression
     prepared = o['passthrough']
     read = {'text': 'text', 'number': 'number', 'datetime': 'datetime'}
     params = []
     for b in prepared['binds']:
-        if b['parameter']:
+        if b.get('input'):
+            params.append(f"DbCalls.in({input_variable(prepared, b)}, {JDBC_TYPES[b['type']]})")
+        elif b['parameter']:
             params.append(f"DbCalls.in(PlsqlValues.parameter(parameters, {jstr(b['source'])}), java.sql.Types.VARCHAR)")
         else:
             params.append(f"DbCalls.in(PlsqlValues.{read[b['type']]}(values, {jstr(b['block'])}, {jstr(b['item'])}), {JDBC_TYPES[b['type']]})")
@@ -160,13 +168,15 @@ def action_method(o, block, gated, discovery, model, log1x, user_type):
     guard = ('            if (!MODULE_REVIEWED) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Ez a művelet ebben a modulban még nem érhető el.");\n'
              if gated else '')
     info = [o['action']['owner'] + ' / ' + o['action']['event'] + ': az eredeti PL/SQL fut az adatbázisban, egy tranzakcióban.',
-            'Bemenet (a kérés blocks értékei): ' + (', '.join(b['source'] for b in prepared['binds'] if not b['parameter']) or '—'),
+            'Bemenet (a kérés blocks értékei): ' + (', '.join(b['source'] for b in prepared['binds'] if not b['parameter'] and not b.get('input')) or '—'),
             'Visszaírva a képernyőre: ' + (', '.join(b['source'] for b in prepared['outs']) or '—')]
     context = [b['source'] for b in prepared['binds'] if b['parameter']]
     if context:
         info.append('Képernyő-kontextus (parameters): ' + ', '.join(context))
     if written_globals:
         info.append('Visszaadott :GLOBAL értékek: ' + ', '.join(b['source'] for b in written_globals))
+    if prepared.get('inputs'):
+        info.append(input_note(prepared))
     if prepared.get('commands'):
         info.append('Forms-hívások felületi utasításként: ' + ', '.join(prepared['commands']))
     if prepared['units']:
@@ -183,10 +193,11 @@ def action_method(o, block, gated, discovery, model, log1x, user_type):
         return commit_point_action(o, info, gated, log1x, user_type, prepared, params, messages, emulated)
     # Only the request maps the block binds: no unused local (PMD UnusedLocalVariable).
     inputs = ''
-    if any(not b['parameter'] for b in prepared['binds']):
+    if any(not b['parameter'] and not b.get('input') for b in prepared['binds']):
         inputs += '            var values = request.blocks() == null ? java.util.Map.<String, java.util.Map<String, String>>of() : request.blocks();\n'
     if any(b['parameter'] for b in prepared['binds']):
         inputs += '            var parameters = request.parameters() == null ? java.util.Map.<String, String>of() : request.parameters();\n'
+    inputs += input_declarations(prepared, '            ')
     return (comment_lines('\n'.join(info), '    ') + f'''
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     @Override
@@ -244,7 +255,7 @@ def commit_point_action(o, info, gated, log1x, user_type, prepared, params, mess
                         'folytatja a pont utáni résszel.', info[-1]]
     guard = ('            if (!MODULE_REVIEWED) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Ez a művelet ebben a modulban még nem érhető el.");\n'
              if gated else '')
-    from .plsql_passthrough import sql_expression
+    from .plsql_passthrough import input_declarations, sql_expression
     runner = runner_name(o)
     commands = f'PlsqlValues.commands(out[{messages + 1}])' if emulated else 'List.of()'
     arguments = ',\n            '.join(params)
@@ -275,7 +286,7 @@ def commit_point_action(o, info, gated, log1x, user_type, prepared, params, mess
     private void {runner}(java.util.Map<String, java.util.Map<String, String>> values, java.util.Map<String, String> parameters,
             java.util.Map<String, java.util.Map<String, String>> blocks, java.util.Map<String, String> globals,
             List<String> messages, List<List<String>> commands) {{
-        Object[] out = DbCalls.call(jdbc, {sql_expression(prepared)},
+{input_declarations(prepared, '        ')}        Object[] out = DbCalls.call(jdbc, {sql_expression(prepared)},
             {arguments});
 {puts}        messages.addAll(PlsqlValues.lines(out[{messages}]));
         commands.addAll({commands});
@@ -532,6 +543,8 @@ def crud_evidence(op, model, discovery, values):
                          + (('; beágyazott eljárások: ' + ', '.join(info['units'])) if info['units'] else ''))
             if info.get('unresolved'):
                 lines.append(unresolved_note(info['unresolved'], model))
+            if info.get('inputs'):
+                lines.append(input_note(info))
         for unit in t.get('inlined_program_units', []):
             lines += ['HELYI PROCEDURE '+unit['name']+' SHA256: '+unit['sha256'], source_view(unit['source'])[0]]
         for c in discovery['_trigger_index'].get((t['owner'],t['event']),[]):
@@ -1001,6 +1014,9 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
                                   [o.get('passthrough_reason') or 'Kézi implementáció szükséges.'])
             if o.get('query_action'):
                 entry.update(query_block=o['query_action']['target'], query_unit=o['query_action']['unit'])
+            plan = (o.get('query_action') or {}).get('prepared') or o.get('passthrough') or {}
+            if plan.get('inputs'):
+                entry['developer_inputs'] = [{k: i[k] for k in ('source', 'variable', 'reason')} for i in plan['inputs']]
             if o.get('adapter_diagnostics'):
                 entry['adapter_diagnostics'] = o['adapter_diagnostics']
         elif o['op'] == 'lov':

@@ -246,38 +246,54 @@ def variants(body, variable, compiler):
 
 
 def message_wrapper(text: str) -> bool:
-    """A local procedure that only shows its one text parameter (MESSAGE or an alert with that text).
+    """A local procedure that only shows its one text parameter (MESSAGE or an alert dialog with that text).
 
-    Accepted: PROCEDURE x(p [IN] VARCHAR2) IS [alert/number variables] BEGIN MESSAGE(p [, ACKNOWLEDGE])
-    | SET_ALERT_PROPERTY(.., ALERT_MESSAGE_TEXT, p) | CHANGE_ALERT_MESSAGE(.., p) | v := SHOW_ALERT(..)
-    | v := FIND_ALERT(..) | SYNCHRONIZE | BELL | NULL [; RAISE FORM_TRIGGER_FAILURE] END. Anything else -
-    a log table, another call, a condition - is real logic and stays a manual task.
+    Accepted: PROCEDURE x(p [IN] VARCHAR2 [DEFAULT '...']) IS [declarations] BEGIN ... END, where the declarations
+    are NUMBER / INTEGER / PLS_INTEGER / BOOLEAN / ALERT / VARCHAR2(n) / CHAR(n) variables or constants with a literal
+    (the alert's name), and the statements show the text: MESSAGE(p [, ACKNOWLEDGE]) | SET_ALERT_PROPERTY(.., ALERT_MESSAGE_TEXT, p)
+    | SET_ALERT_PROPERTY(.., TITLE, ..) | CHANGE_ALERT_MESSAGE(.., p) | SET_ALERT_BUTTON_PROPERTY(..) | v := FIND_ALERT(..)
+    | v := SHOW_ALERT(..) | v := 'literal' | SYNCHRONIZE | BELL | NULL, also inside IF [NOT] ID_NULL(v) ... ELSE ... END IF
+    (the alert is missing: MESSAGE), [RAISE FORM_TRIGGER_FAILURE] last. Anything else - a log table, another call, a
+    condition on the pressed button - is real logic and stays a manual task.
     """
     import re
+    from .plsql_passthrough import scan
     code = re.sub(r'&#(?:10|13|9);', '\n', str(text or ''))
-    code = re.sub(r'/\*.*?\*/', ' ', code, flags=re.S)
-    code = re.sub(r'--[^\n]*', ' ', code)
-    header = re.match(r"\s*procedure\s+[\w$#]+\s*\(\s*([\w$#]+)\s+(?:in\s+)?varchar2\s*(?:(?::=|default)\s*'[^']*'\s*)?\)\s*(?:is|as)\b(.*?)\bbegin\b(.*)\bend\b\s*[\w$#]*\s*;?\s*$",
+    try:
+        # comments out, string literals masked: their words never count as code
+        code = ''.join(' ' if kind == 'comment' else "'x'" if kind == 'string' else token for kind, token, _, _ in scan(code))
+    except Exception:
+        return False
+    header = re.match(r"\s*procedure\s+[\w$#]+\s*\(\s*([\w$#]+)\s+(?:in\s+)?varchar2\s*(?:(?::=|default)\s*'x'\s*)?\)\s*(?:is|as)\b(.*?)\bbegin\b(.*)\bend\b\s*[\w$#]*\s*;?\s*$",
                       code, re.I | re.S)
     if not header:
         return False
     p = re.escape(header.group(1))
+    variables = set()
     for declaration in [d.strip() for d in header.group(2).split(';') if d.strip()]:
-        if not re.fullmatch(r"[\w$#]+\s+(?:number|integer|pls_integer|alert)", declaration, re.I):
+        match = re.fullmatch(r"([\w$#]+)\s+(?:constant\s+)?(?:number|integer|pls_integer|boolean|alert|(?:varchar2|char)\s*\(\s*\d+\s*(?:byte|char)?\s*\))"
+                             r"(?:\s+not\s+null)?(?:\s*(?::=|default)\s*(?:'x'|-?\d+|true|false|null))?", declaration, re.I | re.S)
+        if not match:
             return False
-    statements = [re.sub(r'\s+', ' ', s).strip() for s in header.group(3).split(';') if s.strip()]
+        variables.add(match.group(1).upper())
+    # IF [NOT] ID_NULL(alert) ... ELSE ... END IF: either branch shows the text (dialog or MESSAGE)
+    body = re.sub(r'\b(?:els)?if\s+(?:not\s+)?id_null\s*\(\s*[\w$#]+\s*\)\s+then\b|\belse\b|\bend\s+if\b', ';', header.group(3), flags=re.I)
+    statements = [re.sub(r'\s+', ' ', s).strip() for s in body.split(';') if s.strip()]
+    target = r"(?:[\w$#]+|'x')"
     allowed = [rf"message\s*\(\s*{p}\s*(?:,\s*(?:no_)?acknowledge\s*)?\)",
-               rf"set_alert_property\s*\(\s*[^,]+,\s*alert_message_text\s*,\s*{p}\s*\)",
-               rf"change_alert_message\s*\(\s*[^,]+,\s*{p}\s*\)",
-               r"[\w$#]+\s*:=\s*(?:show_alert|find_alert)\s*\([^)]*\)",
+               rf"set_alert_property\s*\(\s*{target}\s*,\s*alert_message_text\s*,\s*{p}\s*\)",
+               rf"set_alert_property\s*\(\s*{target}\s*,\s*title\s*,\s*{target}\s*\)",
+               rf"change_alert_message\s*\(\s*{target}\s*,\s*{p}\s*\)",
+               r"([\w$#]+)\s*:=\s*(?:(?:show_alert|find_alert)\s*\(\s*" + target + r"\s*\)|'x'|-?\d+)",
                r"set_alert_button_property\s*\([^)]*\)", r"synchronize", r"bell", r"null"]
     shown = False
     for index, statement in enumerate(statements):
         if re.fullmatch(r"raise\s+form_trigger_failure", statement, re.I) and index == len(statements) - 1:
             continue  # the branch ends here anyway
-        if not any(re.fullmatch(rx, statement, re.I) for rx in allowed):
-            return False
-        shown = shown or bool(re.match(r'(?:message|set_alert_property|change_alert_message)', statement, re.I))
+        match = next((m for m in (re.fullmatch(rx, statement, re.I) for rx in allowed) if m), None)
+        if not match or (match.groups() and match.group(1).upper() not in variables):
+            return False  # an assignment writes the procedure's own variables only
+        shown = shown or bool(re.match(r'(?:message|set_alert_property\s*\([^,]+,\s*alert_message_text|change_alert_message)', statement, re.I))
     return shown
 
 
@@ -362,9 +378,11 @@ def query_action(trigger, source, model, catalog):
     source = decode_line_escapes(source)
     tokens = scan(source)
     shown = {'WUZENET'} | {name for name, unit in units.items() if message_wrapper(unit['text'])}
+    replaced = set()
     for kind, text, start, end in reversed(tokens):
         if kind == 'ident' and text.upper() in shown:
             source = source[:start] + 'MESSAGE' + source[end:]
+            replaced.add(text.upper())
     prepared = prepare(source, block=trigger['block'] or None, items=items, units=units,
                        prefixes=catalog['call_prefixes'], other_blocks=True, parameters=True,
                        transaction=True, procedures=model.get('procedures', {}),
@@ -372,7 +390,9 @@ def query_action(trigger, source, model, catalog):
     if prepared['unresolved'] or set(prepared['assigned']) - {context + '.WHERE_TEXT', context + '.EXECUTED'}:
         raise Unsupported('A lekérdezésgomb ismeretlen rutint hív vagy a szűrőn túl képernyőértéket módosít.')
     return {'target': target, 'unit': unit, 'context': context, 'variants': plans, 'prepared': prepared,
-            'runtime_call': original[tail[0]['span'][0]:tail[0]['span'][1]]}
+            'runtime_call': original[tail[0]['span'][0]:tail[0]['span'][1]],
+            # the local alert/message procedures shown as a message: their code stays in the method as a comment
+            'message_units': {name: decode_line_escapes(units[name]['text']).strip() for name in sorted(replaced) if name in units}}
 
 
 def blockers(plan, model):
@@ -392,12 +412,22 @@ def blockers(plan, model):
                              and not (i['code'] == 'RUNTIME_BLOCK_PROPERTY' and i['detail'] in resolved)))
 
 
+def message_comments(units: dict | None, indent: str) -> str:
+    """The local alert/message procedures the screen shows as a message (toast): their original code, commented."""
+    lines = []
+    for name, source in (units or {}).items():
+        lines.append(name + ' (helyi alert/üzenet-eljárás): a webes képernyőn üzenetként jelenik meg. Az eredeti kódja, ha később kellene:')
+        lines += source.splitlines()
+    return ''.join(indent + ('// ' + line.replace('\\', '[backslash]') if line.strip() else '//') + '\n' for line in lines)
+
+
 def java_method(operation, block, gated, log1x, user_type, support):
     from .action_scaffold import comment_lines
     from .common import java_text_block, jstr, name
     from .rules import JDBC_TYPES
     from .service_inline import methods
 
+    from .plsql_passthrough import input_declarations, input_variable
     plan = operation['query_action']
     prepared = plan['prepared']
     reads = {'text': 'text', 'number': 'number', 'datetime': 'datetime'}
@@ -405,6 +435,8 @@ def java_method(operation, block, gated, log1x, user_type, support):
     for bind in prepared['binds']:
         if bind['block'] == plan['context']:
             value = 'null'
+        elif bind.get('input'):
+            value = input_variable(prepared, bind)
         elif bind['parameter']:
             value = f"PlsqlValues.parameter(parameters, {jstr(bind['source'])})"
         else:
@@ -476,7 +508,7 @@ def java_method(operation, block, gated, log1x, user_type, support):
                 throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "offset: 0..1000000, limit: 1..200 szükséges.");
             }}
             var values = request.blocks() == null ? java.util.Map.<String, java.util.Map<String, String>>of() : request.blocks();
-{parameters}            Object[] out = DbCalls.call(jdbc, {java_text_block(prepared['sql'])},
+{parameters}{input_declarations(prepared, '            ')}{message_comments(plan.get('message_units'), '            ')}            Object[] out = DbCalls.call(jdbc, {java_text_block(prepared['sql'])},
                 {(',' + chr(10) + '                ').join(arguments)});
             var messages = new ArrayList<>(PlsqlValues.lines(out[{message_index}]));
             if (!"Y".equals(out[{executed_index}])) {{

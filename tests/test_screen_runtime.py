@@ -34,7 +34,7 @@ SIMPLE = '''<Module><FormModule Name="EGYSZERU" Title="Egyszerű"><Coordinate Co
 ELSE set_item_property(&apos;B.NEV&apos;, ENABLED, PROPERTY_FALSE); END IF;"/></Item></Block>
  <Canvas Name="C" CanvasType="Content" WindowName="W"/><Window Name="W" Title="Egyszerű"/></FormModule></Module>'''
 
-# A list screen without buttons: backend calls, but no runtime (the component has its own modName).
+# A list screen without buttons: backend calls; it extends the runtime too (modName comes from ServiceBase).
 LISTAS = '''<Module><FormModule Name="LISTAS" Title="Listás"><Coordinate CoordinateSystem="Real" RealUnit="Pixel"/>
  <Block Name="PARTNER" DatabaseDataBlock="true" QueryDataSourceName="PARTNER" RecordsDisplayCount="5">
   <Item Name="KOD" ItemType="Text Item" DataType="Char" Prompt="Kód" CanvasName="C" ColumnName="KOD" PrimaryKey="true"
@@ -128,7 +128,7 @@ class ScreenRuntimeTests(unittest.TestCase):
             self.assertEqual(method[0], method[1])  # the name logged is the method's own
         runtime = (self.out / 'frontend' / RUNTIME).read_text(encoding='utf-8')
         self.assertIn("tap(res => WFF.debug(this.modName + '.' + name, res)),\n      catchError(", runtime)
-        self.assertIn("get modName(): string {\n    return WFF.trim(this.router.url, '/');\n  }", runtime)
+        self.assertNotIn('get modName', runtime)  # 4.24.2: inherited from ServiceBase, like the router
         self.assertIn('ServiceBase, WFF (java-imports.json)', runtime)
         self.assertNotIn('inject(Router)', runtime)  # the router comes from ServiceBase
         self.assertNotIn("from '@angular/router'", runtime)

@@ -499,9 +499,8 @@ protected send<T>(name: string, request: Observable<T>): Observable<T> {
   `TETEL: { call: request => this.searchTetel(request), criteria: { rendelesId: 'RENDELES.id' } }`.
   A futtató ezek alapján hívja a végpontot lekérdezéskor, LOV-keresésnél, gombnyomásra és mentéskor.
 - **Naplózás:** minden sikeres válasz legelőször a `WFF.debug(this.modName + '.<metódus>', res)` hívásba
-  kerül (`tap`), ahol a `<metódus>` a végpontmetódus neve. A `modName` a modul útvonala
-  (`WFF.trim(this.router.url, '/')`), a `frm-forms-screen.ts`-ben. A `router` a `ServiceBase`-ből jön,
-  a képernyő nem injektál saját routert.
+  kerül (`tap`), ahol a `<metódus>` a végpontmetódus neve. A `modName` (a modul útvonala) és a `router`
+  is a céges `ServiceBase`-ből öröklődik: sem a `frm-forms-screen.ts`, sem a képernyő nem definiálja újra.
 - **Hibák:** a `send` `catchError`-ja a `WFF.err('Hiba', error)` hívással jelez. Az üres találatot, a
   backend-üzeneteket és a sikeres műveletet a `ToastService` mutatja.
 - **Válaszboríték:** céges módban a válasz `RestResponseDto`-ban érkezik. Az adatot a `payload()`

@@ -6,6 +6,7 @@ import { Router } from '@angular/router';
 export abstract class ServiceBase {
   protected readonly router = inject(Router);
   protected url(path: string): string { return path; }
+  get modName(): string { return this.router.url; }
 }
 export const WFF = {
   err(title: string, error: unknown): void { void title; void error; },

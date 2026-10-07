@@ -1,4 +1,8 @@
-# FRM Forms Migrator 4.24.1 — használat
+# FRM Forms Migrator 4.24.2 — használat
+
+**4.24.2 – `modName` az ősosztályból:** a `frm-forms-screen.ts` már nem generál saját `modName` gettert, mert a céges
+`ServiceBase`-ből öröklődik. A futtató verziója 5; a projektben lévő példányt le kell cserélni. Részletek:
+[JAVITASOK_4_24_2_HU.md](JAVITASOK_4_24_2_HU.md).
 
 **4.24.1 – nagy formok:**
 

@@ -9,7 +9,7 @@ import { ButtonModule } from '@openng/optimus-ui/button';
 import { DialogModule } from '@openng/optimus-ui/dialog';
 // TODO: importáld a saját csomagodból: ServiceBase, WFF (java-imports.json).
 
-export const FRM_FORMS_SCREEN_VERSION = '4';
+export const FRM_FORMS_SCREEN_VERSION = '5';
 export const FRM_QUERY_LIMIT = 200;
 
 export type FrmOracleValues = Record<string, Record<string, string | null>>;
@@ -306,10 +306,6 @@ export abstract class FrmFormsScreen extends ServiceBase {
   private readonly subscriptions: Record<string, Subscription> = {};
   private readonly lovTickets: Record<string, number> = {};
   private readonly lovChoices: Record<string, FrmLovChoice[]> = {};
-
-  get modName(): string {
-    return WFF.trim(this.router.url, '/');
-  }
 
   protected send<T>(name: string, request: Observable<T>): Observable<T> {
     return request.pipe(

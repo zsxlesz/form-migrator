@@ -179,8 +179,9 @@ def action_method(o, block, gated, discovery, model, log1x, user_type):
         info.append(input_note(prepared))
     if prepared.get('commands'):
         info.append('Forms-hívások felületi utasításként: ' + ', '.join(prepared['commands']))
-    if prepared['units']:
-        info.append('Hívott Forms-eljárások (PlsqlUnits): ' + ', '.join(prepared['units']))
+    info += units_note(prepared)
+    if o.get('query_java_reason'):
+        info.append('Lekérdezőgomb, de a Java-lekérdezés nem készült el, ezért az eredeti PL/SQL fut: ' + o['query_java_reason'])
     if prepared.get('unresolved'):
         info.append(unresolved_note(prepared['unresolved'], model))
     if prepared.get('screen_points'):
@@ -351,6 +352,13 @@ def unresolved_note(names, model):
         note += ('. A formhoz csatolt könyvtár(ak): ' + ', '.join(libraries)
                  + '; ha a rutin ott van, a hívás HTTP 501-et ad a rutin nevével, a többi művelet működik.')
     return note
+
+
+def units_note(prepared):
+    inline = prepared.get('inline_units') or {}
+    shared = [n for n in prepared['units'] if n not in inline]
+    return ((['Hívott Forms-eljárások (PlsqlUnits): ' + ', '.join(shared)] if shared else [])
+            + (['Helyi csomag, csak a hívott tagjai (a blokk szövegében): ' + ', '.join(inline)] if inline else []))
 
 
 def plsql_units_class(model, used, used_ui=()):
@@ -648,6 +656,8 @@ def generate(model, output: Path, config, module, package, discovery, actions):
             continue
         trigger = next((t for t in model['triggers'] if t['owner'] == o['action']['owner'] and t['event'] == o['action']['event']), None)
         o['passthrough'] = trigger.get('passthrough_plan') if trigger else None
+        if trigger and trigger.get('query_java_reason') and 'SET_BLOCK_PROPERTY' in str(trigger.get('source', '')).upper():
+            o['query_java_reason'] = trigger['query_java_reason']  # why this query button is not a Java query
         if trigger and not o['passthrough'] and trigger['status'] == 'review':
             o['passthrough_reason'] = trigger.get('reason', '')
             o['adapter_diagnostics'] = trigger.get('adapter_diagnostics', {})
@@ -864,6 +874,8 @@ public class {cls}ControllerImpl extends {controller_base} implements {cls}Contr
             reason = o.get('passthrough_reason') or 'A gomb kódja kézi átültetést igényel.'
             info = [o['action']['owner'] + ' / ' + o['action']['event'] + ': az adatbázisban nem futtatható, kézi átültetés.',
                     *wrap('Ok: ' + reason, width=108, break_long_words=False, break_on_hyphens=False),
+                    *(wrap('Java-lekérdezés sem készült: ' + o['query_java_reason'], width=108, break_long_words=False,
+                           break_on_hyphens=False) if o.get('query_java_reason') else []),
                     'Teljes adapterdiagnózis: analysis/backend-plan.json; eredeti kód: analysis/backend-evidence.md']
             # The original code where the developer ports it: trigger, local units, DO_KEY targets.
             original = manual_source(o['action'], discovery)
@@ -919,6 +931,9 @@ public class {cls}ControllerImpl extends {controller_base} implements {cls}Contr
     used_ui = {unit for unit in model.get('plsql_units_ui', {}) if 'PlsqlUnits.' + unit_constant(unit) + '_UI' in used_code}
     if used_units or used_ui:
         runtime += ('\n' if runtime else '') + plsql_units_class(model, used_units, used_ui)
+    if any((o.get('query_action') or {}).get('java') for o in ops):
+        from .query_java import QUERY_TEXT_CLASS
+        runtime += ('\n\n' if runtime else '') + QUERY_TEXT_CLASS
     dps_imports = imports+'''import org.springframework.stereotype.Service;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -974,6 +989,11 @@ public class {cls}ServiceImpl extends {service_base} implements {cls}Service {{
 
 {runtime}
 }}''', dps_imports + company + logging)
+    java_queries = [o for o in ops if (o.get('query_action') or {}).get('java')]
+    if config.get('query_java_tests') and java_queries:
+        from .query_java import junit_test
+        write(output / 'backend' / 'DPS-test' / f'{cls}QueryTextTest.java',
+              junit_test(cls, layer_package(config, package, 'DPS'), java_queries))
     service_base = config['java_service_base_wbs']
     emit('WBS', 'ServiceImpl', f'''/** CREATE_ONCE: host adapter. No database or DPS class dependencies. Every method runs in log1x. */
 @XSlf4j
@@ -1021,6 +1041,10 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
                 entry['developer_inputs'] = [{k: i[k] for k in ('source', 'variable', 'reason')} for i in plan['inputs']]
             if o.get('adapter_diagnostics'):
                 entry['adapter_diagnostics'] = o['adapter_diagnostics']
+            if o.get('query_java_reason'):
+                entry['query_java_reason'] = o['query_java_reason']
+            if java_query:
+                entry['equivalence'] = o['query_action']['java'].get('equivalence')
         elif o['op'] == 'lov':
             ready = not o['lov']['blockers']
             entry.update(block=o['lov']['block'], operation='lov', lov=o['lov']['name'], implemented=ready and (not gated or live),

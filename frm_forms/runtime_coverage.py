@@ -47,6 +47,9 @@ def coverage(model, backend=None, screen=None):
         linked = []
         if trigger['status'] == 'framework' or trigger.get('target') == 'noop':
             row.update(status='omitted', execution='Katalogizált keretrendszerhívás / bizonyított NULL trigger kihagyva.')
+        elif trigger.get('target') == 'per-block':
+            row.update(status='backend', engine='per-block',
+                       execution='Form-szintű trigger: a blokkonkénti másolatai futnak (' + ', '.join(trigger['form_level_blocks']) + ').')
         elif trigger.get('target') == 'backend' and trigger['status'] == 'converted':
             operations, moment = HOOKS[event]
             linked = [e for e in endpoints if (e['block'] == trigger['block'] and e['operation'] in operations)

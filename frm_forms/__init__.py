@@ -1,2 +1,2 @@
 """Deterministic Oracle Forms module migration tools."""
-__version__ = "4.23.0"
+__version__ = "4.24.0"

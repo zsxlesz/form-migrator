@@ -155,11 +155,17 @@ class HeadstartCleanupTests(unittest.TestCase):
     def test_runtime_block_property_blocks_the_right_block(self):
         button = ('<Block Name="CTRL" DatabaseDataBlock="false"><Item Name="BTN" ItemType="Push Button">'
                   '<Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="%s"/></Item></Block>')
-        literal = self.plain(button % "set_block_property(&apos;B&apos;, DEFAULT_WHERE, &apos;CODE = 1&apos;); go_block(&apos;B&apos;); execute_query;"
+        literal = self.plain(button % "set_block_property(&apos;B&apos;, DEFAULT_WHERE, &apos;CODE = 1&apos;);"
                              + self.block() + self.block('C'))
         b, c = [x for x in self.model(literal)['blocks'] if x['database']]
         self.assertFalse(b['can_read']); self.assertTrue(c['can_read'])
         self.assertTrue(any('DEFAULT_WHERE' in r for r in b['blockers']['read']))
+        self.assertFalse(any('DEFAULT_WHERE' in r for r in b['blockers'].get('update', [])))  # 4.24: queries only
+        # 4.24: a button that queries with it is a Java query button; the block's own query keeps the form's WHERE
+        query = self.plain(button % "set_block_property(&apos;B&apos;, DEFAULT_WHERE, &apos;CODE = 1&apos;); go_block(&apos;B&apos;); execute_query;"
+                           + self.block() + self.block('C'))
+        b = [x for x in self.model(query)['blocks'] if x['database']][0]
+        self.assertTrue(b['can_read'])
         handle = self.plain(button % ("blk := find_block(&apos;C&apos;);" + NL + "set_block_property(blk, ORDER_BY, &apos;CODE&apos;);")
                             + self.block() + self.block('C'))
         b, c = [x for x in self.model(handle)['blocks'] if x['database']]

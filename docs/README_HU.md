@@ -1,4 +1,28 @@
-# FRM Forms Migrator 4.23.0 — használat
+# FRM Forms Migrator 4.24.0 — használat
+
+**4.24 – a második felmérés javításai, okosabb lekérdezőgombok, egyezés-ellenőrzés:**
+
+- **Kevesebb tiltott végpont:**
+  - az indítási kód keretrendszer-csomag változója (`….nav_opening_wnd := FALSE`) elhagyható;
+  - egy helyi csomagból csak a hívott tagok kerülnek a blokkba;
+  - a futásidejű `DEFAULT_WHERE` / `ORDER_BY` csak a lekérdezést érinti;
+  - a `GET_BLOCK_PROPERTY` a form statikus beállításaiból, a `NAME_IN('BLOKK.MEZŐ')` kötött változóként fut;
+  - a LONG típusú mező szöveg.
+- **Üzenet-eljárások mindenhol:** `WUZENET`, `QMS$FORMS_ERRORS.PUSH`/`MSGGETTEXT`/`RAISE_FAILURE`, a beágyazott
+  alert-blokk és a csak üzenetet mutató helyi eljárás vagy csomagtag `MESSAGE` lesz. A saját rutinokat a
+  keretrendszer-katalógus új kulcsai sorolják fel: `message_calls`, `message_functions`, `failure_calls`.
+- **Form-szintű adat-triggerek:** blokkonként futnak az Execution Hierarchy szerint.
+- **Lekérdezőgombok:**
+  - a WHERE-be fűzött mezőérték kötött paraméter lesz;
+  - a szűrőépítő lehet paraméteres vagy magában a triggerben (`DECLARE`, `%TYPE`);
+  - ismeri a `DECODE`/`CASE`/`IN`, a `CHR(39)`, a `NAME_IN` és a dinamikus `ORDER_BY` kifejezéseket.
+- **Egyezés-ellenőrzés:**
+  - generáláskor a Java WHERE-t összeveti az eredeti PL/SQL kiértékelésével;
+  - eltérés esetén a tartalék út fut, és az ok megmondja, miben tér el a két WHERE;
+  - `query_java_tests: true` mellett JUnit-teszt is készül.
+- **Olvasható okok:** a hibák a forrás sorát is megmutatják.
+
+Részletek: [JAVITASOK_4_24_HU.md](JAVITASOK_4_24_HU.md).
 
 **4.23 – egyszerű Java lekérdezőgombok, eredeti kód régióban:**
 
@@ -198,7 +222,8 @@ Részletek: [BACKEND_FORMATUM_4_12_HU.md](BACKEND_FORMATUM_4_12_HU.md).
 - A támogatott adat-triggerek alapértelmezetten az eredeti PL/SQL-t futtatják a DPS ServiceImpl-ből,
   kötött mezőkkel és visszaírással. A korábbi Java-fordítás: `backend_trigger_mode: "java"`.
 - Lekérdezőgombok (`DEFAULT_WHERE`-építő): `query_action_mode: "java"` (alapértelmezés, egyszerű Java-lekérdezés)
-  vagy `"plsql"` (az eredeti eljárás Oracle-ben fut, előre lefordított változatokkal).
+  vagy `"plsql"` (az eredeti eljárás Oracle-ben fut, előre lefordított változatokkal). `query_java_tests: true`:
+  JUnit-teszt a Java-lekérdezések WHERE-jére (`backend/DPS-test/`, az egyezés-ellenőrzés eseteivel).
 - A `RUNTIME_COVERAGE.md` külön mutatja a kód futtathatóságát és a tényleges eseménybekötést;
   például a szerveroldali WHEN-VALIDATE-ITEM jelenleg mentéskor fut, nem mezőelhagyáskor.
 - Az `backend_live` beállítással (a weben alapból bekapcsolva) a generált backend azonnal éles.

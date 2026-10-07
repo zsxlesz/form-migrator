@@ -17,7 +17,7 @@ import re
 from . import forms_runtime
 from .common import decode_line_escapes
 from .forms_context import NORMAL_MODE, NORMAL_MODE_NOTE, normal_mode_reference
-from .plsql import Unsupported
+from .plsql import Unsupported, where
 
 IDENT = re.compile(r'[A-Za-z][A-Za-z0-9_$#]*')
 BIND = re.compile(r':[A-Za-z][A-Za-z0-9_$#]*(?:\.[A-Za-z][A-Za-z0-9_$#]*)?')
@@ -49,11 +49,12 @@ def scan(text: str) -> list[tuple[str, str, int, int]]:
             while j < n and text[j].isspace(): j += 1
             tokens.append(('ws', text[i:j], i, j)); i = j; continue
         if text.startswith('--', i):
-            j = text.find('\n', i); j = n if j < 0 else j
+            ends = [k for k in (text.find('\n', i), text.find('\r', i)) if k >= 0]  # CR-only line breaks end it too
+            j = min(ends) if ends else n
             tokens.append(('comment', text[i:j], i, j)); i = j; continue
         if text.startswith('/*', i):
             j = text.find('*/', i + 2)
-            if j < 0: raise Unsupported('Lezáratlan /* megjegyzés.')
+            if j < 0: raise Unsupported('Lezáratlan /* megjegyzés' + where(text, i) + '.')
             tokens.append(('comment', text[i:j + 2], i, j + 2)); i = j + 2; continue
         if c in 'qQnN' and re.match(r"[nN]?[qQ]'", text[i:i + 3]):
             start = i
@@ -61,19 +62,19 @@ def scan(text: str) -> list[tuple[str, str, int, int]]:
             if i >= n: raise Unsupported('Hibás q-literál.')
             close = Q_CLOSE.get(text[i], text[i])
             j = text.find(close + "'", i + 1)
-            if j < 0: raise Unsupported('Lezáratlan q-literál.')
+            if j < 0: raise Unsupported('Lezáratlan q-literál' + where(text, start) + '.')
             tokens.append(('string', text[start:j + 2], start, j + 2)); i = j + 2; continue
         if c == "'" or (c in 'nN' and text[i + 1:i + 2] == "'"):
             start = i; i += 2 if c != "'" else 1
             while True:
                 j = text.find("'", i)
-                if j < 0: raise Unsupported('Lezáratlan szöveg-literál.')
+                if j < 0: raise Unsupported('Lezáratlan szöveg-literál' + where(text, start) + '.')
                 if text[j + 1:j + 2] == "'": i = j + 2; continue
                 i = j + 1; break
             tokens.append(('string', text[start:i], start, i)); continue
         if c == '"':
             j = text.find('"', i + 1)
-            if j < 0: raise Unsupported('Lezáratlan idézett azonosító.')
+            if j < 0: raise Unsupported('Lezáratlan idézett azonosító' + where(text, i) + '.')
             tokens.append(('ident', text[i:j + 1], i, j + 1)); i = j + 1; continue
         if c == ':' and text[i + 1:i + 2] != '=':
             m = BIND.match(text, i)
@@ -159,8 +160,9 @@ class Rewriter:
 
     def __init__(self, block, items, catalog_prefixes, *, other_blocks, parameters, transaction, units, procedures=None,
                  runtime_calls=(), ui=False, form='', trigger_item=None, tail_units=frozenset(), members=frozenset(),
-                 key_overrides=frozenset(), key_triggers=None, commit_points=False, cursor_on_item=True):
+                 key_overrides=frozenset(), key_triggers=None, commit_points=False, cursor_on_item=True, block_info=None):
         self.block, self.items, self.prefixes = block, items, catalog_prefixes
+        self.block_info = block_info or {}  # static block properties of the form (GET_BLOCK_PROPERTY folding)
         # Framework prefixes and catalogued Forms-runtime routines: both exist only in Forms.
         self.catalog = {'call_prefixes': tuple(catalog_prefixes or ()), 'runtime_calls': tuple(runtime_calls or ())}
         self.procedures = {k.upper(): v for k, v in (procedures or {}).items()}
@@ -199,6 +201,8 @@ class Rewriter:
                     self.binds[name] = {'source': name, 'block': 'SYSTEM', 'item': variable, 'type': 'text', 'parameter': True}
                 return self.var(name)
             return self.input_bind(name, 'Forms rendszerváltozó, a webes képernyő nem adja át')
+        if head == 'SYSTEM' and name == 'SYSTEM.TRIGGER_BLOCK' and self.block:
+            return "'" + self.block + "'"  # a block's trigger (a form-level one's copy too) knows its block
         if head == 'SYSTEM':
             return self.input_bind(name, 'Forms rendszerváltozó, az adatbázisban nincs megfelelője')
         if head in {'GLOBAL', 'PARAMETER'}:
@@ -241,7 +245,7 @@ class Rewriter:
         """A rewriter for program units: no block context, same binds and needs."""
         unit = Rewriter(None, self.items, self.prefixes, other_blocks=True, parameters=True, transaction=False,
                         units=self.units, procedures=self.procedures, runtime_calls=self.catalog['runtime_calls'],
-                        ui=self.ui, form=self.form, tail_units=self.tail_units)
+                        ui=self.ui, form=self.form, tail_units=self.tail_units, block_info=self.block_info)
         return unit
 
     def plumbing(self, name: str) -> bool:
@@ -278,8 +282,9 @@ class Rewriter:
         sig = significant(tokens)
         replace = {}  # start offset -> (end offset, replacement)
         skip_until = 0
+        protected = []  # (start, end): already replaced pieces inside an expression (GET_BLOCK_PROPERTY's property)
         for k, token in enumerate(sig):
-            if token[2] < skip_until:
+            if token[2] < skip_until or any(a <= token[2] < b for a, b in protected):
                 continue  # no binds/edits inside an already replaced statement
             kind, value = token[0], token[1]
             previous = sig[k - 1][1].upper() if k else ';'
@@ -341,6 +346,19 @@ class Rewriter:
                 if word not in KEYWORDS and (at_start or following == '('):
                     self.check_call(sig, k, expression=not at_start)
                 continue
+            if word == 'GET_BLOCK_PROPERTY' and after == '(' and self.block_info:
+                folded = self.block_property(sig, k, replace)
+                if folded:
+                    protected.append(folded)
+                    continue
+            if word == 'NAME_IN' and after == '(' and not self.ui and 'NAME_IN' not in self.units:
+                close = self.closing(sig, k + 1)
+                if close == k + 3 and sig[k + 2][0] == 'string' and sig[k + 2][1].startswith("'"):
+                    # NAME_IN('BLOCK.ITEM'): the item's value, like :BLOCK.ITEM
+                    replace[token[2]] = (sig[close][3], self.bind(':' + sig[k + 2][1][1:-1].replace("''", "'").strip()))
+                    skip_until = sig[close][3]
+                    continue
+                raise Unsupported('NAME_IN számított névvel: az adatbázisban nem oldható fel.')
             if word == 'FORM_TRIGGER_FAILURE':
                 self.needs.add('failure'); continue
             if word in {'ACKNOWLEDGE', 'NO_ACKNOWLEDGE'}:
@@ -403,6 +421,32 @@ class Rewriter:
             last = end
         out.append(text[last:])
         return ''.join(out)
+
+    def block_property(self, sig, k, replace):
+        """GET_BLOCK_PROPERTY(block, PROP) of a property the form fixes (QUERY_ALLOWED, DEFAULT_WHERE ...): the value
+        from the form; a computed block name is a CASE over the blocks. (start, end) of the property part, or None."""
+        close = self.closing(sig, k + 1)
+        commas = [i for i in range(k + 2, close) if sig[i][1] == ',' and self.depth(sig, k + 1, i) == 1]
+        if len(commas) != 1 or commas[0] + 2 != close or sig[commas[0] + 1][0] != 'ident':
+            return None
+        prop = sig[commas[0] + 1][1].upper()
+        if not all(prop in values for values in self.block_info.values()):
+            return None
+        quote = lambda value: 'NULL' if value is None else "'" + str(value).replace("'", "''") + "'"
+        first = sig[k + 2]
+        if commas[0] == k + 3 and first[0] == 'string' and first[1].startswith("'"):
+            block = first[1][1:-1].replace("''", "'").strip().upper()
+            if block not in self.block_info:
+                return None
+            replace[sig[k][2]] = (sig[close][3], quote(self.block_info[block][prop]))
+            self.notes.append('GET_BLOCK_PROPERTY(' + block + ', ' + prop + ') -> ' + quote(self.block_info[block][prop])
+                              + ' (a form statikus beállítása)')
+            return sig[k][2], sig[close][3]
+        replace[sig[k][2]] = (sig[k + 1][3], '(CASE UPPER(')
+        cases = ' '.join("WHEN '" + b + "' THEN " + quote(v[prop]) for b, v in sorted(self.block_info.items()))
+        replace[sig[commas[0]][2]] = (sig[close][3], ') ' + cases + ' END)')
+        self.notes.append('GET_BLOCK_PROPERTY(..., ' + prop + ') -> CASE a blokkok statikus beállításából')
+        return sig[commas[0]][2], sig[close][3]
 
     @staticmethod
     def closing(sig, k):
@@ -803,7 +847,9 @@ def sql_expression(prepared: dict) -> str:
     suffix = '_UI' if prepared.get('ui') else ''  # the screen-emulating variant of a program unit
     head = [('FormsPlsql.' + part[1]) if isinstance(part, tuple) else java_lines(part)
             for part in prepared.get('head_parts') or [prepared['head']]]
-    parts = (head + ['PlsqlUnits.' + unit_constant(n) + suffix + ' + "\\n"' for n in prepared['units']]
+    inline = prepared.get('inline_units') or {}  # a package with its reached members only: this block's own text
+    parts = (head + [java_lines(inline[n] + '\n') if n in inline else 'PlsqlUnits.' + unit_constant(n) + suffix + ' + "\\n"'
+                     for n in prepared['units']]
              + [java_text_block(prepared['tail'])])
     return ' + '.join(parts)
 
@@ -824,17 +870,19 @@ PACKAGE_HEADER = re.compile(r'^\s*PACKAGE\s+(BODY\s+)?([A-Za-z][\w$#]*(?:\.[A-Za
 INIT_REFUSED = {'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'COMMIT', 'ROLLBACK', 'SAVEPOINT'}
 
 
-def package_declarations(name: str, unit: dict) -> tuple[str, str, list[str], str]:
-    """A local package as declarations of an anonymous block: (variables, subprograms, member names, init block).
+def package_declarations(name: str, unit: dict) -> tuple[str, str, list[str], str, list[dict]]:
+    """A local package as declarations of an anonymous block: (variables, subprograms, member names, init block, elements).
 
     The specification's variables, constants, types and cursors come first, then the subprograms:
     the specification's forward declarations and the body. Package state lives for one request, so the
     initialisation part (BEGIN at the end of the body) runs at the start of the block, once per request,
     as a nested block (its exception handler included). It may read and compute; writing data or the
     screen there would happen in every request instead of once per Forms session, so that is refused.
+    The elements ({kind, text, member}, in the same order) let a caller embed only the members it reaches.
     """
     from . import forms_emulation as emu
     items, subprograms, members, init = [], [], [], ''
+    elements = {'item': [], 'forward': [], 'subprogram': [], 'init': []}
     for part in ('spec', 'body'):
         text = decode_line_escapes(unit.get(part) or '').strip()
         if not text:
@@ -858,16 +906,21 @@ def package_declarations(name: str, unit: dict) -> tuple[str, str, list[str], st
                     raise Unsupported('A csomag inicializáló része adatot vagy képernyőt módosít (' + ', '.join(refused)
                                       + '): a Formsban munkamenetenként egyszer, itt kérésenként futna; kézi átültetés.')
                 init = text_part.rstrip() + '\nEND;'
+                elements['init'].append({'kind': 'init', 'text': init, 'member': ''})
                 continue
             if member:
                 members.append(member)
             if kind == 'item':
                 items.append('  ' + text_part)
+                elements['item'].append({'kind': 'item', 'text': '  ' + text_part, 'member': member})
             elif kind == 'forward' and part == 'spec':
                 subprograms.insert(len([x for x in subprograms if x.startswith('  -- forward')]), '  ' + text_part)
+                elements['forward'].append({'kind': 'forward', 'text': '  ' + text_part, 'member': member})
             elif kind == 'subprogram':
                 subprograms.append('  ' + text_part)
-    return '\n'.join(items), '\n'.join(subprograms), sorted(set(members)), init
+                elements['subprogram'].append({'kind': 'subprogram', 'text': '  ' + text_part, 'member': member})
+    ordered = elements['item'] + elements['forward'] + elements['subprogram'] + elements['init']
+    return '\n'.join(items), '\n'.join(subprograms), sorted(set(members)), init, ordered
 
 
 def package_elements(text: str):
@@ -929,11 +982,20 @@ def tail_units(units: dict) -> set:
 
 
 def unit_library(units: dict, items: dict, prefixes: tuple, procedures: dict | None = None, runtime_calls: tuple = (),
-                 ui: bool = False, form: str = '') -> dict:
+                 ui: bool = False, form: str = '', messages: dict | None = None, block_info: dict | None = None) -> dict:
     """Every local procedure/function/package rewritten once, block-independently: text, binds, needs, calls.
 
     ui: the Forms runtime emulation of buttons and start-up code (forms_emulation).
+    messages: the message routines of the framework catalog (messages.simplify); a procedure or package member that
+    only shows its text parameter becomes PROCEDURE x(p) IS BEGIN MESSAGE(p); END (messages.wrapper).
     """
+    from .messages import simplify, wrapper
+    def plain(element, indent='  '):
+        text = (wrapper(element['text']) if element['kind'] == 'subprogram' else None)
+        if text:
+            return dict(element, text='\n'.join(indent + line for line in text.splitlines()), note='message')
+        text, notes = simplify(element['text'], messages)
+        return dict(element, text=text, note='message' if notes else None)
     library = {}
     tails = tail_units(units) if ui else set()
     packages = {name for name, unit in units.items() if unit['kind'] == 'package'}
@@ -943,6 +1005,14 @@ def unit_library(units: dict, items: dict, prefixes: tuple, procedures: dict | N
             declared[name] = package_declarations(name, units[name])
         except Unsupported as exc:
             declared[name] = exc
+            continue
+        variables, subprograms, members_of, init, elements = declared[name]
+        elements = [plain(e) for e in elements]
+        if any(e['note'] for e in elements):
+            forwards = [e['text'] for e in elements if e['kind'] == 'forward']
+            declared[name] = ('\n'.join(e['text'] for e in elements if e['kind'] == 'item'),
+                              '\n'.join(forwards[::-1] + [e['text'] for e in elements if e['kind'] == 'subprogram']),
+                              members_of, next((e['text'] for e in elements if e['kind'] == 'init'), ''), elements)
     members = {m for d in declared.values() if not isinstance(d, Unsupported) for m in d[2]}
     for name, unit in units.items():
         entry = {'kind': unit['kind'], 'source': unit['text'], 'text': '', 'items': '', 'init': '', 'members': [], 'binds': {},
@@ -950,7 +1020,7 @@ def unit_library(units: dict, items: dict, prefixes: tuple, procedures: dict | N
                  'library': unit.get('library')}
         rewriter = Rewriter(None, items, prefixes, other_blocks=True, parameters=True, transaction=False,
                             units=units, procedures=procedures, runtime_calls=runtime_calls, ui=ui, form=form,
-                            tail_units=tails, members=members)
+                            tail_units=tails, members=members, block_info=block_info)
         whole = unit['text'] or (unit.get('spec') or '') + (unit.get('body') or '')
         if not decode_line_escapes(whole).strip():
             # An inherited or truncated export: an empty declaration would break the whole block.
@@ -961,22 +1031,108 @@ def unit_library(units: dict, items: dict, prefixes: tuple, procedures: dict | N
             if unit['kind'] == 'package':
                 if isinstance(declared[name], Unsupported):
                     raise declared[name]
-                variables, subprograms, entry['members'], init = declared[name]
+                variables, subprograms, entry['members'], init, _ = declared[name]
                 validate_structure(subprograms)
                 entry['items'] = rewriter.rewrite(variables) if variables.strip() else ''
                 entry['text'] = rewriter.rewrite(subprograms).rstrip() if subprograms.strip() else ''
                 entry['init'] = rewriter.rewrite(init).rstrip() if init else ''
             else:
-                validate_structure(decode_line_escapes(unit['text']))
-                entry['text'] = rewriter.rewrite(decode_line_escapes(unit['text']).strip()).rstrip().rstrip(';') + ';'
+                source = decode_line_escapes(unit['text'])
+                validate_structure(source)
+                source = plain({'kind': 'subprogram', 'text': source.strip()}, '')['text'].strip()
+                entry['text'] = rewriter.rewrite(source).rstrip().rstrip(';') + ';'
         except Unsupported as exc:
             entry['error'] = str(exc)
         entry.update(binds=rewriter.binds, needs=rewriter.needs, calls=[u for u in rewriter.used_units if u != name],
                      unresolved=rewriter.unresolved, out_args=rewriter.out_args, commands=rewriter.commands)
+        if entry['error'] and unit['kind'] == 'package' and not isinstance(declared[name], Unsupported):
+            # One member the database cannot run (GET_BLOCK_PROPERTY, GO_BLOCK ...) need not block the others:
+            # each element rewritten alone, prepare() embeds only the members a trigger reaches (package_members).
+            entry['elements'] = []
+            for element in declared[name][4]:
+                part = Rewriter(None, items, prefixes, other_blocks=True, parameters=True, transaction=False,
+                                units=units, procedures=procedures, runtime_calls=runtime_calls, ui=ui, form=form,
+                                tail_units=tails, members=members, block_info=block_info)
+                result = dict(element, error=None)
+                try:
+                    if element['kind'] == 'subprogram':
+                        validate_structure(element['text'])
+                    result['text'] = part.rewrite(element['text']).rstrip()
+                except Unsupported as exc:
+                    result.update(text='', error=str(exc))
+                result.update(binds=part.binds, needs=part.needs, calls=[u for u in part.used_units if u != name],
+                              unresolved=part.unresolved, out_args=part.out_args, commands=part.commands)
+                entry['elements'].append(result)
         library[name] = entry
     # Two packages (or a package and a procedure) with the same member name cannot share one block:
     # checked in prepare() for the units one block really embeds (attached libraries are large).
     return library
+
+
+def unit_refusal(name: str, entry: dict) -> str:
+    label = 'csomag' if entry['kind'] == 'package' else 'eljárás'
+    return 'A(z) ' + name + ' helyi ' + label + ' nem futtatható: ' + entry['error']
+
+
+def identifiers(text: str) -> set:
+    try:
+        return {t[1].upper() for t in significant(scan(text)) if t[0] == 'ident'}
+    except Unsupported:
+        return set()
+
+
+def package_members(library: dict, body: str, used: list) -> dict:
+    """Local packages one member of which the database cannot run: {name: the package with the reached members only}.
+
+    The members the trigger, the other embedded units and the reached members themselves name are embedded (calls
+    are unqualified by then), with the member-less declarations (PRAGMA) and the initialisation part. A reached
+    member that cannot run still refuses the trigger, now naming that member.
+    """
+    chosen = {}
+    def view(name):
+        entry = library[name]
+        if not entry.get('elements'):
+            return entry
+        elements = [e for i, e in enumerate(entry['elements']) if i in chosen.setdefault(name, set())]
+        failed = next((e for e in elements if e['error']), None)
+        return {**entry, 'error': ((name + '.' + failed['member'] + ' tag: ' if failed['member'] else '') + failed['error'])
+                if failed else None,
+                'items': '\n'.join(e['text'] for e in elements if e['kind'] == 'item' and e['text'].strip()),
+                'text': '\n'.join(e['text'] for e in elements if e['kind'] in {'forward', 'subprogram'} and e['text'].strip()),
+                'init': next((e['text'] for e in elements if e['kind'] == 'init'), ''),
+                'members': sorted({e['member'] for e in elements if e['member']}),
+                'binds': {k: v for e in elements for k, v in e['binds'].items()},
+                'needs': set().union(*(e['needs'] for e in elements)),
+                'calls': list(dict.fromkeys(c for e in elements for c in e['calls'])),
+                'unresolved': list(dict.fromkeys(u for e in elements for u in e['unresolved'])),
+                'out_args': [a for e in elements for a in e['out_args']],
+                'commands': [c for e in elements for c in e['commands']]}
+    while True:
+        reached, stack = [], list(used)
+        while stack:
+            name = stack.pop()
+            if name in reached or name not in library:
+                continue
+            reached.append(name)
+            entry = view(name)
+            if entry['error']:
+                break  # refused in prepare(), with the member it is about
+            stack += entry['calls']
+        words = identifiers(body)
+        for name in reached:
+            entry = view(name)
+            words |= identifiers(entry['items'] + '\n' + entry['text'] + '\n' + entry['init'])
+        grown = False
+        for name in reached:
+            if not library[name].get('elements'):
+                continue
+            wanted = {i for i, e in enumerate(library[name]['elements'])
+                      if e['kind'] == 'init' or (e['kind'] == 'item' and not e['member']) or e['member'] in words}
+            if not wanted <= chosen[name]:
+                chosen[name] |= wanted
+                grown = True
+        if not grown:
+            return {name: view(name) for name in chosen}
 
 
 def member_collisions(order, library):
@@ -995,7 +1151,8 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
             other_blocks: bool = False, parameters: bool = False, transaction: bool = False,
             writable=lambda b: True, procedures: dict | None = None, library: dict | None = None,
             runtime_calls: tuple = (), ui: bool = False, form: str = '', trigger_item: str | None = None,
-            key_overrides=frozenset(), key_triggers=None, commit_points: bool = False, cursor_on_item: bool = True) -> dict:
+            key_overrides=frozenset(), key_triggers=None, commit_points: bool = False, cursor_on_item: bool = True,
+            messages: dict | None = None, block_info: dict | None = None) -> dict:
     """The anonymous block and its binds, or Unsupported with the reason.
 
     Local program units come from the shared library (same text in every block);
@@ -1004,25 +1161,29 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     block also returns the written :GLOBAL values and the command buffer.
     """
     from . import forms_emulation as emu
+    from .messages import simplify
     text = decode_line_escapes(source).strip().rstrip('/').strip()
     if not text:
         raise Unsupported('Üres triggerkód.')
     validate_structure(text)
-    library = library if library is not None else unit_library(units, items, prefixes, procedures, runtime_calls, ui, form)
+    text, message_notes = simplify(text, messages)  # WUZENET, QMS$FORMS_ERRORS.PUSH, message-only alerts -> MESSAGE
+    library = library if library is not None else unit_library(units, items, prefixes, procedures, runtime_calls, ui, form,
+                                                               messages=messages, block_info=block_info)
     rewriter = Rewriter(block, items, prefixes, other_blocks=other_blocks, parameters=parameters,
                         transaction=transaction, units=units, procedures=procedures, runtime_calls=runtime_calls,
                         ui=ui, form=form, trigger_item=trigger_item, tail_units=tail_units(units) if ui else (),
                         key_overrides=key_overrides, key_triggers=key_triggers, commit_points=commit_points,
-                        cursor_on_item=cursor_on_item)
+                        cursor_on_item=cursor_on_item, block_info=block_info)
+    rewriter.notes += message_notes
     body = rewriter.rewrite(text)
+    views = package_members(library, body, rewriter.used_units)
     order = []
     def include(name, stack):
         if name in order: return
         if name in stack: raise Unsupported('Egymást hívó helyi eljárások: ' + ' -> '.join(stack + [name]))
-        entry = library[name]
+        entry = views.get(name) or library[name]
         if entry['error']:
-            label = 'csomag' if entry['kind'] == 'package' else 'eljárás'
-            raise Unsupported('A(z) ' + name + ' helyi ' + label + ' nem futtatható: ' + entry['error'])
+            raise Unsupported(unit_refusal(name, entry))
         for inner in entry['calls']:
             include(inner, stack + [name])
         for key, bind in entry['binds'].items():
@@ -1039,6 +1200,11 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
         order.append(name)
     for name in list(rewriter.used_units):
         include(name, [])
+    library = {**library, **{n: v for n, v in views.items() if n in order}}  # the embedded members only, from here on
+    for name in order:
+        if name in views:
+            rewriter.notes.append('A(z) ' + name + ' helyi csomagból csak a hívott tagok kerültek a blokkba ('
+                                  + ', '.join(views[name]['members']) + '); a többi tag nem futtatható az adatbázisban.')
     member_collisions(order, library)
     if any(library[n]['kind'] == 'package' for n in order):
         rewriter.notes.append('Helyi csomag beágyazva (' + ', '.join(n for n in order if library[n]['kind'] == 'package')
@@ -1160,7 +1326,7 @@ def prepare(source: str, *, block: str | None, items: dict, units: dict, prefixe
     tail_text = '\n'.join(tail)
     sql = head_text + ''.join(library[n]['text'] + '\n' for n in order) + tail_text
     return {'sql': sql, 'head': head_text, 'head_parts': head_parts, 'tail': tail_text, 'binds': binds, 'outs': outs,
-            'notes': rewriter.notes,
+            'notes': rewriter.notes, 'inline_units': {n: library[n]['text'] for n in order if n in views},
             'units': order, 'assigned': sorted(assigned), 'unresolved': rewriter.unresolved, 'guarded': [b['source'] for b in guarded],
             'ui': ui, 'globals': globals_out, 'commands': list(dict.fromkeys(rewriter.commands)), 'commit_points': points,
             'screen_points': screen_points, 'inputs': developer_inputs(binds)}
@@ -1214,6 +1380,34 @@ def assigned_vars(visible: str) -> set[str]:
             continue
         segment = re.match(r'(?:(?!\bFROM\b|\bUSING\b)[^;])*', visible[m.end():], re.I | re.S).group(0)
         result |= set(re.findall(r'\bnv_[0-9a-f]{10}\b', segment))
+    return result
+
+
+BLOCK_PROPERTIES = ('QUERY_ALLOWED', 'INSERT_ALLOWED', 'UPDATE_ALLOWED', 'DELETE_ALLOWED', 'DEFAULT_WHERE', 'ORDER_BY',
+                    'QUERY_DATA_SOURCE_NAME', 'DML_DATA_TARGET_NAME', 'RECORDS_DISPLAYED')
+
+
+def block_statics(model) -> dict:
+    """{BLOCK: {PROPERTY: value}} of the properties the form fixes; a property any code sets (SET_BLOCK_PROPERTY)
+    is left out, so GET_BLOCK_PROPERTY of it is not folded."""
+    from .xmlmodel import get
+    sources = [t['source'] for t in model.get('triggers', [])] + [get(u, 'ProgramUnitText') for u in model.get('program_units', [])]
+    text = decode_line_escapes('\n'.join(str(s or '') for s in sources))
+    changed = {m.group(1).upper() for m in re.finditer(r'set_block_property\s*\([^;]*?,\s*([A-Za-z_]+)\s*,', text, re.I)}
+    result = {}
+    for b in model.get('blocks', []):
+        props = b.get('properties', {})
+        clause = lambda value, keyword: re.sub(r'^\s*' + keyword + r'\s+', '', decode_line_escapes(value or ''), flags=re.I).strip() or None
+        values = {'QUERY_ALLOWED': 'TRUE' if b.get('query_allowed', True) else 'FALSE',
+                  'INSERT_ALLOWED': 'TRUE' if b.get('insert_allowed', True) else 'FALSE',
+                  'UPDATE_ALLOWED': 'TRUE' if b.get('update_allowed', True) else 'FALSE',
+                  'DELETE_ALLOWED': 'TRUE' if b.get('delete_allowed', True) else 'FALSE',
+                  'DEFAULT_WHERE': clause(get(props, 'WhereClause'), 'WHERE'),
+                  'ORDER_BY': clause(get(props, 'OrderByClause'), 'ORDER BY'),
+                  'QUERY_DATA_SOURCE_NAME': get(props, 'QueryDataSourceName').upper() or None,
+                  'DML_DATA_TARGET_NAME': (get(props, 'DMLDataTargetName') or get(props, 'QueryDataSourceName')).upper() or None,
+                  'RECORDS_DISPLAYED': get(props, 'RecordsDisplayCount') or '1'}
+        result[b['name']] = {k: v for k, v in values.items() if k not in changed}
     return result
 
 

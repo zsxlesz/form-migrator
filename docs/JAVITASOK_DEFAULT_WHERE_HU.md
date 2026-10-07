@@ -2,7 +2,8 @@
 
 > **4.23 óta** az alapértelmezés az egyszerű, Java-alapú lekérdezőgomb (`query_action_mode: "java"`, lásd
 > [JAVITASOK_4_23_HU.md](JAVITASOK_4_23_HU.md)). Az itt leírt PL/SQL-adapter a tartalék: akkor fut, ha a gombot
-> nem lehet egyszerű Java-kódra fordítani, vagy ha a konfigurációban `query_action_mode: "plsql"` áll.
+> nem lehet egyszerű Java-kódra fordítani (4.24-től akkor is, ha a generáláskori egyezés-ellenőrzés eltérést talál,
+> lásd [JAVITASOK_4_24_HU.md](JAVITASOK_4_24_HU.md)), vagy ha a konfigurációban `query_action_mode: "plsql"` áll.
 
 A `LEKERDEZESI_FELTETELEK` mintájú helyi eljárás korábban HTTP 501-es gombvégpontot
 eredményezett. A `SET_BLOCK_PROPERTY`, `GO_BLOCK` és `EXECUTE_QUERY` Oracle Forms

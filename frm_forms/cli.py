@@ -50,6 +50,9 @@ DEFAULTS = {"java_package": "hu.company.features", "api_prefix": "/api/forms", "
             # Query buttons (DEFAULT_WHERE builders): "java" = the SQL request only, in readable Java (query_java);
             # "plsql" = the 4.x adapter that runs the original builder in Oracle and matches precompiled variants.
             "query_action_mode": "java",
+            # true: backend/DPS-test/<Module>QueryTextTest.java, a JUnit 5 test of the Java query buttons' WHERE, with the
+            # cases of the equivalence check (expected values from the original PL/SQL); copy it to the DPS src/test/java.
+            "query_java_tests": False,
             # Company backend conventions: every DPS/WBS ServiceImpl and ControllerImpl method runs in
             # log1x(log, <Module>Constants.<METHOD>_NAME, user, null, () -> ...). Set once per company.
             "java_service_base_dps": "ModuleServiceBase<DpsLogHelper>", "java_service_base_wbs": "ModuleServiceBase<WbsLogHelper>",
@@ -135,6 +138,8 @@ def configuration(args) -> dict:
         raise MigrationError("backend_trigger_mode: plsql vagy java szükséges.")
     if result["query_action_mode"] not in ("java", "plsql"):
         raise MigrationError("query_action_mode: java vagy plsql szükséges.")
+    if type(result["query_java_tests"]) is not bool:
+        raise MigrationError("query_java_tests: true vagy false szükséges.")
     if result.get("ai_think") not in {None, False, True, "low", "medium", "high"}:
         raise MigrationError("ai_think: null/boolean/low/medium/high szükséges.")
     validate_company_config(result)

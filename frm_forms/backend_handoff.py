@@ -165,6 +165,17 @@ def write_handoff(model, discovery, output, config, module):
                   '| Trigger | Forms-hivatkozás | Java-változó | Ok |', '|---|---|---|---|']
         lines += ['| ' + ' | '.join(markdown_cell(v) for v in [owner, ':' + i['source'], i['variable'], i['reason']]) + ' |'
                   for owner, i in inputs]
+    java_queries = [(tr['owner'], 'Java-lekérdezés', 'egyezés-ellenőrzés: ' + str(tr['query_action']['java']['equivalence']['checked'])
+                     + ' eset egyezik') for tr in model['triggers'] if (tr.get('query_action') or {}).get('java')]
+    fallbacks = [(tr['owner'], 'PL/SQL-adapter' if tr.get('query_action') else 'PL/SQL az adatbázisban' if tr.get('passthrough')
+                  else 'kézi átültetés', tr['query_java_reason'])
+                 for tr in model['triggers'] if tr.get('query_java_reason') and 'SET_BLOCK_PROPERTY' in str(tr.get('source', '')).upper()]
+    if java_queries or fallbacks:
+        lines += ['', '## Lekérdezőgombok', '',
+                  'A DEFAULT_WHERE-t építő gombokból olvasható Java-lekérdezés lesz. Ha nem sikerül, az ok itt áll (a forrás sorával), '
+                  'és a gombot a PL/SQL-adapter vagy az adatbázisban futó eredeti kód viszi.', '',
+                  '| Gomb | Futás | Ok / ellenőrzés |', '|---|---|---|']
+        lines += ['| ' + ' | '.join(markdown_cell(v) for v in row) + ' |' for row in java_queries + fallbacks]
     lines += ['', '## Konkrét teendők', '', '| Objektum | Ok | Folytatás |', '|---|---|---|']
     lines += ['| '+' | '.join(markdown_cell(t[k]) for k in ['owner','detail','next_step'])+' |' for t in tasks]
     lines += ['', 'A teljes, géppel is feldolgozható terv: [backend-handoff.json](analysis/backend-handoff.json).',

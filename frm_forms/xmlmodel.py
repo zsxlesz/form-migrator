@@ -177,7 +177,12 @@ def parse_xml(path: Path, max_bytes: int = 32 * 1024 * 1024, *, resolved_root: E
             it = canonical(get(ip, "ItemType", default="Text Item"))
             datatype = canonical(get(ip, "DataType", default="Character"))
             kind = {"textitem": "text", "displayitem": "display", "checkbox": "checkbox", "listitem": "select", "radiogroup": "radio", "pushbutton": "button", "button": "button"}.get(it, "unsupported")
-            value_type = {"char": "text", "character": "text", "varchar2": "text", "number": "number", "integer": "number", "int": "number", "date": "datetime", "datetime": "datetime"}.get(datatype, "unsupported")
+            # Forms' own data types: ALPHA and LONG are text (LONG up to 32 KB through JDBC), MONEY/RNUMBER/RINT numbers,
+            # EDATE/JDATE dates.
+            value_type = {"char": "text", "character": "text", "varchar2": "text", "alpha": "text", "long": "text",
+                          "number": "number", "integer": "number", "int": "number", "money": "number", "rnumber": "number",
+                          "rint": "number", "rmoney": "number", "date": "datetime", "datetime": "datetime", "edate": "datetime",
+                          "jdate": "datetime"}.get(datatype, "unsupported")
             options = []
             for opt in ie.iter():
                 if tag(opt) in {"listitemelement", "listelement", "radiobutton"}:
@@ -191,8 +196,11 @@ def parse_xml(path: Path, max_bytes: int = 32 * 1024 * 1024, *, resolved_root: E
                     "database": block["database"] and yes(ip, "DatabaseItem", default=True) and kind != "button", "primary_key": yes(ip, "PrimaryKey"),
                     "checked_value": get(ip, "CheckBoxCheckedValue", "CheckedValue", default="Y"), "unchecked_value": get(ip, "CheckBoxUncheckedValue", "UncheckedValue", default="N"),
                     "options": options, "initial_value": get(ip, "InitialValue"), "lov": get(ip, "LOVName"), "properties": ip}
-            if datatype in {"int", "integer"}:
+            if datatype in {"int", "integer", "rint"}:
                 item["precision"], item["scale"] = 38, 0
+            if datatype == "long":
+                issue("ITEM_SEMANTICS", bn, f"{bn}.{item_name}: DataType=LONG; szövegként kezelve. Oracle LONG oszlopra nem "
+                                            "lehet WHERE-feltételt írni, és 32 KB fölött a JDBC-olvasás külön kezelést igényel.")
             if kind == "unsupported" or value_type == "unsupported":
                 issue("UNSUPPORTED_ITEM", bn, f"{bn}.{item_name}: ItemType={it}, DataType={datatype}", "all")
             if item["lov"]:

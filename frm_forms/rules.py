@@ -17,6 +17,10 @@ BACKEND_EVENTS = {"WHEN-VALIDATE-ITEM", "WHEN-VALIDATE-RECORD", "PRE-INSERT", "P
 REPLACING_EVENTS = {"ON-INSERT": "onInsert", "ON-UPDATE": "onUpdate", "ON-DELETE": "onDelete"}
 PASSTHROUGH_EVENTS = BACKEND_EVENTS | set(REPLACING_EVENTS) | {"ON-CHECK-DELETE-MASTER", "POST-CHANGE"}
 UI_EVENTS = {"WHEN-NEW-FORM-INSTANCE", "WHEN-BUTTON-PRESSED"}
+# Record-level data events a form-level trigger runs for in every database block without its own (Execution
+# Hierarchy). The replacing ON-INSERT/UPDATE/DELETE and the item-level events stay with the form.
+FORM_LEVEL_EVENTS = {"POST-QUERY", "WHEN-VALIDATE-RECORD", "PRE-INSERT", "PRE-UPDATE", "PRE-DELETE", "POST-INSERT",
+                     "POST-UPDATE", "POST-DELETE", "ON-CHECK-DELETE-MASTER"}
 
 # Which generated operations an untranslated trigger can change. Every event not
 # listed here is screen behaviour (keys, navigation, windows, messages, timers):
@@ -56,6 +60,44 @@ class Compiler:
         self.fields = {block["name"] + "." + i["name"]: i for i in block["items"] if i["kind"] != "button"}
         self.procedures = procedures or {}
         self.local_packages = set(local_packages)
+        self.locals = {}  # DECLAREd variables (4.24): NAME -> {"java": local name, "type": text/number/datetime}
+
+    def declare(self, node: dict, indent: str) -> str:
+        """A DECLARE variable as a Java local: its type from the declaration, %TYPE from the block's column."""
+        from .query_java import camel, declared_type
+        if node["type"] == "EXCEPTION":
+            return ""  # declared only: a RAISE of it is refused
+        typ = declared_type(node["type"])
+        if typ is None:
+            table, _, column = node["type"].upper()[:-len("%TYPE")].rpartition(".")
+            match = [i for i in self.block["db_items"] if i["column"] == column and table in {"", self.block["table"].upper().split(".")[-1]}]
+            typ = match[0]["type"] if match else None
+        if typ not in DB_TYPES:
+            raise Unsupported(f"Nem támogatott változótípus a Java-fordítóban: {node['name']} {node['type']}")
+        expr, t = self.expression(node["value"]) if node["value"] is not None else ("null", "null")
+        if t not in {typ, "null"}:
+            raise Unsupported(f"Implicit konverzió a deklarációban: {node['name']} ({t} -> {typ})")
+        known = self.locals.get(node["name"])
+        if known:
+            if known["type"] != typ:
+                raise Unsupported("Azonos nevű, eltérő típusú helyi változók: " + node["name"])
+        elif node["value"] is None:
+            field = camel(node["name"])
+            while field in {v["field"] for v in self.locals.values()}:
+                field += "_"
+            self.locals[node["name"]] = {"java": "local." + field, "field": field, "type": typ}
+            return ""  # a new field is null already
+        else:
+            field = camel(node["name"])
+            while field in {v["field"] for v in self.locals.values()}:
+                field += "_"
+            # fields of one holder object: the lambdas of SqlValues.and/or may read them although they change
+            known = self.locals[node["name"]] = {"java": "local." + field, "field": field, "type": typ}
+        return indent + known["java"] + " = " + expr + ";"
+
+    def holder(self, indent: str) -> str:
+        fields = " ".join(JAVA_CASTS[v["type"]] + " " + v["field"] + ";" for v in self.locals.values())
+        return indent + "var local = new Object() { " + fields + " };"
 
     def routine(self, name: str, kind: str) -> dict:
         """A reviewed DB routine signature, or a refusal that says what is missing."""
@@ -152,6 +194,19 @@ class Compiler:
             if operator == "||" and lt in {"text", "null"} and rt in {"text", "null"}:
                 return f"SqlValues.concat({left}, {right})", "text"
             raise Unsupported(f"Nem támogatott operandustípusok / implicit NLS-konverzió: {lt} {operator} {rt}")
+        if op == "symbol" and node["name"] in self.locals:
+            return self.locals[node["name"]]["java"], self.locals[node["name"]]["type"]
+        if op in {"in", "between"}:
+            value = node["value"]
+            if op == "in":
+                tests = [{"op": "binary", "operator": "=", "left": value, "right": item} for item in node["items"]]
+            else:
+                tests = [{"op": "binary", "operator": "AND", "left": {"op": "binary", "operator": ">=", "left": value, "right": node["low"]},
+                          "right": {"op": "binary", "operator": "<=", "left": value, "right": node["high"]}}]
+            combined = tests[0]
+            for test in tests[1:]:
+                combined = {"op": "binary", "operator": "OR", "left": combined, "right": test}
+            return self.expression({"op": "unary", "operator": "NOT", "value": combined} if node["negated"] else combined)
         if op == "symbol" and self.procedures.get(node["name"], {}).get("kind") == "function":
             return self.db_function(node["name"], [])  # parameterless: PKG.GET_DEFAULT
         if op == "function" and (node["name"] in self.procedures or "." in node["name"]):
@@ -171,9 +226,19 @@ class Compiler:
         lines = []
         for node in flatten(nodes):
             op = node["op"]
-            if op == "noop":
+            if op in {"noop", "pragma"}:
                 continue
-            if op == "assign":
+            if op == "declare":
+                lines.append(self.declare(node, indent))
+            elif op == "local_assign":
+                local = self.locals.get(node["variable"])
+                if local is None:
+                    raise Unsupported(f"Nem deklarált változó vagy csomagváltozó: {node['variable']}")
+                expr, t = self.expression(node["value"])
+                if t not in {local["type"], "null"}:
+                    raise Unsupported(f"Implicit hozzárendelési konverzió: {t} -> {local['type']}")
+                lines.append(indent + local["java"] + " = " + expr + ";")
+            elif op == "assign":
                 field = self.ref(node["target"])
                 expr, t = self.expression(node["value"])
                 if t not in {field["type"], "null"}:
@@ -213,6 +278,8 @@ class Compiler:
                     lines.append(indent + "}")
             else:
                 raise Unsupported(f"Nem támogatott backend utasítás: {node.get('name', op)}")
+        if indent == "        " and self.locals:  # the trigger's own level: the holder of its DECLAREd variables first
+            lines.insert(0, self.holder(indent))
         return "\n".join(line for line in lines if line)
 
 
@@ -470,11 +537,12 @@ def plsql_library(model: dict, catalog: dict, ui: bool = False) -> dict:
 
     ui: the variant for buttons and start-up code, with the Forms runtime emulation (forms_emulation).
     """
-    from .plsql_passthrough import items_by_block, local_units, unit_library
+    from .plsql_passthrough import block_statics, items_by_block, local_units, unit_library
     key, summary = ("_plsql_library_ui", "plsql_units_ui") if ui else ("_plsql_library", "plsql_units")
     if key not in model:
         model[key] = unit_library(local_units(model), items_by_block(model), catalog["call_prefixes"], model.get("procedures", {}),
-                                  catalog.get("runtime_calls", ()), ui=ui, form=model["name"])
+                                  catalog.get("runtime_calls", ()), ui=ui, form=model["name"], messages=catalog.get("messages"),
+                                  block_info=block_statics(model))
         model[summary] = {name: {"kind": u["kind"], "source": u["source"], "text": u["text"], "items": u.get("items", ""),
                                  "error": u["error"], "binds": list(u["binds"]), "calls": u["calls"], "unresolved": u["unresolved"],
                                  "members": u.get("members", []), "commands": u.get("commands", []),
@@ -486,7 +554,7 @@ def plsql_library(model: dict, catalog: dict, ui: bool = False) -> dict:
 def action_passthrough(trigger: dict, source: str, model: dict, catalog: dict) -> dict:
     """The anonymous block of a button trigger: values of every block, one transaction, the Forms
     built-ins emulated as screen commands (forms_emulation)."""
-    from .plsql_passthrough import items_by_block, local_units, prepare
+    from .plsql_passthrough import block_statics, items_by_block, local_units, prepare
     from .xmlmodel import get
     item = (trigger["block"] + "." + trigger["item"]) if trigger.get("block") and trigger.get("item") else None
     # A button with Mouse Navigate = No leaves the cursor where it was: its own KEY triggers may not apply.
@@ -495,7 +563,8 @@ def action_passthrough(trigger: dict, source: str, model: dict, catalog: dict) -
     return prepare(source, block=trigger["block"] or None, items=items_by_block(model), units=local_units(model),
                    prefixes=catalog["call_prefixes"], other_blocks=True, parameters=True, transaction=True,
                    procedures=model.get("procedures", {}), library=plsql_library(model, catalog, ui=True),
-                   runtime_calls=catalog.get("runtime_calls", ()), ui=True, form=model["name"], trigger_item=item,
+                   runtime_calls=catalog.get("runtime_calls", ()), messages=catalog.get("messages"),
+                   block_info=block_statics(model), ui=True, form=model["name"], trigger_item=item,
                    key_overrides=key_overrides(model, catalog), key_triggers=key_triggers(model, catalog),
                    commit_points=True, cursor_on_item=navigates)
 
@@ -530,7 +599,7 @@ def commit_plan(model: dict, catalog: dict) -> None:
     Like a button: the original PL/SQL in Oracle with every block's current values, the Forms
     built-ins as screen commands. Once attached, they no longer block the write endpoints.
     """
-    from .plsql_passthrough import items_by_block, local_units, prepare
+    from .plsql_passthrough import block_statics, items_by_block, local_units, prepare
     plans = {}
     for trigger in model["triggers"]:
         if trigger["event"] not in COMMIT_EVENTS or trigger["block"] or trigger["status"] == "framework" \
@@ -541,7 +610,8 @@ def commit_plan(model: dict, catalog: dict) -> None:
             plan = prepare(source, block=None, items=items_by_block(model), units=local_units(model),
                            prefixes=catalog["call_prefixes"], other_blocks=True, parameters=True, transaction=True,
                            procedures=model.get("procedures", {}), library=plsql_library(model, catalog, ui=True),
-                           runtime_calls=catalog.get("runtime_calls", ()), ui=True, form=model["name"],
+                           runtime_calls=catalog.get("runtime_calls", ()), messages=catalog.get("messages"),
+                           block_info=block_statics(model), ui=True, form=model["name"],
                            key_overrides=key_overrides(model, catalog), key_triggers=key_triggers(model, catalog))
         except Unsupported as exc:
             trigger["commit_reason"] = str(exc)
@@ -571,7 +641,7 @@ def startup_plan(model: dict, catalog: dict) -> None:
     record groups, messages). Only own code: framework-only and NULL triggers stay out.
     """
     from .common import decode_line_escapes
-    from .plsql_passthrough import items_by_block, local_units, prepare
+    from .plsql_passthrough import block_statics, items_by_block, local_units, prepare
     chosen = [t for event in INIT_EVENTS for t in model["triggers"]
               if t["event"] == event and not t["block"] and t["status"] != "framework" and t.get("target") not in {"noop", "frontend"}]
     if not chosen:
@@ -585,7 +655,8 @@ def startup_plan(model: dict, catalog: dict) -> None:
         plan = prepare("\n".join(parts), block=None, items=items_by_block(model), units=local_units(model),
                        prefixes=catalog["call_prefixes"], other_blocks=True, parameters=True, transaction=True,
                        procedures=model.get("procedures", {}), library=plsql_library(model, catalog, ui=True),
-                       runtime_calls=catalog.get("runtime_calls", ()), ui=True, form=model["name"],
+                       runtime_calls=catalog.get("runtime_calls", ()), messages=catalog.get("messages"),
+                       block_info=block_statics(model), ui=True, form=model["name"],
                        key_overrides=key_overrides(model, catalog), key_triggers=key_triggers(model, catalog))
     except Unsupported as exc:
         model["init_plan"] = {"status": "manual", "triggers": ids, "reason": str(exc)}
@@ -609,7 +680,7 @@ def passthrough(trigger: dict, block: dict, source: str, model: dict, catalog: d
 
     event: the Forms moment whose write-back rules apply (POST-CHANGE also runs as POST-QUERY).
     """
-    from .plsql_passthrough import input_declarations, input_variable, items_by_block, local_units, prepare, sql_expression
+    from .plsql_passthrough import block_statics, input_declarations, input_variable, items_by_block, local_units, prepare, sql_expression
     items = items_by_block(model)
     event = event or trigger["event"]
     def writable(bind):
@@ -622,7 +693,8 @@ def passthrough(trigger: dict, block: dict, source: str, model: dict, catalog: d
                     and event in {"WHEN-VALIDATE-ITEM", "WHEN-VALIDATE-RECORD", "POST-CHANGE", "PRE-UPDATE", "ON-UPDATE"})
     prepared = prepare(source, block=block["name"], items=items, units=local_units(model), prefixes=catalog["call_prefixes"],
                        writable=writable, procedures=model.get("procedures", {}), library=plsql_library(model, catalog),
-                       runtime_calls=catalog.get("runtime_calls", ()))
+                       runtime_calls=catalog.get("runtime_calls", ()), messages=catalog.get("messages"),
+                       block_info=block_statics(model))
     field = lambda b: items[b["block"]][b["item"]]["field"]
     params = [f"DbCalls.in({input_variable(prepared, b) or 'row.' + field(b)}, {JDBC_TYPES[b['type']]})" for b in prepared["binds"]]
     params += [f"DbCalls.out({JDBC_TYPES[b['type']]})" for b in prepared["outs"]] + ["DbCalls.out(java.sql.Types.VARCHAR)"]
@@ -907,6 +979,45 @@ def runtime_block_properties(model: dict) -> list[dict]:
     return findings
 
 
+def java_query_origin(model: dict, finding: dict) -> str | None:
+    """The Java query button (owner) whose own code makes this SET_BLOCK_PROPERTY: the trigger or a procedure it inlines."""
+    for trigger in model["triggers"]:
+        java = (trigger.get("query_action") or {}).get("java")
+        if not java or java["target"] != finding["block"]:
+            continue
+        if finding["origin"] == trigger["id"] or finding["origin"].upper() in {"PROGRAM UNIT " + u for u in java.get("expanded", [])}:
+            return trigger["owner"]
+    return None
+
+
+def form_level_copies(model: dict) -> None:
+    """A form-level record trigger (POST-QUERY, WHEN-VALIDATE-RECORD, PRE-INSERT ...) as Forms fires it: for every
+    database block without its own trigger of the event (Execution Hierarchy Override), and besides the block's own
+    when that one says Before (block first) or After (form first). Each block gets a copy (id FORM:EVENT@BLOCK) that
+    is translated and attached like the block's own trigger; the form-level original only lists the copies."""
+    from .xmlmodel import get
+    copies = []
+    for trigger in list(model["triggers"]):
+        if trigger["block"] or trigger["event"] not in FORM_LEVEL_EVENTS or trigger.get("form_level"):
+            continue
+        blocks = []
+        for b in model["blocks"]:
+            if not b["database"] or b.get("backend_skip"):
+                continue
+            own = [t for t in model["triggers"] if t["block"] == b["name"] and not t["item"] and t["event"] == trigger["event"]]
+            hierarchy = {get(t.get("properties", {}), "ExecutionHierarchy", "ExecuteHierarchy", default="Override").strip().upper()
+                         for t in own}
+            if own and hierarchy <= {"OVERRIDE"}:
+                continue
+            copy = {**trigger, "id": trigger["id"] + "@" + b["name"], "block": b["name"], "form_level": trigger["id"]}
+            copies.append((copy, own[0] if own and "AFTER" in hierarchy else None))
+            blocks.append(b["name"])
+        trigger["form_level_blocks"] = blocks
+    for copy, before in copies:
+        # After: the form-level code runs first, so its copy comes before the block's own trigger
+        model["triggers"].insert(model["triggers"].index(before), copy) if before else model["triggers"].append(copy)
+
+
 def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | None = None) -> None:
     catalog = catalog or framework.load({})
     apply_metadata(model, metadata)
@@ -937,6 +1048,7 @@ def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | Non
                 raise MigrationError('NUMERIC_RANGE: az alsó határ nagyobb a felsőnél: '+block['name']+'.'+item['name'])
             item['numeric_bounds'] = bounds
     blocks = {b["name"]: b for b in model["blocks"]}
+    form_level_copies(model)
     replacements = replacements.get("replacements", {})
     form_owner = "@FORM:" + model["name"]
     from .xmlmodel import get
@@ -956,6 +1068,10 @@ def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | Non
     for trigger in model["triggers"]:
         block = blocks.get(trigger["block"]) if trigger["block"] else None
         source = trigger["source"]
+        if trigger.get("form_level_blocks") is not None:
+            # its copies run in the blocks (form_level_copies); none: no database block fires it
+            trigger.update(status="converted", target="per-block" if trigger["form_level_blocks"] else "noop")
+            continue
         try:
             if not source.strip():
                 # Empty source may indicate an incomplete export, not a NULL trigger.
@@ -990,7 +1106,8 @@ def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | Non
                 # knows this expression. Never split a mixed UI/DB trigger into partial work.
                 run_in_database(trigger, block, source)
                 continue
-            ast = parse(source)
+            # 4.24: the Java compiler knows DECLAREd local variables (the record events only; the rest stays strict)
+            ast = parse(source, extended=trigger['event'] in BACKEND_EVENTS)
             if not ast:
                 raise Unsupported('A triggerben nincs végrehajtható forrás; az export ellenőrzése szükséges.')
             if trigger['event'] in BACKEND_EVENTS:
@@ -1121,9 +1238,15 @@ def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | Non
             detail = (finding["origin"] + ": futásidőben állított " + prop + " (" + finding["call"] + "); "
                       "ha jogosultsághoz kötött, a projekt jogosultságkezelése kezeli; egyéb feltételt a ServiceImpl-ben kell megvalósítani.")
         else:
-            scope = "all" if prop in RUNTIME_READ_PROPERTIES else "write"
+            # The WHERE and the order concern the queries only: the DML works on the record's key.
+            scope = "read" if prop in {"DEFAULT_WHERE", "ONETIME_WHERE", "ORDER_BY"} else "all" if prop in RUNTIME_READ_PROPERTIES else "write"
             detail = (finding["origin"] + ": futásidőben módosított " + prop + " (" + finding["call"] + "); "
                       "a ServiceImpl lekérdezését/DML-jét ennek megfelelően kell átvenni.")
+            button = java_query_origin(model, finding)
+            if button and prop in {"DEFAULT_WHERE", "ONETIME_WHERE", "ORDER_BY"}:
+                scope = "review"  # the button's Java query applies it; the block's own query keeps the form's WHERE
+                detail += (" A(z) " + button + " Java-lekérdezése ezt alkalmazza; a blokk saját keresése/listája az eredeti "
+                           "WHERE-rel fut (a Formsban a gomb után a következő lekérdezés is ezt használná).")
         issue = {"code": "RUNTIME_BLOCK_PROPERTY", "owner": finding["block"] or form_owner, "scope": scope, "detail": detail}
         if issue not in model["issues"]:
             model["issues"].append(issue)

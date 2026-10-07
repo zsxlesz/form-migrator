@@ -17,7 +17,7 @@ from pathlib import Path
 import re
 
 from .common import MigrationError
-from . import forms_runtime
+from . import forms_runtime, messages
 
 DATA = Path(__file__).with_name('data') / 'framework-catalog.json'
 LINE_ESCAPES = re.compile(r'&#(?:10|13|9|x0*[aAdD9]);')
@@ -50,6 +50,7 @@ SQL_CONSTRUCTS = [
 
 
 RUNTIME_PATTERN = re.compile(r'[A-Za-z0-9_$#*?]+(?:\.[A-Za-z0-9_$#*?]+)?')
+ROUTINE = re.compile(r'[A-Za-z][\w$#]*(?:\.[A-Za-z][\w$#]*)?')
 # A custom catalog without the key keeps these entries; {} switches them off.
 DEFAULT_RUNTIME_CALLS = {
     'CALENDAR.*': 'A naptár-segédablak Forms-oldali eseménykezelője: csak az Oracle Forms futtatókörnyezetben működik, '
@@ -58,7 +59,7 @@ DEFAULT_RUNTIME_CALLS = {
 
 def _validate(value, source):
     expected = {'version', 'description', 'call_prefixes', 'blocks', 'date_picker_calls', 'empty_hint_templates', 'spacer_items',
-                'forms_runtime_calls'}
+                'forms_runtime_calls', 'message_calls', 'message_functions', 'failure_calls'}
     if not isinstance(value, dict) or set(value) - expected or value.get('version') != 1:
         raise MigrationError('FRAMEWORK_CATALOG: version=1 és csak ismert kulcsok engedélyezettek: ' + source)
     lists = ['call_prefixes', 'date_picker_calls', 'empty_hint_templates', 'spacer_items']
@@ -71,6 +72,16 @@ def _validate(value, source):
     for pattern in value.get('spacer_items', []):
         if not re.fullmatch(r'[A-Za-z0-9_$#*?]+(?:\.[A-Za-z0-9_$#*?]+)?', pattern.strip()):
             raise MigrationError('FRAMEWORK_CATALOG: spacer_items = ITEM vagy BLOKK.ITEM minta (* és ? helyettesítővel): ' + pattern)
+    for key in ('message_calls', 'message_functions'):
+        routines = value.get(key, {})
+        if not isinstance(routines, dict) or not all(
+                isinstance(k, str) and ROUTINE.fullmatch(k.strip()) and isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 20
+                for k, v in routines.items()):
+            raise MigrationError('FRAMEWORK_CATALOG: ' + key + ' = {RUTIN vagy CSOMAG.RUTIN: a szöveg argumentumának '
+                                 'sorszáma (1-től)}: ' + source)
+    failures = value.get('failure_calls', [])
+    if not isinstance(failures, list) or not all(isinstance(x, str) and ROUTINE.fullmatch(x.strip()) for x in failures):
+        raise MigrationError('FRAMEWORK_CATALOG: failure_calls = [RUTIN vagy CSOMAG.RUTIN, ...]: ' + source)
     runtime = value.get('forms_runtime_calls', {})
     if not isinstance(runtime, dict) or not all(isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip()
                                                 for k, v in runtime.items()):
@@ -101,6 +112,11 @@ def load(config):
             # A custom catalog without the key keeps the convention; [] switches it off.
             'spacer_items': tuple(p.strip().upper() for p in value.get('spacer_items', DEFAULT_SPACERS)),
             'runtime_calls': tuple((p.strip().upper(), r.strip()) for p, r in value.get('forms_runtime_calls', DEFAULT_RUNTIME_CALLS).items()),
+            # Routines that only show a text (or only fail): MESSAGE / RAISE FORM_TRIGGER_FAILURE everywhere (messages.py).
+            'messages': {'calls': {k.strip().upper(): v for k, v in value.get('message_calls', messages.DEFAULT_MESSAGE_CALLS).items()},
+                         'functions': {k.strip().upper(): v
+                                       for k, v in value.get('message_functions', messages.DEFAULT_MESSAGE_FUNCTIONS).items()},
+                         'failures': tuple(x.strip().upper() for x in value.get('failure_calls', messages.DEFAULT_FAILURE_CALLS))},
             'source': str(config.get('framework_catalog') or 'frm_forms/data/framework-catalog.json')}
 
 
@@ -210,6 +226,10 @@ def framework_call(statement, catalog):
     counts too: the handler itself is framework code.
     """
     statement = re.sub(r'^exception\s+when\s+[\w$#,\s]+?\s+then\s+', '', statement, flags=re.I)
+    # A framework package's state (qms$nav.nav_opening_wnd := FALSE) is plumbing as well, if the value evaluates nothing.
+    assignment = re.fullmatch(r'\s*([A-Za-z][\w$#]*(?:\.[A-Za-z][\w$#]*)+)\s*:=\s*(.+?)\s*;?\s*', statement, flags=re.S)
+    if assignment:
+        statement = assignment.group(1) + '(' + assignment.group(2) + ')'
     from .plsql import parse, Unsupported
     try:
         nodes = parse(statement.rstrip(';') + ';')

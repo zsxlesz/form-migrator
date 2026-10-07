@@ -35,6 +35,9 @@ def write_stubs(root: Path) -> list[Path]:
         'jakarta.validation.constraints.Digits': 'public @interface Digits { int integer(); int fraction(); }',
         'com.fasterxml.jackson.annotation.JsonFormat': 'public @interface JsonFormat { public enum Shape { ANY, STRING } Shape shape() default Shape.ANY; String pattern() default ""; }',
         'org.springframework.transaction.annotation.Transactional': 'public @interface Transactional { boolean readOnly() default false; Class<? extends Throwable>[] rollbackFor() default {}; }',
+        # JUnit 5 surface of the generated query tests (query_java_tests); the stub really asserts, so a runner can execute them.
+        'org.junit.jupiter.api.Test': '@java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME) public @interface Test {}',
+        'org.junit.jupiter.api.Assertions': 'public final class Assertions { public static void assertEquals(Object expected, Object actual, String message) { if (!java.util.Objects.equals(expected, actual)) throw new AssertionError(message + ": expected <" + expected + "> but was <" + actual + ">"); } public static void assertEquals(boolean expected, boolean actual, String message) { assertEquals((Object) expected, (Object) actual, message); } }',
     }
     files.update({
         'org.springframework.http.HttpMethod': 'public enum HttpMethod { GET, POST, PUT, DELETE }',

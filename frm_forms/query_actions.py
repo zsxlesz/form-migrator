@@ -396,9 +396,25 @@ def query_action(trigger, source, model, catalog):
 
 
 def blockers(plan, model):
-    """Resolve only this builder's DEFAULT_WHERE; retain every other read blocker."""
+    """Resolve only this builder's DEFAULT_WHERE; retain every other read blocker.
+
+    A Java query button sets the WHERE (and the order, when its code does) of its own query: no runtime DEFAULT_WHERE
+    of the target block concerns it.
+    """
     from .rules import POLICY_CODES, runtime_block_properties
     target = plan['target']
+    java = plan.get('java')
+    if java:
+        ignored = {'DEFAULT_WHERE', 'ONETIME_WHERE'} | ({'ORDER_BY'} if java.get('dynamic_order') or java.get('order') else set())
+        resolved_java = {f['origin'] + ': futásidőben módosított ' + f['property'] + ' (' + f['call'] + '); '
+                         'a ServiceImpl lekérdezését/DML-jét ennek megfelelően kell átvenni.'
+                         for f in runtime_block_properties(model) if f['block'] in {target, None} and f['property'] in ignored}
+        form = '@FORM:' + model['name']
+        return list(dict.fromkeys(i['detail'] for i in model['issues']
+                                  if i['owner'] in {form, target} and i['scope'] in {'all', 'read'}
+                                  and i['code'] != 'QUERY_BIND_REQUIRED'
+                                  and not (i['owner'] == form and i['code'] in POLICY_CODES)
+                                  and not (i['code'] == 'RUNTIME_BLOCK_PROPERTY' and i['detail'] in resolved_java)))
     resolved = {f['origin'] + ': futásidőben módosított ' + f['property'] + ' (' + f['call'] + '); '
                 'a ServiceImpl lekérdezését/DML-jét ennek megfelelően kell átvenni.'
                 for f in runtime_block_properties(model)
@@ -479,7 +495,8 @@ def java_method(operation, block, gated, log1x, user_type, support):
     if operation.get('query_blockers'):
         guard = ('            throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, '
                  + jstr('A lekérdezés további átültetést igényel: ' + operation['query_blockers'][0]) + ');\n')
-        return comment_lines('DEFAULT_WHERE lekérdezés: ' + plan['unit'] + ' -> ' + plan['target'], '    ') + f'''
+        why = ('\nJava-lekérdezés nem készült: ' + operation['query_java_reason']) if operation.get('query_java_reason') else ''
+        return comment_lines('DEFAULT_WHERE lekérdezés: ' + plan['unit'] + ' -> ' + plan['target'] + why, '    ') + f'''
     @Override
     public {operation['returns']} {operation['method']}({user_type} user, QueryActionRequest request) throws Exception {{
         {log1x(operation, '() -> {')}
@@ -495,7 +512,8 @@ def java_method(operation, block, gated, log1x, user_type, support):
     info = (plan['unit'] + ': az eredeti PL/SQL állítja össze a ' + plan['target'] + ' DEFAULT_WHERE feltételét.\n'
             'Csak a form forrásából lefordított SQL-változat fut; a mezőértékek kötött paraméterek.\n'
             'SET_BLOCK_PROPERTY / GO_BLOCK / EXECUTE_QUERY: JDBC lekérdezés és Angular rekordlista.\n'
-            'Eredeti kód: analysis/backend-evidence.md')
+            + ('Java-lekérdezés nem készült: ' + operation['query_java_reason'] + '\n' if operation.get('query_java_reason') else '')
+            + 'Eredeti kód: analysis/backend-evidence.md')
     return comment_lines(info, '    ') + f'''
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     @Override

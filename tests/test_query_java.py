@@ -81,41 +81,47 @@ class JavaQueryTests(unittest.TestCase):
         service = (cls.out / 'backend/DPS/QueryServiceImpl.java').read_text(encoding='utf-8')
         start = service.index('public PageResult<BlkRow> onT1PbLekerdezes(')
         cls.method = service[service.rindex('\n\n', 0, start):service.index('\n    }\n', start)]
+        start = service.index('static QueryText onT1PbLekerdezesQuery(')
+        cls.query = service[start:service.index('\n    }\n', start)]
 
     @classmethod
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def test_the_button_runs_with_the_untranslated_form_post_query_as_a_todo(self):
+    def test_the_button_runs_and_the_form_level_post_query_runs_on_its_rows(self):
         action = endpoint(self.out)
         self.assertEqual((action['runs'], action['implemented'], action['blockers']), ('java-query', True, []))
-        self.assertEqual(action['todo'], ['F:POST-QUERY: Várt token: ;; kapott: VN_HOSSZ, pozíció: 10.'])
-        self.assertIn('// TODO: a Formsban ez is fut, a migrált lekérdezés nem: F:POST-QUERY:', self.method)
+        self.assertNotIn('todo', action)  # 4.24: the form-level POST-QUERY runs for the block (Execution Hierarchy)
+        self.assertNotIn('// TODO: a Formsban ez is fut', self.method)
         self.assertNotIn('NOT_IMPLEMENTED, "A lekérdezés további átültetést igényel', self.method)
 
     def test_only_the_sql_request_in_readable_java(self):
         for line in ('String col1 = PlsqlValues.text(values, "T1", "COL1");',
                      'BigDecimal col2 = PlsqlValues.number(values, "T1", "COL2");',
-                     'if (col1 != null) {',
-                     """String lekSql = "COL6='00' and ((:col1 = 'XY_42_LAP' and COL7 in ('XY_34','XY_340','XY_341')) or\\n\"""",
-                     'if (BigDecimal.ONE.equals(col2) && BigDecimal.ZERO.equals(col3) && BigDecimal.ZERO.equals(col4)) {',
-                     """lekSql += " and COL9='B56'";""",
-                     'where = lekSql;',
-                     '} else {\n                messages.add("Adatlap kiválasztása nem történt meg!");',
-                     '.addValue("col1", col1)', '.addValue("col5", col5)',
-                     'var rows = jdbc.query("SELECT COL6, COL7, COL8, COL9 FROM T_BLK WHERE " + where + " ORDER BY COL6 OFFSET "',
+                     'var q = onT1PbLekerdezesQuery(col1, col5, col2, col3, col4);',
+                     'if (!q.run) {\n                return new PageResult<>(null, q.messages);',
+                     'var rows = jdbc.query("SELECT COL6, COL7, COL8, COL9 FROM T_BLK WHERE " + whereText(q.where) + " ORDER BY COL6"',
                      'postQueryBlk(row, context);'):
             self.assertIn(line, self.method)
+        for line in ('static QueryText onT1PbLekerdezesQuery(String col1, String col5, BigDecimal col2, BigDecimal col3, BigDecimal col4) {',
+                     'if (col1 != null) {',
+                     """lekSql = "COL6='00' and ((:col1 = 'XY_42_LAP' and COL7 in ('XY_34','XY_340','XY_341')) or\\n\"""",
+                     'if (BigDecimal.ONE.equals(col2) && BigDecimal.ZERO.equals(col3) && BigDecimal.ZERO.equals(col4)) {',
+                     """lekSql += " and COL9='B56'";""",
+                     'q.where = lekSql;\n            q.run = true;',
+                     'q.params.addValue("col1", col1);', 'q.params.addValue("col5", col5);',
+                     '} else {\n            q.messages.add("Adatlap kiválasztása nem történt meg!");'):
+            self.assertIn(line, self.query)
         for forms in ('DECLARE', 'DbCalls.call', 'FRM_QUERY_CONTEXT', 'whereText.equals'):
-            self.assertNotIn(forms, self.method.split('//endregion')[1])  # no PL/SQL emulation in the code
+            self.assertNotIn(forms, self.method.split('//endregion')[1] + self.query)  # no PL/SQL emulation in the code
         self.assertIn('// Kimaradt Forms-hívások (a webes lekérdezésnek nem kellenek): GO_BLOCK.', self.method)
+        self.assertIn('// Egyezés-ellenőrzés: ', self.method)
 
     def test_the_original_code_is_in_a_foldable_region(self):
         region = self.method[self.method.index('        //region '):self.method.index('        //endregion') + 20]
         self.assertTrue(region.startswith('        //region Eredeti Forms-kód: T1.PB_LEKERDEZES, LEKERDEZESI_FELTETELEK, WUZENET\n'))
         for original in ("//  Set_Block_Property('BLK',DEFAULT_WHERE,lek_sql);", "//     --lek_sql:='COL6=;00; and nvl(COL8",
-                         '// WUZENET (helyi eljárás, üzenetként jelenik meg):', '//       m_alertid := FIND_ALERT ( m_alertdialog );',
-                         '// F:POST-QUERY (nem fordult le; a migrált lekérdezés nem futtatja):', '//   vn_hossz NUMBER;'):
+                         '// WUZENET (helyi eljárás, üzenetként jelenik meg):', '//       m_alertid := FIND_ALERT ( m_alertdialog );'):
             self.assertIn(original, region)
 
     def test_the_generated_query_runs(self):
@@ -160,7 +166,7 @@ class JavaQueryEdgeTests(unittest.TestCase):
         out = generate(self.root, form(button=button))
         model = json.loads((out / 'analysis/form.ir.json').read_text(encoding='utf-8'))
         trigger = next(t for t in model['triggers'] if t['event'] == 'WHEN-BUTTON-PRESSED')
-        self.assertIn('nem fordítható egyszerű Java-feltételre', trigger['query_java_reason'])
+        self.assertIn('nem fordítható egyszerű Java-kifejezésre: SUBSTR', trigger['query_java_reason'])
         self.assertNotEqual(endpoint(out)['runs'], 'java-query')
 
     def test_a_manual_button_keeps_its_original_code_in_a_region(self):
@@ -245,14 +251,14 @@ public class JavaQuerySmoke {
         var service = new QueryServiceImpl(jdbc);
         var flags = Map.of("COL1", "XY_42_LAP", "COL2", "1", "COL3", "0", "COL4", "0", "COL5", "U1");
         var result = service.onT1PbLekerdezes(new UserDto(), new QueryActionRequest(Map.of("T1", flags), Map.of(), 0, 200));
-        check(jdbc.sql.contains("WHERE COL6='00' and ((:col1 = 'XY_42_LAP'") && jdbc.sql.endsWith(
-            "COL8 = :col5 and COL9='B56' ORDER BY COL6 OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY"), jdbc.sql);
+        check(jdbc.sql.contains("WHERE (COL6='00' and ((:col1 = 'XY_42_LAP'") && jdbc.sql.endsWith(
+            "COL8 = :col5 and COL9='B56') ORDER BY COL6 OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY"), jdbc.sql);
         check("XY_42_LAP".equals(jdbc.params.getValue("col1")) && "U1".equals(jdbc.params.getValue("col5"))
               && Integer.valueOf(200).equals(jdbc.params.getValue("limit")), "binds");
         check(result.rows().size() == 1 && "XY_34".equals(result.rows().get(0).col7) && "Betöltve".equals(result.rows().get(0).info), "rows");
         var all = Map.of("COL1", "Y901", "COL2", "1", "COL3", "1", "COL4", "1", "COL5", "U1");
         service.onT1PbLekerdezes(new UserDto(), new QueryActionRequest(Map.of("T1", all), Map.of(), 0, 200));
-        check(jdbc.sql.contains(":col5 and (COL9='B56' or COL9='K70') ORDER BY"), jdbc.sql);
+        check(jdbc.sql.contains(":col5 and (COL9='B56' or COL9='K70')) ORDER BY"), jdbc.sql);
         result = service.onT1PbLekerdezes(new UserDto(), new QueryActionRequest(Map.of("T1", Map.of("COL2", "1")), Map.of(), 0, 200));
         check(result.rows() == null && result.messages().equals(List.of("Adatlap kiválasztása nem történt meg!")) && jdbc.queries == 2,
               "no selection: the message, no query, the rows on the screen stay");

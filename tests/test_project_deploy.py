@@ -155,6 +155,7 @@ class DeployTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')
+        os.environ.setdefault('FRM_JAVA_VARIABLE_MAP', '-')  # nor a developer's own java-variables.json
         cls.temp = tempfile.TemporaryDirectory()
         base = Path(cls.temp.name)
         cls.output = generate(base / 'out')

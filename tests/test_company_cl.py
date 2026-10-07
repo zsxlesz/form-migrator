@@ -17,6 +17,7 @@ from frm_forms.contracts import validate_awu_azon, validate_company_config
 import os
 
 os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_VARIABLE_MAP', '-')  # nor a developer's own java-variables.json
 
 
 CL_IMPORTS = COMPANY_IMPORTS + ['hu.company.common.' + symbol for symbol in

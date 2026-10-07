@@ -310,6 +310,61 @@ JSON-fájl adja meg: egyszerű osztálynév → teljes Java-név.
 - **Ellenőrzés:** hibás JSON, rossz formájú bejegyzés, vagy olyan érték, amely nem az adott
   névvel végződik (például `"UserDto": "hu.x.Masik"`), érthető hibaüzenettel leállítja a generálást.
 
+## Változóértékek: java-variables.json
+
+A DPS ServiceImpl metódusai saját változókat is létrehoznak: a fejlesztői bemeneteket (amit a kód sehonnan nem kap
+meg, ezért `String ibuKod = null;` és TODO lesz belőle) és a Java lekérdezőgombok képernyőértékeit. A
+`java-variables.json` név szerint megadja egy ilyen változó értékét:
+
+```json
+{
+  "variables": [
+    {
+      "variableName": "ibuKod",
+      "variableValue": "commonService.Details(param)",
+      "autowired": "commonService",
+      "import": "hu.company.pelda.CommonService"
+    }
+  ]
+}
+```
+
+Ahol a generátor az `ibuKod` változót létrehozza, ott ez lesz:
+
+```java
+import hu.company.pelda.CommonService;
+...
+public class XyServiceImpl extends ... {
+    @Autowired
+    private CommonService commonService;
+    ...
+            // :IBU_KOD (...): az érték a java-variables.json-ból.
+            String ibuKod = commonService.Details(param);
+```
+
+- **`variableName`:** a generált változó neve. A fejlesztői bemenetnél a forrás teljes neve camelCase-ben
+  (`:XX.YY` → `xxYy`, `:GLOBAL.IBU_KOD` → `globalIbuKod`, blokk nélküli `:IBU_KOD` → `ibuKod`), a lekérdezőgomb
+  képernyőértékénél a mező neve (`:T1.COL2` → `col2`; ha több blokkban is van ilyen nevű mező, `t1Col2`). A pontos neveket a `BACKEND_TASKS.md` Fejlesztői
+  bemenetek táblázata és a metódus feletti megjegyzés mutatja.
+- **`variableValue`:** egysoros Java-kifejezés, a `=` jobb oldala (a záró `;` elhagyható). A változó típusa a
+  generált marad (szöveg: `String`, szám: `BigDecimal`, dátum: `LocalDateTime`).
+- **`autowired`** (elhagyható): az osztály tetejére kerülő `@Autowired` mező neve. A típusa a név nagy
+  kezdőbetűvel: `commonService` → `private CommonService commonService;`. Ha több bejegyzés ugyanazt a
+  szolgáltatást használja, a mező egyszer szerepel.
+- **`import`** (elhagyható): teljes osztálynév vagy ezek listája; a ServiceImpl-be `import …;` sor lesz belőle.
+- **Csak ami kell:** importot és mezőt csak az a ServiceImpl kap, amelyik a változót tényleg létrehozza.
+- **Formátum:** lista, egyetlen bejegyzés, vagy `{"variables": [...]}`. Az `_`-sal kezdődő kulcsok megjegyzések
+  (a gyökérben lévő minta a `_példa` kulcsban mutatja a fenti bejegyzést).
+- **Hol van:** alapból a migrátor gyökerében, `java-variables.json` néven (üres `variables` listával). Más
+  útvonalat a `java_variable_map` beállítás (a config fájlhoz képest) vagy a `FRM_JAVA_VARIABLE_MAP` környezeti
+  változó ad meg; a `-` érték kikapcsolja. Minden migráláskor újra beolvassa, a webes felület is.
+- **Riportok:** a JSON-ból kitöltött változók nem TODO-k. A `BACKEND_TASKS.md` külön táblázatban sorolja fel őket
+  („Fejlesztői bemenetek a java-variables.json-ból”, az értékkel). Az `analysis/backend-plan.json` a bemenet
+  mellé írja az értéket (`value`). Az `analysis/java-variables.json` bejegyzésenként megmutatja, melyik
+  fájlba került (`used_in`; üres lista: egyik metódus sem hozta létre).
+- **Ellenőrzés:** hibás JSON, nem Java-név (`variableName`, `autowired`), üres vagy többsoros érték, hibás
+  import, ismeretlen kulcs vagy kétszer szereplő változó érthető hibaüzenettel leállítja a migrálást.
+
 ## CL package: honnan importál a DPS és a WBS
 
 A felület „Célkörnyezet és Java” paneljén a **CL package (modul)** mezőben adható meg, hová

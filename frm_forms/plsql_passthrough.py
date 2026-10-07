@@ -1366,9 +1366,25 @@ def input_variable(prepared: dict, bind: dict) -> str | None:
 
 
 def input_declarations(prepared: dict, indent: str) -> str:
-    """The developer inputs as local variables of the Java method, each with its TODO."""
-    return ''.join(f"{indent}// TODO: :{i['source']} ({i['reason']}): add át ennek a változónak a megfelelő értéket.\n"
-                   f"{indent}{INPUT_TYPES[i['type']]} {i['variable']} = null;\n" for i in prepared.get('inputs', []))
+    """The developer inputs as local variables of the Java method, each with its TODO; a variable java-variables.json
+    names gets its value from there."""
+    from . import java_variables
+    lines = []
+    for i in prepared.get('inputs', []):
+        entry = java_variables.lookup(i['variable'])
+        if entry:
+            lines.append(f"{indent}// :{i['source']} ({i['reason']}): az érték a java-variables.json-ból.\n"
+                         f"{indent}{java_variables.declaration(INPUT_TYPES[i['type']], i['variable'], entry)}\n")
+        else:
+            lines.append(f"{indent}// TODO: :{i['source']} ({i['reason']}): add át ennek a változónak a megfelelő értéket.\n"
+                         f"{indent}{INPUT_TYPES[i['type']]} {i['variable']} = null;\n")
+    return ''.join(lines)
+
+
+def open_inputs(inputs: list) -> list:
+    """The developer inputs still waiting for a value (java-variables.json gives none of them)."""
+    from . import java_variables
+    return [i for i in inputs if not java_variables.lookup(i['variable'])]
 
 
 def assigned_vars(visible: str) -> set[str]:

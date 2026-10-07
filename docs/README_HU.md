@@ -1,4 +1,12 @@
-# FRM Forms Migrator 4.24.2 — használat
+# FRM Forms Migrator 4.25.0 — használat
+
+**4.25 – változóértékek a java-variables.json-ból:** a generált Java saját változóinak (fejlesztői bemenetek,
+lekérdezőgombok képernyőértékei) név szerint adható érték:
+`{"variableName": "ibuKod", "variableValue": "commonService.Details(param)", "autowired": "commonService", "import": "hu.company.pelda.CommonService"}`.
+A ServiceImpl ekkor megkapja az importot és az osztály tetején a `@Autowired private CommonService commonService;` mezőt,
+a metódusban pedig `String ibuKod = commonService.Details(param);` áll a TODO-s `null` helyett. A fájl alapból a
+migrátor gyökerében van (`java-variables.json`), más útvonalat a `java_variable_map` beállítás ad. Részletek:
+[JAVITASOK_4_25_HU.md](JAVITASOK_4_25_HU.md).
 
 **4.24.2 – `modName` az ősosztályból:** a `frm-forms-screen.ts` már nem generál saját `modName` gettert, mert a céges
 `ServiceBase`-ből öröklődik. A futtató verziója 5; a projektben lévő példányt le kell cserélni. Részletek:

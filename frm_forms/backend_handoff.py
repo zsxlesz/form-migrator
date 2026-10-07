@@ -157,14 +157,25 @@ def write_handoff(model, discovery, output, config, module):
     inputs += [('FORM / indítás (' + ', '.join(init.get('triggers', [])) + ')', i) for i in (init.get('plan') or {}).get('inputs', [])]
     for event, entry in (model.get('commit_plan') or {}).items():
         inputs += [('FORM / ' + event + ' (mentés)', i) for i in entry['plan'].get('inputs', [])]
+    from . import java_variables
+    given = [(owner, i, java_variables.lookup(i['variable'])) for owner, i in inputs if java_variables.lookup(i['variable'])]
+    inputs = [(owner, i) for owner, i in inputs if not java_variables.lookup(i['variable'])]
     if inputs:
         lines += ['', '## Fejlesztői bemenetek', '',
                   'A kód ezeket az értékeket a migrált felületen nem kapja meg. A generált Java-metódus elején mindegyik egy '
                   '`null` kezdőértékű változó `// TODO` megjegyzéssel: add át neki a megfelelő értéket (például a bejelentkezett '
-                  'felhasználóból, egy konfigurációból vagy a kérésből). Addig a kód `null` értékkel fut.', '',
+                  'felhasználóból, egy konfigurációból vagy a kérésből). Addig a kód `null` értékkel fut. Ami több formban '
+                  'is ugyanaz, azt a java-variables.json-ba írva a generátor tölti ki.', '',
                   '| Trigger | Forms-hivatkozás | Java-változó | Ok |', '|---|---|---|---|']
         lines += ['| ' + ' | '.join(markdown_cell(v) for v in [owner, ':' + i['source'], i['variable'], i['reason']]) + ' |'
                   for owner, i in inputs]
+    if given:
+        lines += ['', '## Fejlesztői bemenetek a java-variables.json-ból', '',
+                  'Ezeknek a változóknak az értékét a java-variables.json adja; a szükséges import és @Autowired mező a '
+                  'DPS ServiceImpl-be került.', '',
+                  '| Trigger | Forms-hivatkozás | Java-változó | Érték |', '|---|---|---|---|']
+        lines += ['| ' + ' | '.join(markdown_cell(v) for v in [owner, ':' + i['source'], i['variable'], entry['value']]) + ' |'
+                  for owner, i, entry in given]
     java_queries = [(tr['owner'], 'Java-lekérdezés', 'egyezés-ellenőrzés: ' + str(tr['query_action']['java']['equivalence']['checked'])
                      + ' eset egyezik') for tr in model['triggers'] if (tr.get('query_action') or {}).get('java')]
     fallbacks = [(tr['owner'], 'PL/SQL-adapter' if tr.get('query_action') else 'PL/SQL az adatbázisban' if tr.get('passthrough')

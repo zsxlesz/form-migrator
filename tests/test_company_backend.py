@@ -13,6 +13,7 @@ from frm_forms.service_inline import JAVA_NONCODE, mask
 import os
 
 os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_VARIABLE_MAP', '-')  # nor a developer's own java-variables.json
 
 
 def signature(source, method):

@@ -62,6 +62,9 @@ DEFAULTS = {"java_package": "hu.company.features", "api_prefix": "/api/forms", "
             "common_migrate_tools_package": "",
             # java-imports.json: {"RestResponseDto": "hu.ff.xy.cl.modules.RestResponseDto", ...}; "" = <migrator>/java-imports.json.
             "java_import_map": "",
+            # java-variables.json: the value of a variable the generated Java creates ({"variableName": "ibuKod",
+            # "variableValue": "commonService.Details(param)", "autowired": ..., "import": ...}); "" = <migrator>/java-variables.json.
+            "java_variable_map": "",
             # The module's CL package (DTOs, Constants, RestClient); {module} = module name. "" = <java_package>.<module>.cl.
             "cl_package": "",
             # The module's DPS / WBS package ({module} allowed); empty: <java_package>.<module>.dps / .wbs. Chosen
@@ -167,6 +170,10 @@ def configuration(args) -> dict:
         raise MigrationError("java_import_map: a java-imports.json útvonala szükséges (vagy üres).")
     if result["java_import_map"] and result["java_import_map"].strip() != "-" and args.config:  # "-" = no map
         result["java_import_map"] = str((args.config.resolve().parent / result["java_import_map"]).resolve())
+    if not isinstance(result.get("java_variable_map"), str):
+        raise MigrationError("java_variable_map: a java-variables.json útvonala szükséges (vagy üres).")
+    if result["java_variable_map"] and result["java_variable_map"].strip() != "-" and args.config:  # "-" = no map
+        result["java_variable_map"] = str((args.config.resolve().parent / result["java_variable_map"]).resolve())
     if result.get("framework_catalog") and args.config:
         result["framework_catalog"] = str((args.config.resolve().parent / result["framework_catalog"]).resolve())
     if not isinstance(result['screen_overrides'], dict):
@@ -208,8 +215,19 @@ def package_bundle(bundle, archive_path, folder_name):
 
 
 def migration(args, on_progress=None) -> int:
+    from . import java_variables
+    try:
+        return _migration(args, on_progress)
+    finally:
+        java_variables.configure({})  # the variable map belongs to this run only
+
+
+def _migration(args, on_progress=None) -> int:
+    from . import java_variables
     emit = on_progress or (lambda phase: None)
     config = configuration(args)
+    # java-variables.json: before the analysis, which already writes the Java of the data triggers.
+    java_variables.configure(java_variables.load(config))
     source = args.input.resolve()
     if not source.is_file() or source.suffix.lower() not in {".xml", ".fmb"}:
         raise MigrationError("Létező .fmb vagy Forms2XML .xml bemeneti fájl kell.")

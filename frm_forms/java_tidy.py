@@ -33,7 +33,7 @@ KNOWN = {name.rsplit('.', 1)[1]: name for name in (
 # Annotation-only names: imported only when used as @Name (the word alone may be anything).
 ANNOTATIONS = {name.rsplit('.', 1)[1]: name for name in (
     'org.springframework.stereotype.Service', 'org.springframework.transaction.annotation.Transactional',
-    'org.springframework.beans.factory.annotation.Value')}
+    'org.springframework.beans.factory.annotation.Value', 'org.springframework.beans.factory.annotation.Autowired')}
 # User import map (java-imports.json): authoritative for the names it lists (see java_imports).
 IMPORT_MAP: dict = {}
 JAVA_LANG = {

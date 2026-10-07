@@ -135,8 +135,17 @@ def skipped_blocks(model):
 
 def input_note(prepared) -> str:
     """The developer inputs of a generated method, for its comment."""
-    return ('Fejlesztői bemenet (a metódus elején, null; TODO): ' + ', '.join(':' + i['source'] + ' -> ' + i['variable']
-            for i in prepared['inputs']) + '. A kód ezekkel fut; add át nekik a megfelelő értéket.')
+    from .plsql_passthrough import open_inputs
+    waiting = open_inputs(prepared['inputs'])
+    given = [i for i in prepared['inputs'] if i not in waiting]
+    parts = []
+    if waiting:
+        parts.append('Fejlesztői bemenet (a metódus elején, null; TODO): ' + ', '.join(':' + i['source'] + ' -> ' + i['variable']
+                     for i in waiting) + '. A kód ezekkel fut; add át nekik a megfelelő értéket.')
+    if given:
+        parts.append('Fejlesztői bemenet a java-variables.json-ból: ' + ', '.join(':' + i['source'] + ' -> ' + i['variable']
+                     for i in given) + '.')
+    return ' '.join(parts)
 
 
 def action_method(o, block, gated, discovery, model, log1x, user_type):
@@ -973,11 +982,17 @@ import org.springframework.transaction.annotation.Transactional;
     service_base = config['java_service_base_dps']
     service_text = '\n'.join(dps_methods + support) + runtime
     dps_imports += ''.join(f'import {tools_package}.CommonMigrateTools.{name};\n' for name in COMMON_TOOLS_CLASSES if re.search(r'\b' + name + r'\b', service_text))
+    # java-variables.json: the imports and the @Autowired services of the variable values the methods use.
+    from . import java_variables
+    variable_imports, variable_fields = java_variables.class_parts(service_text, '\n'.join(dps_fields),
+                                                                   f'backend/DPS/{cls}ServiceImpl.java')
+    dps_imports += variable_imports
+    variable_fields += '\n' if variable_fields else ''
     emit('DPS', 'ServiceImpl', f'''/** CREATE_ONCE: --regenerate preserves this file. SQL/PLSQL and private helpers are kept here; no domain/repository layer. */
 @XSlf4j
 @Service
 public class {cls}ServiceImpl extends {service_base} implements {cls}Service {{
-{module_header(model, cls)}{chr(10).join(dps_fields)}
+{variable_fields}{module_header(model, cls)}{chr(10).join(dps_fields)}
 
     public {cls}ServiceImpl({ctor_args}) {{
 {ctor_body}
@@ -1038,7 +1053,10 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
                 entry.update(query_block=o['query_action']['target'], query_unit=o['query_action']['unit'])
             plan = (o.get('query_action') or {}).get('prepared') or o.get('passthrough') or {}
             if plan.get('inputs'):
-                entry['developer_inputs'] = [{k: i[k] for k in ('source', 'variable', 'reason')} for i in plan['inputs']]
+                from . import java_variables
+                entry['developer_inputs'] = [{**{k: i[k] for k in ('source', 'variable', 'reason')},
+                                              **({'value': given['value']} if given else {})}
+                                             for i in plan['inputs'] for given in [java_variables.lookup(i['variable'])]]
             if o.get('adapter_diagnostics'):
                 entry['adapter_diagnostics'] = o['adapter_diagnostics']
             if o.get('query_java_reason'):

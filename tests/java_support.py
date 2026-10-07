@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 
 os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_VARIABLE_MAP', '-')  # nor a developer's own java-variables.json
 
 
 # Imports of the company classes above, for generator configs in compile tests.
@@ -53,6 +54,9 @@ def write_stubs(root: Path) -> list[Path]:
         'org.springframework.context.annotation.Configuration': 'public @interface Configuration { String value() default ""; }',
         'org.springframework.beans.factory.annotation.Value': 'public @interface Value { String value(); }',
         'org.springframework.beans.factory.annotation.Qualifier': 'public @interface Qualifier { String value(); }',
+        'org.springframework.beans.factory.annotation.Autowired': 'public @interface Autowired { boolean required() default true; }',
+        # A company service of the java-variables.json tests (an @Autowired field of the DPS ServiceImpl).
+        'hu.company.pelda.CommonService': 'public class CommonService { public String Details(String key) { return key; } }',
     })
     for annotation in ['Service', 'Repository']:
         files['org.springframework.stereotype.' + annotation] = 'public @interface ' + annotation + ' { String value() default ""; }'

@@ -1660,13 +1660,19 @@ def method(operation: dict, block: dict, gated: bool, log1x, user_type: str, sup
     select = ('SELECT ' + ', '.join(column_sql(i) for i in block['db_items']) + ' FROM ' + block['table']
               + table_alias(block, block['table']) + ' WHERE ')
     reads = query['reads']
-    values = any('parameters' not in r and 'input' not in r for r in reads.values()) or bool(compiler.binds)
+    from . import java_variables
+    given = {source: java_variables.lookup(read['variable']) for source, read in reads.items()}  # java-variables.json
+    values = any('parameters' not in r and 'input' not in r and not given[s] for s, r in reads.items()) or bool(compiler.binds)
     head = []
     if values:
         head.append('            var values = request.blocks() == null ? java.util.Map.<String, java.util.Map<String, String>>of() : request.blocks();')
-    if any('parameters' in r for r in reads.values()):
+    if any('parameters' in r and not given[s] for s, r in reads.items()):
         head.append('            var parameters = request.parameters() == null ? java.util.Map.<String, String>of() : request.parameters();')
     for source, read in reads.items():
+        if given[source]:
+            head.append(f"            // :{source}: az érték a java-variables.json-ból.")
+            head.append('            ' + java_variables.declaration(JAVA_TYPES[read['type']], read['variable'], given[source]))
+            continue
         if 'input' in read:
             head.append(f"            // TODO: :{source} ({read['input']}): add át ennek a változónak a megfelelő értéket.")
         head.append(f"            {JAVA_TYPES[read['type']]} {read['variable']} = {read['java']};")
@@ -1704,9 +1710,13 @@ def method(operation: dict, block: dict, gated: bool, log1x, user_type: str, sup
                                     if equivalence.get('unverifiable') else '') + '.')
     if query['left_out']:
         info.append('Kimaradt Forms-hívások (a webes lekérdezésnek nem kellenek): ' + ', '.join(query['left_out']) + '.')
-    if query['inputs']:
+    waiting = [i for i in query['inputs'] if not java_variables.lookup(i['variable'])]
+    if waiting:
         info.append('Fejlesztői bemenet (a metódus elején, null; TODO): '
-                    + ', '.join(':' + i['source'] + ' -> ' + i['variable'] for i in query['inputs']) + '.')
+                    + ', '.join(':' + i['source'] + ' -> ' + i['variable'] for i in waiting) + '.')
+    configured = [':' + source + ' -> ' + read['variable'] for source, read in reads.items() if given[source]]
+    if configured:
+        info.append('Érték a java-variables.json-ból: ' + ', '.join(configured) + '.')
     for unit in query.get('more_than_message', []):
         info.append('TODO: a(z) ' + unit + ' itt csak üzenet, de a Formsban mást is csinál (az eredeti kódja a regionban).')
     for detail in todo:

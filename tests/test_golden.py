@@ -21,6 +21,7 @@ import unittest
 from frm_forms.cli import main
 
 os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_VARIABLE_MAP', '-')  # nor a developer's own java-variables.json
 
 GOLDEN = Path(__file__).with_name('golden')
 DEFAULT_ARGS = ['--screen', '--module', 'golden']

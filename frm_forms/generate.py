@@ -308,13 +308,15 @@ def block_values(model, b):
 
 def generate_java(model: dict, output: Path, config: dict, module: str, package: str, *, discovery=None, actions=None):
     from .compact_backend import generate
-    from . import java_imports, java_style, java_tidy
+    from . import java_imports, java_style, java_tidy, java_variables
     # java-imports.json is read at every generation: an edited path applies to the next module.
     java_tidy.configure(java_imports.load(config), omit_package=bool(config.get("java_empty_package")))
     java_style.configure(config)
     try:
         generate(model, output, config, module, package, discovery or {"code": [], "objects": []}, actions or [])
         write_json(output / "analysis" / "java-imports.json", java_tidy.report(output))
+        if java_variables.ACTIVE:  # java-variables.json (cli.migration): which entry got where
+            write_json(output / "analysis" / "java-variables.json", java_variables.report())
         if java_style.FAILED:  # files the Checkstyle layout left as generated (normally none)
             write_json(output / "analysis" / "java-style.json", {"unformatted": list(java_style.FAILED)})
     finally:

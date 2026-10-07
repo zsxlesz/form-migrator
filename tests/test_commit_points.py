@@ -188,6 +188,7 @@ class ReplicaFlowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')
+        os.environ.setdefault('FRM_JAVA_VARIABLE_MAP', '-')  # nor a developer's own java-variables.json
         cls.temp = tempfile.TemporaryDirectory()
         cls.root = Path(cls.temp.name)
         config = cls.root / 'config.json'

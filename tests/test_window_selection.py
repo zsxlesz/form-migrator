@@ -12,6 +12,7 @@ from frm_forms.screen_windows import WindowSelectionRequired
 from test_screen_windows import simple_windows
 
 os.environ.setdefault('FRM_JAVA_IMPORT_MAP', '-')  # tests never read a developer's own java-imports.json
+os.environ.setdefault('FRM_JAVA_VARIABLE_MAP', '-')  # nor a developer's own java-variables.json
 
 HEADSTART = Path(__file__).with_name('golden') / 'headstart' / 'input.xml'
 

@@ -81,8 +81,10 @@ def coverage(model, backend=None, screen=None):
             if any(b['block'] not in {s['block'] for s in screen.get('sections', [])} for b in binds
                    if not b['parameter'] and not b.get('input')):
                 row['gaps'].append('Képernyőn nem szereplő blokkértékeket is vár; a hostnak kell átadnia őket.')
-            if any(b.get('input') for b in binds):
-                row['gaps'].append('Fejlesztői bemenet: ' + ', '.join(':' + b['source'] for b in binds if b.get('input'))
+            from . import java_variables
+            given = {i['source'] for i in plan.get('inputs', []) if java_variables.lookup(i['variable'])}  # java-variables.json
+            if any(b.get('input') and b['source'] not in given for b in binds):
+                row['gaps'].append('Fejlesztői bemenet: ' + ', '.join(':' + b['source'] for b in binds if b.get('input') and b['source'] not in given)
                                    + ' (a Java-metódusban TODO változó, értékét a fejlesztő adja át).')
             if query and query['target'] not in {s['block'] for s in screen.get('sections', [])}:
                 row['gaps'].append('A lekérdezett blokk nincs a generált képernyőn; az eredmény megjelenítését külön be kell kötni.')

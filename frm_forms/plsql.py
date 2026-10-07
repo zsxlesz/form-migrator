@@ -14,6 +14,19 @@ class Unsupported(Exception):
     pass
 
 
+def adapter_error(exc: Exception) -> Unsupported:
+    """An adapter's refusal as it is; an unexpected error (a bug of the migrator) as a refusal that names its type and
+    place, its traceback in the log: one trigger or program unit never stops the migration of the whole form."""
+    if isinstance(exc, Unsupported):
+        return exc
+    import sys
+    import traceback
+    from .common import failure_place
+    traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+    return Unsupported('Belső hiba a migrátorban (' + type(exc).__name__ + ': ' + ' '.join(str(exc).split())[:200]
+                       + failure_place(exc) + '); kézi átültetés. Kérlek, jelezd a hibát a napló végével együtt.')
+
+
 @dataclass
 class Token:
     kind: str

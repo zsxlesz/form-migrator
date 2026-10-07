@@ -441,7 +441,7 @@ def java_method(operation, block, gated, log1x, user_type, support):
     from .action_scaffold import comment_lines
     from .common import java_text_block, jstr, name
     from .rules import JDBC_TYPES
-    from .service_inline import methods
+    from .service_inline import support_methods
 
     from .plsql_passthrough import input_declarations, input_variable
     plan = operation['query_action']
@@ -480,7 +480,7 @@ def java_method(operation, block, gated, log1x, user_type, support):
             }}''')
     suffix = name(block['class'])
     suffix = suffix[:1].upper() + suffix[1:]
-    helpers = methods('\n'.join(support))
+    helpers = support_methods('\n'.join(support))
     post = helpers.get('postQuery' + suffix)
     post_call = ''
     if post:

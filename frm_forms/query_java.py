@@ -1634,7 +1634,7 @@ def method(operation: dict, block: dict, gated: bool, log1x, user_type: str, sup
     from .generate import column_sql, table_alias
     from .plsql_passthrough import local_units
     from .rules import JDBC_TYPES
-    from .service_inline import methods
+    from .service_inline import support_methods
     from .xmlmodel import get
     query = operation['query_action']['java']
     trigger = next(t for t in model['triggers'] if t['owner'] == operation['action']['owner']
@@ -1678,7 +1678,7 @@ def method(operation: dict, block: dict, gated: bool, log1x, user_type: str, sup
     params.append('            q.params.addValue("offset", request.offset()).addValue("limit", request.limit());')
     suffix = name(block['class'])
     suffix = suffix[:1].upper() + suffix[1:]
-    post = methods('\n'.join(support)).get('postQuery' + suffix)
+    post = support_methods('\n'.join(support)).get('postQuery' + suffix)
     post_call = ''
     if post:
         args = 'row, context' if 'RuleContext' in post['header'] else 'row'

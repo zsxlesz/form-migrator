@@ -42,7 +42,7 @@ def markdown_cell(value: object) -> str:
 
 def reports(model: dict, output: Path, module: str, package: str, config: dict) -> None:
     info = summary(model)
-    write_json(output / "analysis" / "form.ir.json", model)
+    write_json(output / "analysis" / "form.ir.json", {k: v for k, v in model.items() if k != "_cache"})
     write_json(output / "analysis" / "summary.json", info)
     write_json(output / "analysis" / "issues.json", model["issues"])
     write_json(output / "analysis" / "object-inventory.json", model["inventory"])

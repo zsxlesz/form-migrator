@@ -5,6 +5,7 @@ masked before inspecting methods, so SQL text and messages remain byte-for-byte.
 """
 from __future__ import annotations
 
+from functools import lru_cache
 import re
 from textwrap import dedent
 
@@ -18,6 +19,12 @@ METHOD = re.compile(r'(?m)^[ \t]*(?:public|private)\s+[\w.<>, ?\[\]]+\s+'
 
 def mask(text):
     return JAVA_NONCODE.sub(lambda m: ''.join('\n' if c == '\n' else ' ' for c in m[0]), text)
+
+
+@lru_cache(maxsize=4)
+def support_methods(text):
+    """methods() of the support code every button method looks into: parsed once per ServiceImpl (read only)."""
+    return methods(text)
 
 
 def methods(text):

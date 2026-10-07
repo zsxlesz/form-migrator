@@ -17,7 +17,7 @@ import re
 from . import forms_runtime
 from .common import decode_line_escapes
 from .forms_context import NORMAL_MODE, NORMAL_MODE_NOTE, normal_mode_reference
-from .plsql import Unsupported, where
+from .plsql import Unsupported, adapter_error, where
 
 IDENT = re.compile(r'[A-Za-z][A-Za-z0-9_$#]*')
 BIND = re.compile(r':[A-Za-z][A-Za-z0-9_$#]*(?:\.[A-Za-z][A-Za-z0-9_$#]*)?')
@@ -1041,8 +1041,8 @@ def unit_library(units: dict, items: dict, prefixes: tuple, procedures: dict | N
                 validate_structure(source)
                 source = plain({'kind': 'subprogram', 'text': source.strip()}, '')['text'].strip()
                 entry['text'] = rewriter.rewrite(source).rstrip().rstrip(';') + ';'
-        except Unsupported as exc:
-            entry['error'] = str(exc)
+        except Exception as exc:
+            entry['error'] = str(adapter_error(exc))
         entry.update(binds=rewriter.binds, needs=rewriter.needs, calls=[u for u in rewriter.used_units if u != name],
                      unresolved=rewriter.unresolved, out_args=rewriter.out_args, commands=rewriter.commands)
         if entry['error'] and unit['kind'] == 'package' and not isinstance(declared[name], Unsupported):
@@ -1058,8 +1058,8 @@ def unit_library(units: dict, items: dict, prefixes: tuple, procedures: dict | N
                     if element['kind'] == 'subprogram':
                         validate_structure(element['text'])
                     result['text'] = part.rewrite(element['text']).rstrip()
-                except Unsupported as exc:
-                    result.update(text='', error=str(exc))
+                except Exception as exc:
+                    result.update(text='', error=str(adapter_error(exc)))
                 result.update(binds=part.binds, needs=part.needs, calls=[u for u in part.used_units if u != name],
                               unresolved=part.unresolved, out_args=part.out_args, commands=part.commands)
                 entry['elements'].append(result)
@@ -1390,6 +1390,11 @@ BLOCK_PROPERTIES = ('QUERY_ALLOWED', 'INSERT_ALLOWED', 'UPDATE_ALLOWED', 'DELETE
 def block_statics(model) -> dict:
     """{BLOCK: {PROPERTY: value}} of the properties the form fixes; a property any code sets (SET_BLOCK_PROPERTY)
     is left out, so GET_BLOCK_PROPERTY of it is not folded."""
+    from .common import model_cache
+    return model_cache(model, 'block_statics', lambda: _block_statics(model))
+
+
+def _block_statics(model) -> dict:
     from .xmlmodel import get
     sources = [t['source'] for t in model.get('triggers', [])] + [get(u, 'ProgramUnitText') for u in model.get('program_units', [])]
     text = decode_line_escapes('\n'.join(str(s or '') for s in sources))

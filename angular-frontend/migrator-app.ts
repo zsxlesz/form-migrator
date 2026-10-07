@@ -194,7 +194,7 @@ const HELP = {
   connect: 'A migrátor teljes API URL-je az /api útvonallal. Az első kapcsolódásig nincs API-kérés; a cím ebben a böngészőben marad. Indítás: python -m frm_forms.web --port 8000',
   cache: 'Törli a helyben tárolt AI-javaslatokat. A generált csomagokat nem érinti; csak üres feladatsor mellett.',
   files: 'A generált fájlok előnézete: az első 1 MB látszik, a ZIP-ben a teljes fájl van.',
-  logs: 'A folyamat naplójának utolsó 32 KB-ja.',
+  logs: 'A folyamat naplójának utolsó 32 KB-ja. Hibánál a vége a hiba helyét és okát mutatja.',
   review: 'A nem támogatott vagy még nem engedélyezett műveleteket a generált kód blokkolja; a következő lépések a riportban vannak.',
 } as const;
 
@@ -820,6 +820,29 @@ function highlight(text: string, lang: CodeLang): string {
       font-weight: 600;
       font-variant-numeric: tabular-nums;
       color: var(--p-text-color, inherit);
+    }
+
+    .nm-log {
+      overflow: hidden;
+      border: 1px solid var(--p-content-border-color, #e2e8f0);
+      border-radius: var(--p-content-border-radius, 0.5rem);
+    }
+    .nm-log-head {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.375rem 0.5rem 0.375rem 1rem;
+      border-bottom: 1px solid var(--p-content-border-color, #e2e8f0);
+    }
+    .nm-log-text {
+      max-height: 22rem;
+      margin: 0;
+      padding: 0.75rem 1rem;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.75rem;
+      line-height: 1.5;
     }
 
     .nm-tree {
@@ -1869,6 +1892,32 @@ function highlight(text: string, lang: CodeLang): string {
           }
           @if (job.error) {
             <p-message severity="error">{{ job.error }}</p-message>
+          }
+          @if (job.status === 'failed' || job.status === 'interrupted') {
+            <!-- The log tab is hidden: a failed run shows the end of its log here, under the error. -->
+            <section class="nm-log" aria-label="Hibanapló">
+              <div class="nm-log-head">
+                <span class="font-semibold" [pTooltip]="help.logs">Hibanapló</span>
+                <span class="flex-1"></span>
+                <p-button
+                  [label]="logCopyLabel()"
+                  size="small"
+                  severity="secondary"
+                  variant="text"
+                  [disabled]="!logs()"
+                  (onClick)="copyLogs()"
+                />
+                <p-button
+                  label="Mentés"
+                  size="small"
+                  severity="secondary"
+                  variant="text"
+                  [disabled]="!logs()"
+                  (onClick)="saveLogs(job)"
+                />
+              </div>
+              <pre class="nm-log-text">{{ logs() || 'A napló betöltése…' }}</pre>
+            </section>
           }
 
           <p-tabs [value]="detailTab()" (valueChange)="switchTab($event)">
@@ -3111,6 +3160,7 @@ export class Migrator implements OnInit, OnDestroy {
     this.destroyed = true;
     clearInterval(this.timer);
     clearTimeout(this.copyTimer);
+    clearTimeout(this.logCopyTimer);
   }
 
   // ------------------------------------------------------------------ api --
@@ -3196,6 +3246,9 @@ export class Migrator implements OnInit, OnDestroy {
         await this.loadDetails(selected);
       if (selected && this.detailOpen() && this.detailTab() === 'logs')
         await this.loadLogs(selected);
+      else if (selected && this.detailOpen() && ['failed', 'interrupted'].includes(selected.status)
+               && before?.status !== selected.status)
+        await this.loadLogs(selected);  // it has just failed: its log under the error
       if (this.batchOpen() && this.batchReport())
         await this.refreshBatch(this.batchReport()!.batch);
       this.askWaiting();
@@ -3983,6 +4036,7 @@ export class Migrator implements OnInit, OnDestroy {
         this.chosenWindows.set(job.question.choices.map((c) => c.name));
     }
     if (job.status === 'completed') await this.loadDetails(job);
+    if (job.status === 'failed' || job.status === 'interrupted') await this.loadLogs(job);
   }
 
   async switchTab(tab: string | number | undefined): Promise<void> {
@@ -4076,6 +4130,27 @@ export class Migrator implements OnInit, OnDestroy {
   async stepCode(offset: number): Promise<void> {
     const next = this.codeFiles()[this.viewerIndex() + offset];
     if (next) await this.openCode(next);
+  }
+
+  readonly logCopyState = signal<'idle' | 'done' | 'failed'>('idle');
+  readonly logCopyLabel = computed(
+    () => ({ idle: 'Másolás', done: 'Kimásolva', failed: 'Nem sikerült' })[this.logCopyState()],
+  );
+  private logCopyTimer?: ReturnType<typeof setTimeout>;
+
+  async copyLogs(): Promise<void> {
+    clearTimeout(this.logCopyTimer);
+    try {
+      await navigator.clipboard.writeText(this.logs());
+      this.logCopyState.set('done');
+    } catch {
+      this.logCopyState.set('failed');
+    }
+    this.logCopyTimer = setTimeout(() => this.logCopyState.set('idle'), 1800);
+  }
+
+  saveLogs(job: Job): void {
+    this.saveBlob(new Blob([this.logs()], { type: 'text/plain;charset=utf-8' }), 'naplo-' + job.id + '.txt');
   }
 
   async copyCode(): Promise<void> {
@@ -4249,7 +4324,7 @@ export class Migrator implements OnInit, OnDestroy {
       const result = await firstValueFrom(
         this.http.get<{ text: string }>(this.url(`/jobs/${job.id}/logs`)),
       );
-      if (this.selectedId() === job.id) this.logs.set(result.text);
+      if (this.selectedId() === job.id) this.logs.set(result.text || 'A napló üres: a folyamat nem írt bele semmit.');
     } catch (error) {
       this.error.set(this.errorText(error));
     }

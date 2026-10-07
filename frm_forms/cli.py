@@ -11,7 +11,7 @@ import tempfile
 import zipfile
 
 from . import __version__
-from .common import MigrationError, RESERVED, name, read_json, write_json
+from .common import MigrationError, RESERVED, failure_report, name, read_json, run_deep, write_json
 from .contracts import COMPANY_DEFAULTS, validate_company_config, validate_common_migrate_tools_package, validate_cl_package
 from .exporter import export_fmb
 from .generate import generate_angular, generate_java, initial_values
@@ -500,7 +500,7 @@ def main(argv=None) -> int:
             if not args.inputs and not args.report_only:
                 raise MigrationError("BATCH_INPUT: adj meg legalább egy formot vagy mappát (vagy --report-only).")
             from .portfolio import run_batch
-            code = run_batch(args, survey=args.command == "survey")
+            code = run_deep(run_batch, args, survey=args.command == "survey")
             if getattr(args, "project", None) or getattr(args, "layout", None):
                 from .project_deploy import parse_layout, run as deploy_run, validate_layout
                 layout = validate_layout(read_json(args.config).get("project_layout") or {}) if args.config else {}
@@ -511,13 +511,16 @@ def main(argv=None) -> int:
             inventory(args.inputs, args.out)
             print("Attribútumleltár és kereshető modultérkép: " + str(args.out / 'form-explorer.html'))
             return 0
-        return migration(args)
-    except (MigrationError, OSError, ValueError, TypeError) as exc:
+        return run_deep(migration, args)
+    except MigrationError as exc:
         print("HIBA: " + str(exc), file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("Megszakítva.", file=sys.stderr)
         return 130
+    except Exception as exc:
+        print(failure_report(exc), file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 from frm_forms.cli import migration
-from frm_forms.common import MigrationError
+from frm_forms.common import failure_report, run_deep
 from frm_forms.screen_windows import PrimaryWindowRequired, WindowSelectionRequired
 from .file_io import atomic_json
 
@@ -37,7 +37,7 @@ def run(job_dir: Path) -> int:
                   file=sys.stderr, flush=True)
 
     try:
-        return migration(args, on_progress=progress)
+        return run_deep(migration, args, on_progress=progress)
     except WindowSelectionRequired as exc:
         # Not a failure: the web UI shows the windows with a preview and re-queues with screen_windows.
         atomic_json(job_dir / "question.json", {"kind": "windows", "message": str(exc), "choices": exc.candidates})
@@ -49,8 +49,9 @@ def run(job_dir: Path) -> int:
         atomic_json(job_dir / "question.json", {"kind": "primary_window", "message": str(exc), "choices": exc.candidates})
         print("DÖNTÉS SZÜKSÉGES: " + str(exc), file=sys.stderr, flush=True)
         return NEEDS_INPUT
-    except (MigrationError, OSError, ValueError, TypeError) as exc:
-        print("HIBA: " + str(exc), file=sys.stderr, flush=True)
+    except Exception as exc:
+        # the traceback goes to the log; the last HIBA line is the job's error message (type, message, place)
+        print(failure_report(exc), file=sys.stderr, flush=True)
         return 1
 
 

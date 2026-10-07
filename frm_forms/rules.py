@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import re
 from decimal import Decimal
-from .common import MigrationError, identifier, jstr
-from .plsql import Unsupported, parse, flatten
+from .common import MigrationError, identifier, jstr, model_cache
+from .plsql import Unsupported, adapter_error, parse, flatten
 from .forms_context import NORMAL_MODE, normal_mode_expression
 from . import framework, forms_runtime
 
@@ -571,6 +571,10 @@ def action_passthrough(trigger: dict, source: str, model: dict, catalog: dict) -
 
 def key_overrides(model: dict, catalog: dict) -> set:
     """Built-ins whose DO_KEY would run an own KEY-* trigger (not Headstart dispatch): embedded or refused."""
+    return model_cache(model, "key_overrides", lambda: _key_overrides(model, catalog))
+
+
+def _key_overrides(model: dict, catalog: dict) -> set:
     from .forms_keys import KEY_EVENTS
     events = {t["event"] for t in model["triggers"] if framework.classify(t["source"], catalog)[0] not in {"framework", "empty"}}
     return {builtin for builtin, event in KEY_EVENTS.items() if event in events}
@@ -578,6 +582,10 @@ def key_overrides(model: dict, catalog: dict) -> set:
 
 def key_triggers(model: dict, catalog: dict) -> dict:
     """KEY event -> the own KEY-* triggers DO_KEY may run: owner, scope, code and Execution Hierarchy."""
+    return model_cache(model, "key_triggers", lambda: _key_triggers(model, catalog))
+
+
+def _key_triggers(model: dict, catalog: dict) -> dict:
     from .xmlmodel import get
     result = {}
     for t in model["triggers"]:
@@ -613,8 +621,10 @@ def commit_plan(model: dict, catalog: dict) -> None:
                            runtime_calls=catalog.get("runtime_calls", ()), messages=catalog.get("messages"),
                            block_info=block_statics(model), ui=True, form=model["name"],
                            key_overrides=key_overrides(model, catalog), key_triggers=key_triggers(model, catalog))
-        except Unsupported as exc:
-            trigger["commit_reason"] = str(exc)
+        except Exception as exc:
+            if isinstance(exc, MigrationError):
+                raise
+            trigger["commit_reason"] = str(adapter_error(exc))
             continue
         if "SHOW_ALERT" in plan["commands"]:
             trigger["commit_reason"] = "SHOW_ALERT a mentési láncban: a párbeszéd és a mentés sorrendje kézi átültetést igényel."
@@ -658,7 +668,10 @@ def startup_plan(model: dict, catalog: dict) -> None:
                        runtime_calls=catalog.get("runtime_calls", ()), messages=catalog.get("messages"),
                        block_info=block_statics(model), ui=True, form=model["name"],
                        key_overrides=key_overrides(model, catalog), key_triggers=key_triggers(model, catalog))
-    except Unsupported as exc:
+    except Exception as error:
+        if isinstance(error, MigrationError):
+            raise
+        exc = adapter_error(error)
         model["init_plan"] = {"status": "manual", "triggers": ids, "reason": str(exc)}
         for issue in model["issues"]:
             if issue["code"] == "UNSUPPORTED_TRIGGER" and any(issue["detail"].startswith(i + ": ") for i in ids):
@@ -944,11 +957,15 @@ def runtime_block_properties(model: dict) -> list[dict]:
     name, a FIND_BLOCK handle or :SYSTEM.TRIGGER_BLOCK identifies the block; any
     other target is unknown and therefore concerns every block.
     """
+    return model_cache(model, "runtime_block_properties", lambda: _runtime_block_properties(model))
+
+
+def _runtime_block_properties(model: dict) -> list[dict]:
     from .discovery import scan, source_view
     from .xmlmodel import get
     names = {b["name"] for b in model["blocks"]}
     watched = RUNTIME_READ_PROPERTIES | RUNTIME_WRITE_PROPERTIES | set(RUNTIME_ALLOWED_PROPERTIES)
-    sources = [(t["id"], t["block"], t["source"]) for t in model["triggers"]]
+    sources = [(t["id"], t["block"], t["source"]) for t in model["triggers"] if not t.get("form_level")]  # copies: same code
     sources += [("PROGRAM UNIT " + get(u, "Name"), None, get(u, "ProgramUnitText")) for u in model["program_units"]]
     findings = []
     for origin, owner_block, source in sources:
@@ -1154,7 +1171,10 @@ def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | Non
             else:
                 raise Unsupported(event_reason(trigger["event"]))
             trigger["status"] = "converted"
-        except Unsupported as exc:
+        except MigrationError:
+            raise
+        except Exception as error:
+            exc = adapter_error(error)
             # Not translatable to Java: run the original PL/SQL in Oracle instead, if it only needs the database.
             if trigger["event"] == "WHEN-BUTTON-PRESSED" and source.strip():
                 # Forms DEFAULT_WHERE builders need an explicit query adapter:
@@ -1171,15 +1191,15 @@ def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | Non
                         trigger.update(status='converted', target='action')
                         trigger.pop('reason', None)
                         continue
-                    except Unsupported as java_error:
-                        trigger['query_java_reason'] = str(java_error)
+                    except Exception as java_error:
+                        trigger['query_java_reason'] = str(adapter_error(java_error))
                 try:
                     trigger['query_action'] = query_action(trigger, source, model, catalog)
                     trigger.update(status='converted', target='action')
                     trigger.pop('reason', None)
                     continue
-                except Unsupported as query_error:
-                    query_reason = str(query_error)
+                except Exception as query_error:
+                    query_reason = str(adapter_error(query_error))
                 # A button that only needs the database: its action endpoint runs the PL/SQL as written.
                 try:
                     trigger["passthrough_plan"] = action_passthrough(trigger, source, model, catalog)
@@ -1191,7 +1211,8 @@ def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | Non
                     trigger.update(status="converted", target="action")  # runs in the button's action endpoint
                     trigger.pop("reason", None)
                     continue
-                except Unsupported as second:
+                except Exception as failure:
+                    second = adapter_error(failure)
                     trigger['adapter_diagnostics'] = {'frontend': str(exc), 'query': query_reason, 'plsql': str(second)}
                     exc = Unsupported(str(exc) + " Átfuttatás az adatbázisban sem lehetséges: " + str(second))
                     if 'SET_BLOCK_PROPERTY' in str(second).upper():
@@ -1204,8 +1225,8 @@ def analyze(model: dict, metadata: dict, replacements: dict, catalog: dict | Non
                     run_in_database(trigger, block, source)
                     trigger.pop("reason", None)
                     continue
-                except Unsupported as second:
-                    exc = Unsupported(str(exc) + " Átfuttatás az adatbázisban sem lehetséges: " + str(second))
+                except Exception as failure:
+                    exc = Unsupported(str(exc) + " Átfuttatás az adatbázisban sem lehetséges: " + str(adapter_error(failure)))
             scope = trigger_scope(trigger, block, source, catalog, model)
             if trigger["event"] in STARTUP_EVENTS or trigger["event"] in DATA_KEYS:
                 # The parser message says nothing about the screen task; the event reason does.

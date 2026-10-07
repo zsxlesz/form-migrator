@@ -1,4 +1,13 @@
-# FRM Forms Migrator 4.24.0 — használat
+# FRM Forms Migrator 4.24.1 — használat
+
+**4.24.1 – nagy formok:**
+
+- **Nem száll el a migrálás:** a nagyon mély kód (hosszú `||` összefűzés) nem állítja le a futást; egy trigger
+  váratlan belső hibája csak az adott trigger oka lesz.
+- **Látható a hiba oka:** a hibaüzenet a hiba típusát és helyét mutatja, és hibás feladatnál az Áttekintés fülön ott
+  a napló vége (Hibanapló), Másolás és Mentés gombbal.
+
+Részletek: [JAVITASOK_4_24_1_HU.md](JAVITASOK_4_24_1_HU.md).
 
 **4.24 – a második felmérés javításai, okosabb lekérdezőgombok, egyezés-ellenőrzés:**
 

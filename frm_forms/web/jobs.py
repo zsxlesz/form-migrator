@@ -36,6 +36,32 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Windows exit codes of a process the operating system stopped (NTSTATUS), as an unsigned 32-bit value.
+WINDOWS_CRASHES = {0xC00000FD: "verem-túlcsordulás (túl mélyen beágyazott forrás)", 0xC0000005: "memóriahozzáférési hiba",
+                   0xC0000017: "elfogyott a memória", 0xC000013A: "a folyamatot megszakították (Ctrl+C)"}
+
+
+def failure_message(log: str, code: int | None) -> str:
+    """The error of a failed run for the job list: the worker's last HIBA line, else what the log and the exit code say."""
+    if "HIBA: " in log:
+        return log.rsplit("HIBA: ", 1)[-1].strip()
+    lines = [line.strip() for line in log.splitlines() if line.strip()]
+    exception = next((line for line in reversed(lines) if re.match(r"^[A-Za-z_][\w.]*(?:Error|Exception|Interrupt)\b", line)), None)
+    if exception:
+        return "Váratlan belső hiba: " + exception[:400] + " A napló vége a feladat Áttekintés fülén látható."
+    if code is not None and (code & 0xFFFFFFFF) in WINDOWS_CRASHES:
+        return "A generáló folyamat összeomlott: " + WINDOWS_CRASHES[code & 0xFFFFFFFF] + f" (kilépési kód 0x{code & 0xFFFFFFFF:08X})."
+    if code is not None and code < 0:
+        try:
+            name = signal.Signals(-code).name
+        except ValueError:
+            name = "jelzés " + str(-code)
+        reason = " (valószínűleg elfogyott a memória)" if name == "SIGKILL" else ""
+        return f"A generáló folyamatot az operációs rendszer leállította: {name}{reason}."
+    last = (" Utolsó naplósor: " + lines[-1][:300]) if lines else ""
+    return f"A generálás hibával leállt (kilépési kód {code}).{last} A napló vége a feladat Áttekintés fülén látható."
+
+
 def tail(path: Path, size: int = 32768) -> str:
     try:
         with path.open("rb") as stream:
@@ -456,8 +482,7 @@ class JobManager:
                     question = json.loads((folder / "question.json").read_text(encoding="utf-8"))
                     self._update(job, status="needs_input", phase="needs_input", question=question, exit_code=4)
                 elif process.returncode not in {0, 3}:
-                    log = tail(folder / "worker.log", 6000)
-                    message = log.rsplit("HIBA: ", 1)[-1].strip() if "HIBA: " in log else "A generálás hibával leállt. A részletek a naplóban találhatók."
+                    message = failure_message(tail(folder / "worker.log", 6000), process.returncode)
                     self._update(job, status="failed", phase="failed", finished_at=now(), error=message, exit_code=process.returncode)
                 else:
                     self._update(job, phase="packaging")

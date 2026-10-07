@@ -11,6 +11,82 @@ class MigrationError(Exception):
     pass
 
 
+# Deeply nested Forms code (a WHERE built of 2000 || pieces, 40 nested IFs) is a deep syntax tree: the parsers, the
+# compilers and json.dumps of form.ir.json recurse into it. A migration runs on a thread with a large stack and a high
+# recursion limit, so a big form does not stop with RecursionError (or a stack overflow on Windows).
+DEEP_STACK_BYTES = 512 * 1024 * 1024
+DEEP_RECURSION_LIMIT = 100_000
+
+
+def model_cache(model: dict, key: str, compute):
+    """A value derived from the analysed form, computed once per run (the model's "_cache", never written out)."""
+    store = model.setdefault("_cache", {})
+    if key not in store:
+        store[key] = compute()
+    return store[key]
+
+
+def failure_place(exc: BaseException) -> str:
+    """' (hely: frm_forms/x.py:12, function)': the migrator's innermost frame of an exception, or ''."""
+    import traceback
+    frames = traceback.extract_tb(exc.__traceback__)
+    ours = [f for f in frames if "frm_forms" in f.filename.replace("\\", "/")]
+    place = ours[-1] if ours else frames[-1] if frames else None
+    if place is None:
+        return ""
+    path = place.filename.replace("\\", "/")
+    path = path[path.rfind("frm_forms/"):] if "frm_forms/" in path else path.rsplit("/", 1)[-1]
+    return f" (hely: {path}:{place.lineno}, {place.name})"
+
+
+def failure_report(exc: BaseException) -> str:
+    """The log text of a failed run: the traceback, then one HIBA line the web UI shows (type, message, place)."""
+    import traceback
+    if isinstance(exc, (MigrationError, OSError)):
+        return "HIBA: " + str(exc)  # an expected, user-facing failure (a missing file ...)
+    where = failure_place(exc)
+    hint = {RecursionError: " A forrásban túl mélyen beágyazott szerkezet van.",
+            MemoryError: " Elfogyott a memória."}.get(type(exc), "")
+    message = " ".join(str(exc).split())[:400] or type(exc).__name__
+    return ("".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            + f"HIBA: Váratlan belső hiba ({type(exc).__name__}): {message}{where}.{hint}")
+
+
+def run_deep(function, *args, **kwargs):
+    """function(*args, **kwargs) on a thread with a large stack; its result, or its exception (traceback kept)."""
+    import sys
+    import threading
+    outcome = {}
+
+    def target():
+        try:
+            outcome["value"] = function(*args, **kwargs)
+        except BaseException as exc:  # re-raised in the caller's thread, with its traceback
+            outcome["error"] = exc
+
+    previous_limit, previous_size = sys.getrecursionlimit(), threading.stack_size()
+    thread = None
+    try:
+        for size in (DEEP_STACK_BYTES, 128 * 1024 * 1024, 0):
+            try:
+                threading.stack_size(size)
+                # the limit follows the stack: a small default stack keeps the default limit
+                sys.setrecursionlimit(max(previous_limit, DEEP_RECURSION_LIMIT * size // DEEP_STACK_BYTES))
+                thread = threading.Thread(target=target, name="frm-migration", daemon=True)
+                thread.start()
+                break
+            except (ValueError, RuntimeError, MemoryError):
+                thread = None  # a platform without that much stack: try smaller
+        while thread is not None and thread.is_alive():
+            thread.join(0.2)  # Ctrl+C still reaches the main thread
+    finally:
+        sys.setrecursionlimit(previous_limit)
+        threading.stack_size(previous_size)
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome.get("value")
+
+
 RESERVED = set("abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while var record sealed permits yield true false null constructor prototype __proto__ name length arguments await delete export function let typeof with from get set".split())
 RESERVED -= {"name", "length", "from", "get", "set"}
 

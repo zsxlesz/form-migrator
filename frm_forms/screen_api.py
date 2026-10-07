@@ -1,14 +1,16 @@
 """Backend calls of the generated screen, in the company pattern.
 
-Every endpoint gets its own one-line method; frm-forms-screen.ts (send) logs the successful response first with
-WFF.debug(<module>.<method>, res) and reports errors with WFF.err:
+Every endpoint gets its own method in the component (screen_code.endpoint_method): the successful response is logged
+first with WFF.debug(<module>.<method>, res), an error with WFF.err:
 
-    searchAit(body: unknown) { return this.send('searchAit', this.http.post(this.url('searchait'), body)); }
+    aitSearch(body: unknown) {
+      return this.http.post<Page>(this.url('ait/query/search'), body).pipe(tap(res => WFF.debug(...)), catchError(...));
+    }
 
 The argument of this.url(...) is the endpoint as the CL names it (its Constants path without the leading '/'; in
 the company format exactly the <METHOD>_NAME value), so a text search finds the call in CL, DPS, WBS and the
-component alike. ServiceBase.url adds the server and module path. The screen gives the rest as data (queries,
-lovs, rowKeys, actionEndpoints ...): frm-forms-screen.ts runs them.
+component alike. ServiceBase.url adds the server and module path. wiring() says which endpoint the screen calls for
+what (queries, LOVs, buttons, save); screen_code writes the calls.
 """
 from __future__ import annotations
 
@@ -21,21 +23,7 @@ from .common import name
 
 QUERY_LIMIT = 200  # backend list/search limit: 1..200
 DEFAULT_HTTP = {'list': 'get', 'search': 'post', 'create': 'post', 'update': 'put', 'delete': 'delete'}
-# Members of the screen and of frm-forms-screen.ts the endpoint methods must not shadow.
-RESERVED = {'constructor', 'url', 'http', 'toast', 'toastLife', 'labels', 'router', 'modName', 'send', 'button', 'lov', 'fields',
-            'blockOf', 'cursor', 'oracleName', 'keyOf', 'onFormGroupGenerated', 'watch', 'fieldValidators', 'updateField', 'locate',
-            'validBefore', 'onAction', 'navigate', 'onLovSearch', 'setLovSuggestions', 'lovChoice', 'applyLovReturns',
-            'setItemState', 'applyItemState', 'setItemValue', 'stateValue', 'isNull', 'cmp', 'setWindowVisible', 'showCanvas',
-            'hideCanvas', 'payload', 'wireText', 'value', 'rowFields', 'fromDto', 'showRecord', 'applyOracleValues', 'screenBlocks',
-            'recordOf', 'executeQuery', 'criterion', 'showRows', 'selectedRecords', 'clearTable', 'runSteps', 'runAction',
-            'formsGlobals', 'rememberGlobals', 'requestContext', 'formsStatus', 'runCommands', 'screenBlockNames', 'formsQuery',
-            'formsItemProperty', 'clearBlock', 'formsCall', 'formsKey', 'recordGroup', 'askAlert', 'answerAlert', 'markPristine',
-            'formsDelete', 'onToolbar', 'applyChanged', 'formsCommit', 'structures', 'tables', 'validators', 'queries', 'lovs',
-            'actionEndpoints', 'actionSteps', 'queryActionBlocks', 'checkboxValues', 'oracleNames', 'rowKeys', 'commitBlocks',
-            'commitEndpoint', 'alertDefinitions', 'formRoutes', 'navigations', 'manualNavigations', 'changeHandlers',
-            'recordHandlers', 'buttonHandlers', 'initAction', 'windowVisible', 'canvasVisible', 'activeContentCanvas',
-            'canvasTargets', 'formGroups', 'formValues', 'itemStates', 'originals', 'pendingDeletes', 'activeQueryActions',
-            'paramLists', 'recordGroups', 'formsAlert', 'cursorBlock', 'cursorItem', 'changeDetector', 'destroyRef'}
+from .screen_code import RESERVED  # members of the component the endpoint methods must not shadow
 
 
 def load_api(output: Path) -> dict | None:
@@ -91,10 +79,9 @@ def wiring(plan: dict, ui: dict, api: dict | None, key: str, forms: list, tables
         query = {'call': calls[kind]['method'], 'kind': kind, 'limit': QUERY_LIMIT}
         if kind == 'search':
             criteria = []
-            emulation = bool(api['actions'] or api.get('commit'))
             for c in entry['operations']['search'].get('criteria', []):
-                if emulation and c['source'].split('.')[0] in {'GLOBAL', 'PARAMETER'}:
-                    # :GLOBAL / :PARAMETER: the screen's Forms context (screen_emulation.requestContext).
+                if c['source'].split('.')[0] in {'GLOBAL', 'PARAMETER'}:
+                    # :PARAMETER from the URL, :GLOBAL a TODO of the query method (screen_code.query).
                     criteria.append({'field': c['field'], 'block': '', 'key': '', 'context': c['source']})
                     continue
                 if c['source'] not in owner_keys:
@@ -148,64 +135,6 @@ def wiring(plan: dict, ui: dict, api: dict | None, key: str, forms: list, tables
             'commit_points': bool(commit) and bool(forms) and any(a.get('commit_point') for a in api['actions'].values())}
 
 
-def oracle_exceptions(oracle_names: dict) -> dict:
-    """The items whose Oracle name frm-forms-screen.ts cannot derive from the control key (VEVO_NEV <-> vevoNev)."""
-    result = {}
-    for block, names in oracle_names.items():
-        for control, oracle in names.items():
-            derived_key = re.sub(r'_+([a-z0-9])', lambda m: m.group(1).upper(), oracle.lower())
-            derived_name = re.sub(r'([A-Z])', r'_\1', control).upper()
-            if not re.fullmatch(r'[A-Z][A-Z0-9_]*', oracle) or derived_key != control or derived_name != oracle:
-                result.setdefault(block, {})[control] = oracle
-    return result
-
-
-def fields(w: dict) -> list[str]:
-    """The screen's backend data for frm-forms-screen.ts."""
-    from .angular_single import Code
-    from .ts_code import record
-    result = []
-    if w['queries']:
-        queries = {}
-        for block, q in w['queries'].items():
-            call = 'request => this.' + q['call'] + ('(request.offset, request.limit)' if q['kind'] == 'list' else '(request)')
-            spec = {'call': Code(call)}
-            if q.get('criteria'):
-                spec['criteria'] = {c['field']: ':' + c['context'] if c.get('context') else c['block'] + '.' + c['key'] for c in q['criteria']}
-            queries[block] = spec
-        result.append('  protected override readonly queries: Record<string, FrmQuery> = ' + record(queries) + ';')
-    if w['lovs']:
-        lovs = {lov: {'call': Code('request => this.' + e['call'] + '(request)'), 'columns': {c['column']: c['returnItem'] for c in e['columns']},
-                      **({'binds': {b['source']: b['block'] + '.' + b['key'] for b in e['binds']}} if e['binds'] else {})}
-                for lov, e in w['lovs'].items()}
-        result.append('  protected override readonly lovs: Record<string, FrmLov> = ' + record(lovs) + ';')
-    if w['row_keys'] and (w['queries'] or w['actions'] or w.get('commit')):
-        rows = {block: [field if field == control else [field, control] for field, control in keys.items()] for block, keys in w['row_keys'].items()}
-        result.append('  protected override readonly rowKeys = ' + record(rows) + ';')
-    exceptions = oracle_exceptions(w['oracle_names'])
-    if exceptions:
-        result.append('  protected override readonly oracleNames = ' + record(exceptions) + ';')
-    if w['actions']:
-        calls = {owner: Code('request => this.' + method + '(request)') for owner, method in w['actions'].items()}
-        result.append('  protected override readonly actionEndpoints: Record<string, FrmActionCall> = ' + record(calls) + ';')
-    if w.get('query_actions'):
-        result.append('  protected override readonly queryActionBlocks = ' + record(w['query_actions']) + ';')
-    return result
-
-
-def endpoint_method(e: dict) -> str:
-    """One backend call: this.url('<CL endpoint>'), logged and reported by send (frm-forms-screen.ts)."""
-    from .ts_code import sq
-    url = 'this.url(' + sq(e['url']) + ')'
-    if e['http'] == 'get':
-        signature, call = f'offset = 0, limit = {QUERY_LIMIT}', f'this.http.get({url}, {{ params: {{ offset, limit }} }})'
-    elif e['http'] == 'delete':
-        signature, call = 'body: unknown', f'this.http.delete({url}, {{ body }})'
-    else:
-        signature, call = 'body: unknown', f"this.http.{e['http']}({url}, body)"
-    return f"  {e['method']}({signature}) {{ return this.send({sq(e['method'])}, {call}); }}"
-
-
 def summary(w: dict | None) -> dict | None:
     """What the component calls, for screen-plan.json and the notes."""
     if not w:
@@ -250,13 +179,12 @@ def notes(w: dict | None) -> list[str]:
     if not w:
         return ['', '## Backend-hívások', '', 'Nincs generált backend (frontend-only): a komponens nem hív backendet.']
     lines = ['', '## Backend-hívások', '',
-             'A komponens a közös `FrmFormsScreen`-t (frm-forms-screen.ts) örökli. Minden végpontnak egysoros metódusa van: '
-             "`this.send('<metódus>', this.http.<ige>(this.url('<végpont>')))`. A `send` a sikeres választ legelőször "
-             "`WFF.debug(this.modName + '.<metódus>', res)` hívással naplózza, hibánál `WFF.err('Hiba', error)` jelez. "
+             'Minden végpontnak saját metódusa van a komponensben: `this.http.<ige>(this.url(\'<végpont>\'))`. A sikeres választ '
+             "legelőször `WFF.debug(this.modName + '.<metódus>', res)` naplózza, hibánál `WFF.err('Hiba', error)` jelez. "
              'A `this.url(...)` argumentuma a végpont neve úgy, ahogy a CL használja: rákeresve a CL-ben, a DPS-ben, '
              'a WBS-ben és a komponensben is megtalálható.', '',
              '| Metódus | Hívás | CL-konstans | Használja |', '|---|---|---|---|']
-    use = {'search': 'lekérdezés (go_block + execute_query, `executeQuery`)', 'list': 'lekérdezés (`executeQuery`)',
+    use = {'search': 'lekérdezés (`query<Blokk>()`)', 'list': 'lekérdezés (`query<Blokk>()`)',
            'lov': 'LOV-keresés', 'action': 'gomb', 'commit': 'mentés (Forms COMMIT_FORM)'}
     for e in w['endpoints']:
         lines.append(f"| `{e['method']}` | `{e['http'].upper()} this.url('{e['url']}')` | `{w['constants_class']}.{e['constant']}` | "
@@ -268,7 +196,7 @@ def notes(w: dict | None) -> list[str]:
         lines += [f"| `{u['method']}` | {u['kind']} | `{u['target']}` | {u['reason']} |" for u in w['uncalled']]
     if w.get('commit'):
         lines += ['', '## Mentés (Forms COMMIT_FORM)', '',
-                  'Az eszköztár **Mentés** gombja (és a kódban hívott `COMMIT_FORM` / `DO_KEY(\'COMMIT_FORM\')`) a `'
+                  'Az eszköztár **Mentés** gombja (`save()`; a felismert `COMMIT_FORM` gomblépés is ezt hívja) a `'
                   + w['commit']['call'] + '` végpontot hívja: a képernyő összes változása egy kérésben megy, a backend '
                   'egy tranzakcióban, Forms-sorrendben menti (blokksorrend; blokkonként törlés, majd beszúrás és módosítás; '
                   'minden rekord a saját triggereivel). Hiba esetén semmi sem mentődik.',
@@ -282,6 +210,6 @@ def notes(w: dict | None) -> list[str]:
         lines += ['', 'Mentés (create/update/delete): a metódusok elkészülnek, de a Forms COMMIT-szemantikája (több rekord, sorrend, '
                   'hibakezelés) miatt a mentést a fejlesztő köti be; a komponens nem ment automatikusan.']
     if w.get('envelope'):
-        lines += ['', f"A válasz a `{w['envelope']}` borítékban érkezik: a `payload()` metódus veszi ki belőle az adatot "
-                  '(a keresett mezőnevek listája egy helyen igazítható).']
+        lines += ['', f"A válasz a `{w['envelope']}` borítékban érkezik: a komponens `data()` metódusa veszi ki belőle az adatot "
+                  '(a boríték mezőneve ott igazítható).']
     return lines

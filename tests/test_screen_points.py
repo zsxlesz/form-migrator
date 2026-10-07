@@ -2,8 +2,9 @@
 
 Before, the web screen could carry out EXECUTE_QUERY and the like only as the last step, so a button
 that read the queried values afterwards stayed manual work. Now the request stops at the step
-(FRM_RESUME command), the screen carries it out - waiting for the query - and calls the button again
-with FRM.RESUME: the statements before the point are skipped, the code continues with the new values.
+(FRM_RESUME command) and the button can be called again with FRM.RESUME: the statements before the point are
+skipped, the code continues with the new values. Since 4.26 the screen does not run the commands itself: the
+button's method lists them (TODO) with the query method to call.
 """
 import contextlib
 import io
@@ -16,7 +17,7 @@ import tempfile
 import unittest
 
 from java_support import COMPANY_IMPORTS, write_stubs
-from screen_support import RUNTIME_GLOBALS, ts_method
+from screen_support import component
 from frm_forms.cli import main
 from frm_forms import commit_points as cp
 from frm_forms.plsql import Unsupported
@@ -26,7 +27,6 @@ from frm_forms.survey import mid_code_steps
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
-RUNTIME = ROOT / 'frm_forms' / 'templates' / 'frm-forms-screen.ts.tpl'
 ITEMS = {'B': {'ID': {'type': 'number'}, 'NAME': {'type': 'text'}}, 'CTRL': {'X': {'type': 'text'}}}
 
 
@@ -83,81 +83,6 @@ class BackendTests(unittest.TestCase):
                          'COMMIT_FORM, CLEAR_BLOCK a kód közepén')
 
 
-class RuntimeFlowTests(unittest.TestCase):
-    def test_the_screen_waits_for_the_query_then_resumes(self):
-        if not shutil.which('node'):
-            self.skipTest('Node with TypeScript stripping required')
-        runtime = RUNTIME.read_text(encoding='utf-8')
-        methods = '\n'.join(ts_method(runtime, name) for name in ('runAction', 'runCommands', 'formsQuery', 'screenBlocks',
-                                                                  'applyOracleValues', 'showRecord', 'wireText', 'payload',
-                                                                  'cursor', 'oracleName', 'keyOf', 'blockOf', 'fields'))
-        with tempfile.TemporaryDirectory() as temp:
-            script = Path(temp) / 'screen-point.ts'
-            script.write_text('''import assert from 'node:assert/strict';
-const localIso = (value: Date) => value.toISOString();
-__RUNTIME_GLOBALS__
-class Screen {
-  toastLife = {warning: 1, success: 1};
-  initAction = '@INIT';
-  queryActionBlocks = {};
-  activeQueryActions = {};
-  checkboxValues = {};
-  cursorBlock = 'CTRL';
-  cursorItem = '';
-  selectedRecords() { return {}; }
-  formValues: Record<string, Record<string, unknown>> = {B: {name: 'régi'}, CTRL: {x: null}};
-  formGroups = {};
-  structures = {};
-  tables = {};
-  recordHandlers = {};
-  oracleNames = {};
-  changeDetector = {markForCheck() {}};
-  successes = [];
-  toast = {warning: () => undefined, success: (...args) => this.successes.push(args)};
-  requests = [];
-  replies = [];
-  queried = [];
-  actionEndpoints = {'CTRL.PB': request => {
-    this.requests.push(structuredClone(request));
-    const reply = this.replies.shift();
-    return {subscribe: handlers => handlers.next({data: reply})};
-  }};
-  requestContext() { return {'SYSTEM.CURSOR_BLOCK': this.cursorBlock}; }
-  rememberGlobals() {}
-  askAlert() { throw new Error('no alert'); }
-  executeQuery(block, done) {
-    this.queried.push(block);
-    setTimeout(() => { this.formValues[block] = {name: 'lekérdezett'}; done?.(); }, 5);  // the rows arrive later
-    return true;
-  }
-__METHODS__
-}
-const screen = new Screen();
-// 1. The button reaches EXECUTE_QUERY with more code after it: the request stops there.
-screen.replies.push({blocks: {}, messages: [], globals: {}, commands: [['GO_BLOCK', 'B'], ['EXECUTE_QUERY'], ['FRM_RESUME', '1']]});
-// 3. Resumed after the point with the queried values: the rest of the code ran.
-screen.replies.push({blocks: {CTRL: {X: 'lekérdezett'}}, messages: [], globals: {}, commands: []});
-assert.equal(screen.runAction('CTRL.PB'), true);
-assert.equal(screen.requests.length, 1);  // 2. not resumed before the rows are there
-assert.deepEqual(screen.queried, ['B']);
-assert.equal(screen.cursorBlock, 'B');
-await new Promise(resolve => setTimeout(resolve, 30));
-assert.equal(screen.requests.length, 2);
-assert.equal(screen.requests[1].parameters['FRM.RESUME'], '1');
-assert.equal(screen.requests[1].parameters['SYSTEM.CURSOR_BLOCK'], 'B');
-assert.equal(screen.requests[1].blocks.B.NAME, 'lekérdezett');  // the code goes on with the queried record
-assert.equal(screen.formValues.CTRL.x, 'lekérdezett');
-assert.equal(screen.successes.length, 1);  // one 'Kész' at the very end
-console.log('ok');
-'''.replace('__RUNTIME_GLOBALS__', RUNTIME_GLOBALS).replace('__METHODS__', methods.replace('protected ', '')
-                                                                .replace('public ', '')), encoding='utf-8')
-            result = subprocess.run(['node', '--experimental-strip-types', '--no-warnings', str(script)],
-                                    capture_output=True, text=True, timeout=60)
-            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertIn('ok', result.stdout)
-
-
-
 def replica_variant() -> str:
     """The survey replica with the refusals of the real survey: a query in the middle of a button, a local
     package with an initialisation part and a nested function."""
@@ -207,6 +132,15 @@ class ReplicaTests(unittest.TestCase):
         self.assertIn("frm_screen_point(1, 'EXECUTE_QUERY');", self.service)
         self.assertIn('-- RENDELES_PKG inicializálása', self.service)
         self.assertIn('FUNCTION kerekit(p NUMBER) RETURN NUMBER', self.service)
+
+    def test_the_screen_method_says_how_to_resume(self):
+        # 4.26: no shared runtime carries out FRM_RESUME; the button's method has the TODO and the query to call.
+        screen = component(self.out)
+        method = screen[screen.index('  protected onPbFrissitClick(): void {'):]
+        method = method[:method.index('\n  }\n')]
+        self.assertIn('// TODO: a kód közepén képernyőlépés van (FRM_RESUME)', method)
+        self.assertIn('GO_BLOCK, EXECUTE_QUERY', method)
+        self.assertIn('this.queryTetel()', method)
 
     def test_generated_java_compiles(self):
         if not shutil.which('java'):

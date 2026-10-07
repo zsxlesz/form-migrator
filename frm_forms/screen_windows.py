@@ -234,21 +234,3 @@ def controls(plan):
         not s['visible'] or canonical(s['type']) == 'stacked' for s in plan['surfaces'])
     return {'windows': {w['name']: w['initial_visible'] for w in used} if needed else {},
             'canvases': {s['name']: s['visible'] for s in plan['surfaces']} if needed else {}, 'content': content}
-
-
-def runtime(plan):
-    """The windows' and canvases' visibility as data: frm-forms-screen.ts shows and hides them (SHOW_WINDOW, SHOW_VIEW)."""
-    from .ts_code import record
-    state = plan['window_controls']; fields = []
-    if state['windows']:
-        fields.append('  protected override readonly windowVisible = signal<Record<string, boolean>>(' + record(state['windows']) + ');')
-    if state['content']:
-        fields.append('  protected override readonly activeContentCanvas = signal<Record<string, string>>(' + record(state['content']) + ');')
-    if state['canvases']:
-        fields.append('  protected override readonly canvasVisible = signal<Record<string, boolean>>(' + record(state['canvases']) + ');')
-        if state['windows'] or state['content']:
-            targets = {s['name']: {'window': s['window'] or None,
-                                   'contentWindow': s['window'] if s['window'] in state['content'] and canonical(s['type']) == 'content' else None}
-                       for s in plan['surfaces']}
-            fields.append('  protected override readonly canvasTargets = ' + record(targets) + ';')
-    return fields

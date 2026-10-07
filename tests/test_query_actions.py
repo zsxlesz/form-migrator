@@ -13,7 +13,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from java_support import COMPANY_IMPORTS, write_stubs
-from screen_support import RUNTIME_GLOBALS, component, screen_method, screen_source
+from screen_support import SCREEN_GLOBALS, component, screen_field, screen_method
 from frm_forms.cli import main
 from frm_forms.plsql_passthrough import scan
 from frm_forms.service_inline import mask
@@ -354,15 +354,11 @@ END;'''
 
     def test_frontend_sends_flags_and_displays_rows_without_clearing_on_validation(self):
         out = self.generate()
-        component = screen_source(out)  # the component and frm-forms-screen.ts (4.14)
-        self.assertIn('queryActionBlocks', component)
-        self.assertIn('offset: 0, limit: FRM_QUERY_LIMIT', component)
-        self.assertIn('FRM_QUERY_LIMIT = 200', component)
-        self.assertIn('if (page.rows != null)', component)
-        self.assertIn('this.showRows(target, page.rows)', component)
-        self.assertIn('this.activeQueryActions[target] = ownId', component)
-        self.assertIn('if (action) return this.runAction(action, [], 0, done)', component)
-        self.assertIn('value ? pair[0] : pair[1]', component)
+        screen = component(out)  # 4.26: the component's own methods, no shared runtime
+        self.assertIn('  protected onPbLekerdezesClick(): void {\n    this.actionOnt1Pblekerdezes({ blocks: this.blocks(), '
+                      'parameters: this.parameters(), offset: 0, limit: 200 }).subscribe(page => this.showBlk(page));\n  }', screen)
+        self.assertIn("    'T1.COL2': ['t1', 'col2', '1', '0'],", screen)  # the checkbox goes as its Forms value
+        self.assertIn('value ? checked : unchecked ?? null', screen)
 
     def test_company_contract_uses_the_same_query_request_and_page_in_every_layer(self):
         from test_company_cl import CL_IMPORTS
@@ -553,80 +549,44 @@ public class QuerySmoke {
         if not shutil.which('node'):
             self.skipTest('Node with TypeScript stripping required')
         out = self.generate()
-        methods = []
-        for method in ('runAction', 'executeQuery', 'showRows', 'showRecord', 'wireText', 'payload', 'screenBlocks', 'selectedRecords',
-                       'rowFields', 'fromDto', 'oracleName', 'keyOf', 'blockOf', 'fields'):
-            source = screen_method(out, method)  # the component's override, else frm-forms-screen.ts
-            self.assertIsNotNone(source, method)
-            methods.append(source)
-        self.assertIn("BLK: frmTable(", component(out))
+        members = [screen_field(out, 'items'), screen_field(out, 'blkColumns')]
+        members += [screen_method(out, name) for name in ('onPbLekerdezesClick', 'showBlk', 'blocks', 'parameters', 'value', 'text')]
+        self.assertNotIn(None, members)
         script = self.root / 'query-flow.ts'
         script.write_text('''import assert from 'node:assert/strict';
-const TOAST_LIFE = {warning: 1, success: 1};
-const localIso = (value: Date) => value.toISOString();
-__RUNTIME_GLOBALS__
+__SCREEN_GLOBALS__
+class Group { values: Record<string, unknown>; constructor(values: Record<string, unknown>) { this.values = values; } get(key: string) { return key in this.values ? {value: this.values[key]} : null; } }
+const window = {location: {search: '?p_id=5', hash: ''}};
 class Screen {
-  toastLife = TOAST_LIFE;
-  initAction = '@INIT';
-  formValues = {T1: {col1: 'MB_34ADLAP', col2: true, col3: false, col4: true, col5: 'X'}};
-  formGroups = {};
-  structures = {};
-  recordHandlers = {};
-  originals = {};
-  markPristine() {}
-  oracleNames = {};
-  checkboxValues = {T1: {col2: ['1','0'], col3: ['1','0'], col4: ['1','0']}};
-  queryActionBlocks = {'T1.PB_LEKERDEZES': 'BLK'};
-  activeQueryActions = {};
-  rowKeys = {BLK: ['col6', 'col7']};
-  queries = {};
-  tables = {BLK: {rows: [{col7: 'old'}], selection: null}};
-  changeDetector = {markForCheck() {}};
+  forms = {t1: new Group({col1: 'MB_34ADLAP', col2: true, col3: false, col4: true, col5: 'X'})};
+  blkRows: Record<string, unknown>[] = [{col7: 'old'}];
+  blkSelection: Record<string, unknown> | null = null;
+  toastLife = {warning: 1, success: 1};
   warnings = [];
-  successes = [];
-  toast = {warning: (...args) => this.warnings.push(args), success: (...args) => this.successes.push(args)};
+  toast = {warning: (...args) => this.warnings.push(args), success: () => undefined};
   requests = [];
-  reply = {rows: [{col6: '00', col7: 'MB_34'}], messages: []};
-  actionEndpoints = {'T1.PB_LEKERDEZES': request => {
+  reply: Page = {rows: [{col6: '00', col7: 'MB_34'}], messages: []};
+  actionOnt1Pblekerdezes(request) {
     this.requests.push(request);
-    return {subscribe: handlers => handlers.next({data: this.reply})};
-  }};
-  applyOracleValues() { throw new Error('A page is not an ActionResult'); }
-  // Forms runtime emulation (screen_emulation): not part of the query-action flow under test.
-  requestContext() { return {}; }
-  rememberGlobals() { throw new Error('A page has no globals'); }
-  runCommands(commands) { if (commands.length) throw new Error('Unexpected commands'); }
-  askAlert() { throw new Error('A page has no alert'); }
-__METHODS__
+    return {subscribe: next => next(this.reply)};
+  }
+__MEMBERS__
 }
 const screen = new Screen();
-assert.equal(screen.runAction('T1.PB_LEKERDEZES'), true);
-assert.deepEqual(screen.requests[0], {blocks:{T1:{COL1:'MB_34ADLAP',COL2:'1',COL3:'0',COL4:'1',COL5:'X'}},parameters:{},offset:0,limit:200});
-assert.deepEqual(screen.tables.BLK.rows, [{col6:'00',col7:'MB_34'}]);
-assert.equal(screen.successes.length, 0);
-screen.reply = {rows:null,messages:['Adatlap kiválasztása nem történt meg!']};
-assert.equal(screen.runAction('T1.PB_LEKERDEZES'), true);
-assert.deepEqual(screen.tables.BLK.rows, [{col6:'00',col7:'MB_34'}]);
-assert.equal(screen.warnings.length, 1);
-screen.reply = {rows:[],messages:[]};
-assert.equal(screen.executeQuery('BLK'), true);
-assert.equal(screen.requests.length, 3);
-assert.deepEqual(screen.tables.BLK.rows, []);
-assert.equal(screen.warnings.length, 2);
-screen.actionEndpoints['T1.OTHER'] = request => {
-  screen.requests.push(request);
-  return {subscribe: handlers => handlers.next({data:{blocks:{},messages:[]}})};
-};
-assert.equal(screen.runAction('T1.OTHER'), true);
-assert.equal('offset' in screen.requests[3], false);
-assert.equal('limit' in screen.requests[3], false);
-assert.equal(screen.successes.length, 1);
+screen.onPbLekerdezesClick();
+assert.deepEqual(screen.requests[0], {blocks: {T1: {COL1: 'MB_34ADLAP', COL2: '1', COL3: '0', COL4: '1', COL5: 'X'}},
+                                      parameters: {'PARAMETER.P_ID': '5'}, offset: 0, limit: 200});
+assert.deepEqual(screen.blkRows, [{col6: '00', col7: 'MB_34'}]);
+assert.equal(screen.warnings.length, 0);
+screen.reply = {rows: [], messages: ['Adatlap kiválasztása nem történt meg!']};
+screen.onPbLekerdezesClick();
+assert.deepEqual(screen.blkRows, []);
+assert.equal(screen.warnings.length, 2);  // no rows, and the message
 console.log('typescript query-action OK');
-'''.replace('__METHODS__', '\n'.join(methods)).replace('__RUNTIME_GLOBALS__', RUNTIME_GLOBALS))
-        run = subprocess.run(['node', '--experimental-strip-types', str(script)], capture_output=True, text=True)
+'''.replace('__MEMBERS__', '\n'.join(members)).replace('__SCREEN_GLOBALS__', SCREEN_GLOBALS))
+        run = subprocess.run(['node', '--experimental-strip-types', '--no-warnings', str(script)], capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('typescript query-action OK', run.stdout)
-
 
 if __name__ == '__main__':
     unittest.main()

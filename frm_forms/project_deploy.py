@@ -16,10 +16,10 @@ Where the files go:
     frontend/<module>/ go into the folder without the <module> folder;
   - a project folder or source root (Java), an Angular project, or a found part: Java by its package under the
     source root, the frontend under the screens folder in <module>/.
-The shared helpers (CommonMigrateTools.java, frm-forms-screen.ts) are never deployed: they are downloaded once
+The shared helpers (CommonMigrateTools.java, wf-table.ts) are never deployed: they are downloaded once
 and kept in the project. The deploy looks for them there (helpers in the report: found, version) and points the
 imports at the copy it found: the generated code may use any package for CommonMigrateTools and the relative path
-'../frm-forms-screen', nothing has to be set for them before the generation.
+'../wf-table', nothing has to be set for them before the generation.
 
 Generated files are overwritten; CREATE_ONCE files (ServiceImpl, ControllerImpl, the component) are written
 only when they do not exist yet - the fresh version stays in the output. Only the generated files are written:
@@ -50,11 +50,11 @@ JAVA_SEGMENT = re.compile(r'[A-Za-z_$][A-Za-z0-9_$]*')
 PACKAGE_LINE = re.compile(r'^package\s+([\w.]+)\s*;[ \t]*\n?', re.M)
 # The shared helpers: downloaded once and kept in the project, never deployed with a module.
 COMMON_TOOLS = 'CommonMigrateTools.java'
-SCREEN_RUNTIME = 'frm-forms-screen.ts'
+SCREEN_RUNTIME = 'wf-table.ts'  # the table of the generated screens (4.26; frm-forms-screen.ts before)
 HELPERS = {'backend/CL/' + COMMON_TOOLS: COMMON_TOOLS, 'frontend/' + SCREEN_RUNTIME: SCREEN_RUNTIME}
 HELPER_VERSION = {COMMON_TOOLS: re.compile(r'\bVERSION\s*=\s*"(\d+)"'),
-                  SCREEN_RUNTIME: re.compile(r"\bFRM_FORMS_SCREEN_VERSION\s*=\s*['\"](\d+)['\"]")}
-RUNTIME_IMPORT = re.compile(r"""(\bfrom\s+['"])((?:\.\.?/)+)frm-forms-screen(['"])""")
+                  SCREEN_RUNTIME: re.compile(r"\bWF_TABLE_VERSION\s*=\s*['\"](\d+)['\"]")}
+RUNTIME_IMPORT = re.compile(r"""(\bfrom\s+['"])((?:\.\.?/)+)wf-table(['"])""")
 WRITTEN = {'new', 'updated'}
 STATUS_TEXT = {'new': 'új', 'updated': 'frissítve', 'unchanged': 'változatlan', 'kept': 'megőrizve (CREATE_ONCE)',
                'skipped': 'kihagyva'}
@@ -126,7 +126,7 @@ def angular_screens(angular: Path) -> Path:
                   next(iter(projects.values()), {}) if projects else {})
     source = angular / (chosen.get('sourceRoot') or str(Path(chosen.get('root') or '') / 'src'))
     for current, _, files in walk(source if source.is_dir() else angular):
-        if 'frm-forms-screen.ts' in files:
+        if 'wf-table.ts' in files or 'frm-forms-screen.ts' in files:
             return current  # where the screens of earlier deploys are
     return source / 'app'
 
@@ -370,7 +370,7 @@ def with_package(text: str, package: str) -> str:
 def plan_files(output: Path, mapped: dict, runtime: Path | None, tools: str | None) -> list[dict]:
     """Part, target, content and policy of every deployable file of one output.
 
-    runtime: the frm-forms-screen.ts of the project, tools: the package of its CommonMigrateTools (None: not found)."""
+    runtime: the wf-table.ts of the project, tools: the package of its CommonMigrateTools (None: not found)."""
     from .angular_ui import overwrite_policy
     manifest = json.loads((output / 'generated-files.json').read_text(encoding='utf-8'))
     generated = None

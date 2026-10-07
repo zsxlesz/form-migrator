@@ -12,12 +12,11 @@ A triggerfordítás és a tényleges eseménybekötés külön leltára: `RUNTIM
 
 - A komponens egyetlen `.component.ts`; a FormBlock és a Tailwind a fogadó alkalmazásból érkezik.
 - A publikus komponensek importja kizárólag `@openng/optimus-ui/*`. A privát FormBlock importját a céges profil adja meg, vagy egészítsd ki a jelölt TODO-t.
-- Táblázatadatok: `tables.<BLOKK>.rows`; kijelölt rekord: `tables.<BLOKK>.selection` (`frmTable`, `<frm-table>`). Új adatokhoz új tömböt rendelj.
-- A komponens útvonalon érhető el, `@Input`/`@Output` nélkül: a bekötött lekérdezés-, LOV- és akció-végpontokat maga hívja; a kézzel átültetendő gombok az `onAction`-ben toasttal jeleznek.
-- A keresési checkboxok false értéke is érvényes. Az action eseményben az ellenőrzött checkbox értékpár szerinti Oracle kód szerepel.
-- A mezők műveleti engedélyeit és formátummaszkjait a query/insert/update móddal együtt ellenőrizd; a váz nem teljes Forms runtime.
+- Táblázat: `<wf-table>` (`wf-table.ts`, egyszer kell a projektbe tenni; a java-imports.json `WfTable` bejegyzése adja az importját). Sorai: `<blokk>Rows`, kijelölt sora: `<blokk>Selection`, oszlopai: `<blokk>Columns`. A p-table minden bemenete és sablonja (`#header`, `#body`, `#caption` ...) átadható neki, például saját szűrőkhöz.
+- A komponens a céges `ServiceBase`-t örökli, közös futtató nélkül: minden, amit a képernyő használ, a saját fájljában van, egyszerű metódusként (végpontok, `query<Blokk>()`, `search<Lov>()`, `on<Gomb>Click()`, `save()` ...). Amit a Forms ezen felül csinált (alert-párbeszéd, :GLOBAL tárolás, képernyő- és mentési pontok, a backend által visszaadott Forms-utasítások), az a metódusban TODO.
+- A keresési checkboxok false értéke is érvényes. A backend kérésében az ellenőrzött checkbox értékpár szerinti Oracle kód szerepel.
+- A mezők műveleti engedélyeit és formátummaszkjait a query/insert/update móddal együtt ellenőrizd; a képernyő nem Forms-futtató.
 - `--regenerate` megőrzi a komponens kézi módosításait. Új elrendezéshez generálj új célmappába, és hasonlítsd össze.
-- A közös képernyőlogika (gombok, lekérdezés, LOV, mezőállapotok, validátorok, indítási kód, alertek, :GLOBAL/:SYSTEM, mentési lánc) a `frm-forms-screen.ts` fájlban van (`FrmFormsScreen`): egyszer kell a projektbe tenni, a képernyő mappája mellé (vagy a `java-imports.json` `FrmFormsScreen` bejegyzése szerinti helyre). A képernyő ezt örökli: a saját adatait `protected override readonly` mezőkben adja (`structures`, `tables`, `queries`, `lovs` ...), a gombokat és a LOV-okat a `...this.button(ownId)` / `...this.lov(ownId, lov)` segéd köti be, a saját részeit felülírt metódusként (pl. `selectedRecords`, `clearTable`) adja.
 
 ## Képernyőrészek
 
@@ -61,12 +60,12 @@ Az összetartozás az explicit LOV ReturnItem és az olvasási sor alapján igaz
 
 ## Validációk és formátumok
 
-A FormGroup-validátorok a privát FormBlock belső validátoraitól függetlenül is felkerülnek a kontrollokra. Required checkboxnál a false is kitöltött érték; ezért ott nem használjuk a `validator: true` kapcsolót, amelynek checkbox-szemantikája a privát komponensben nem ismert.
+A szabályokat a FormBlock tulajdonságai adják (validator, minLenght/maxLenght, min/max, regexRule); saját validátort a képernyő nem tesz a kontrollokra (4.26), a többit a backend ellenőrzi. Required checkboxnál a false is kitöltött érték; ezért ott nem használjuk a `validator: true` kapcsolót, amelynek checkbox-szemantikája a privát komponensben nem ismert.
 
 | Mező | Forrás property | Érték | Lefedettség | Megvalósítás / teendő |
 |---|---|---|---|---|
-| V_ELEK_ADLAP.UBI_INPTIP_KOD | MaximumLength | 10 | Megvalósítva | FormBlock minLenght/maxLenght + FormGroup hosszellenőrzés. |
-| V_ELEK_ADLAP.UBI_INPTIP_KOD_NEV | MaximumLength | 80 | Megvalósítva | FormBlock minLenght/maxLenght + FormGroup hosszellenőrzés. |
+| V_ELEK_ADLAP.UBI_INPTIP_KOD | MaximumLength | 10 | Megvalósítva | FormBlock minLenght/maxLenght. |
+| V_ELEK_ADLAP.UBI_INPTIP_KOD_NEV | MaximumLength | 80 | Megvalósítva | FormBlock minLenght/maxLenght. |
 | AIT.AIT_TIPUS | MaximumLength | 10 | Adapter szükséges | Csak olvasható táblázat: a szabályt és formázást a szerkesztő/backend adapterben kell átvenni. |
 | AIT.AIT_STATUS | MaximumLength | 1 | Adapter szükséges | Csak olvasható táblázat: a szabályt és formázást a szerkesztő/backend adapterben kell átvenni. |
 | AIT.AIT_MEGJ | MaximumLength | 200 | Adapter szükséges | Csak olvasható táblázat: a szabályt és formázást a szerkesztő/backend adapterben kell átvenni. |
@@ -171,12 +170,12 @@ Saját logikát tartalmazó KEY-* triggerek. A FormBlock `hotkeyShow` / `hotkeyB
 
 ## Backend-hívások
 
-A komponens a közös `FrmFormsScreen`-t (frm-forms-screen.ts) örökli. Minden végpontnak egysoros metódusa van: `this.send('<metódus>', this.http.<ige>(this.url('<végpont>')))`. A `send` a sikeres választ legelőször `WFF.debug(this.modName + '.<metódus>', res)` hívással naplózza, hibánál `WFF.err('Hiba', error)` jelez. A `this.url(...)` argumentuma a végpont neve úgy, ahogy a CL használja: rákeresve a CL-ben, a DPS-ben, a WBS-ben és a komponensben is megtalálható.
+Minden végpontnak saját metódusa van a komponensben: `this.http.<ige>(this.url('<végpont>'))`. A sikeres választ legelőször `WFF.debug(this.modName + '.<metódus>', res)` naplózza, hibánál `WFF.err('Hiba', error)` jelez. A `this.url(...)` argumentuma a végpont neve úgy, ahogy a CL használja: rákeresve a CL-ben, a DPS-ben, a WBS-ben és a komponensben is megtalálható.
 
 | Metódus | Hívás | CL-konstans | Használja |
 |---|---|---|---|
 | `aitUpdate` | `PUT this.url('ait/update')` | `TesztConstants.AIT_UPDATE_PATH` | mentés: a fejlesztő hívja |
-| `aitSearch` | `POST this.url('ait/query/search')` | `TesztConstants.AIT_SEARCH_PATH` | lekérdezés (go_block + execute_query, `executeQuery`) |
+| `aitSearch` | `POST this.url('ait/query/search')` | `TesztConstants.AIT_SEARCH_PATH` | lekérdezés (`query<Blokk>()`) |
 | `lovInptip` | `POST this.url('lov/inptip')` | `TesztConstants.LOV_INPTIP_PATH` | LOV-keresés |
 | `commitForm` | `POST this.url('commit')` | `TesztConstants.COMMIT_FORM_PATH` | mentés (Forms COMMIT_FORM) |
 

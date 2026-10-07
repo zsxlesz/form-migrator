@@ -247,7 +247,7 @@ osztályként tartalmazza a következőket:
 - **Függőségek:** csak JDK és Spring (web, jdbc). Java 11 és Spring Boot 2.3 (Spring Framework 5.2)
   kompatibilis. A CL-projektnek ezért el kell érnie a spring-jdbc-t is.
 
-**A csomagját nem kell megadni (4.25.1):** a CommonMigrateTools ugyanúgy működik, mint a `frm-forms-screen.ts`.
+**A csomagját nem kell megadni (4.25.1):** a CommonMigrateTools ugyanúgy működik, mint a frontend közös fájlja (4.26-tól a `wf-table.ts`).
 A telepítés (Előnézet / Telepítés) megkeresi a projektben lévő `CommonMigrateTools.java`-t a kiválasztott
 Java-mappák `src/main/java`-jában, és a generált importokat annak a `package` sorára írja át. Ha a célmappák már a
 generálás előtt ki vannak választva, a generátor is megkeresi, és eleve azt a csomagot írja. Ha a projektben még

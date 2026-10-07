@@ -108,7 +108,9 @@ class ScreenTests(unittest.TestCase):
         self.assertEqual([i['owner'] for i in plan['sections'][0]['items']], ['B.CODE', 'B.NAME'])
         self.assertEqual(sum(i['col'] + i['col_before'] + i['col_after'] for i in plan['sections'][0]['items']), 12)
         self.assertEqual(plan['folded_buttons'][0]['ignored'], ["copy ('0', 'GLOBAL.save_mouse_record')"])
-        self.assertNotIn('CODE_BTN', source); self.assertIn("...this.lov('B.CODE', 'L')", source)
+        self.assertNotIn('CODE_BTN', source)
+        self.assertIn("ownId: 'B.CODE', formControlName: 'code', labelText: 'Kód', col: '3', dropdown: true, optionLabel: 'label', "
+                      "optionValue: 'value', suggestions: [] }", source)  # no backend (frontend-only): no search method
         self.assertFalse(plan['actions'])
 
     def test_list_button_is_kept_when_its_trigger_does_more_or_target_has_no_opener(self):
@@ -216,7 +218,8 @@ class ScreenTests(unittest.TestCase):
         action = next(a for a in plan['actions'] if a['owner'] == 'FILTER.KERES')
         self.assertEqual(action['steps'], [{'op': 'goBlock', 'block': 'RESULT'}, {'op': 'executeQuery'}])
         self.assertEqual(action['framework_calls'], ["qms$event_item('WHEN-BUTTON-PRESSED')"])
-        self.assertIn("'FILTER.KERES': [{ op: 'goBlock', block: 'RESULT' }, { op: 'executeQuery' }],", source)
+        # frontend-only: no query of RESULT to call, the button lists its steps in its TODO (4.26)
+        self.assertIn("// Felismert Forms-lépések: goBlock('RESULT'); executeQuery (a képernyőn nincs", source)
         self.assertNotIn('actionRequested', source)  # routed component: no output events
         notes = (out / 'frontend/testScreen/MIGRATION_NOTES.md').read_text()
         self.assertIn('## Migrációs teendők', notes); self.assertIn('1 felismert gomb', notes)
@@ -247,7 +250,7 @@ class ScreenTests(unittest.TestCase):
           </Block></FormModule>''')
         self.assertEqual(sorted(s['mode'] for s in p['sections']), ['form', 'table'])
         self.assertEqual(next(s for s in p['sections'] if s['mode'] == 'table')['records'], 7)
-        self.assertIn('B: frmTable(7, ', source)
+        self.assertIn('<wf-table [value]="bRows" [columns]="bColumns" [rows]="7" [(selection)]="bSelection" />', source)
 
     def test_tabs_and_accordion_use_real_components_and_preserve_regions(self):
         for mode in ['tabs', 'accordion']:
@@ -307,8 +310,8 @@ class ScreenTests(unittest.TestCase):
           <Item Name="C" ItemType="Check Box" CheckedValue="1" UncheckedValue="0" Required="true" InitialValue="0"/>
           <Item Name="GO" ItemType="Push Button"/></Block></FormModule>''')
         self.assertIn('startValue: false', source); self.assertNotIn('validator: true', source)
-        self.assertIn("'B.C': [FrmValidators.checked],", source); self.assertNotIn('HttpClient', source)
-        self.assertIn("B: { c: ['1', '0'] },", source)  # the runtime stores and validates the Forms values
+        self.assertIn("type: 'checkBox', ownId: 'B.C', formControlName: 'c', labelText: 'C', col: '12', binary: true", source)
+        self.assertNotIn('Validators', source); self.assertNotIn('HttpClient', source)  # 4.26: no own validators
 
     def test_validation_rules_have_implementation_or_explicit_gap(self):
         out, plan, source = self.generate('''<FormModule Name="F" CoordinateSystem="Real" RealUnit="Pixel"><Block Name="B">
@@ -317,19 +320,14 @@ class ScreenTests(unittest.TestCase):
           <Item Name="INT" ItemType="Text Item" DataType="Integer" Precision="5" Scale="0" LowestAllowedValue="1.5" HighestAllowedValue="9.5"/>
           <Item Name="DATE" ItemType="Text Item" DataType="Date" FormatMask="YYYY-MM-DD"/>
           </Block></FormModule>''')
-        # required, the lengths and the pattern come from the structure: the runtime derives the Angular validators
+        # required, the lengths and the pattern are FormBlock properties; 4.26: no validators of our own
         self.assertIn("validator: true, maxLenght: 4, minLenght: 4, regexRule: { regex: /^[^\\p{Ll}]*$/u, example: '' }", source)
-        self.assertNotRegex(source, r'\bValidators\.')
-        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
-        for derived in ('if (field.validator) result.push(Validators.required);', 'Validators.minLength(field.minLenght)',
-                        'Validators.maxLength(field.maxLenght)', 'Validators.pattern(field.regexRule.regex)'):
-            self.assertIn(derived, runtime)
-        self.assertIn("'B.NUMBER': [FrmValidators.number({ min: '0.01', max: '99999999999999999999.99', precision: 30, scale: 2 })],", source)
-        self.assertIn('min: 2, max: 9', source)
-        self.assertIn("integer: true", source)
+        self.assertNotRegex(source, r'\bValidators\b')
+        self.assertIn('min: 2, max: 9', source)  # the integer's bounds: FormBlock min/max
         self.assertIn("dateFormat: 'yy-mm-dd'", source)
         rules = {(r['owner'], r['property']): r for r in plan['validation_audit']}
-        self.assertEqual(rules['B.NUMBER', 'LowestAllowedValue']['status'], 'implemented')
+        self.assertEqual(rules['B.INT', 'LowestAllowedValue']['status'], 'implemented')
+        self.assertEqual(rules['B.NUMBER', 'LowestAllowedValue']['status'], 'manual')  # a decimal range: the backend checks it
         self.assertEqual(rules['B.NUMBER', 'FormatMask']['status'], 'manual')
         self.assertEqual(rules['B.TEXT', 'CaseRestriction']['status'], 'partial')
         self.assertEqual(rules['B.DATE', 'FormatMask']['status'], 'implemented')
@@ -409,10 +407,7 @@ class ScreenTests(unittest.TestCase):
           <Block Name="B"><Item Name="NAME" ItemType="Display Item"/></Block><LOV Name="L" RecordGroupName="RG"><LOVColumnMapping ColumnName="NAME" ReturnItem="B.NAME"/></LOV>
           <RecordGroup Name="RG" RecordGroupQuery="SELECT NAME FROM T WHERE ID=:A.CODE"/></FormModule>''')
         self.assertEqual(plan['lookups'][0]['return_items'], ['B.NAME'])
-        self.assertIn("...this.lov('A.CODE', 'L')", source)
-        runtime = (self.root / 'out/frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
-        self.assertIn('if (ticket !== this.lovTickets[ownId]) return;', runtime)  # a late answer never overwrites a newer one
-        self.assertIn('const key = this.keyOf(returnBlock, item);', runtime)  # the return goes to the other block too
+        self.assertIn("ownId: 'A.CODE', formControlName: 'code', labelText: 'CODE', col: '12', dropdown: true", source)
 
 
 if __name__ == '__main__': unittest.main()

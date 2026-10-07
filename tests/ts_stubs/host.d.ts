@@ -12,7 +12,12 @@ declare module '@angular/core' {
   export interface OutputEmitterRef<T> { emit(value: T): void; }
   export const input: { <T>(initial: T): InputSignal<T>; required<T>(): InputSignal<T>; };
   export function output<T = void>(): OutputEmitterRef<T>;
+  export interface ModelSignal<T> { (): T; set(value: T): void; }
+  export function model<T>(initial: T): ModelSignal<T>;
+  export class TemplateRef<C> { elementRef: unknown; createEmbeddedView(context: C): unknown; }
+  export function contentChild<T>(selector: string): InputSignal<T | undefined>;
 }
+declare module '@angular/common' { export class NgTemplateOutlet {} }
 declare module '@angular/core/rxjs-interop' { import { DestroyRef } from '@angular/core'; import { Observable } from 'rxjs';
   export function takeUntilDestroyed<T>(destroyRef?: DestroyRef): (source: Observable<T>) => Observable<T>; }
 declare module '@angular/forms' { import { Observable } from 'rxjs';
@@ -29,14 +34,19 @@ declare module '@angular/forms' { import { Observable } from 'rxjs';
 }
 declare module '@angular/router' { export class Router { url: string; navigate(commands: unknown[], extras?: unknown): Promise<boolean>; } }
 declare module '@angular/common/http' { import { Observable } from 'rxjs';
-  export class HttpClient { get(url: string, o?: unknown): Observable<unknown>; post(url: string, body: unknown): Observable<unknown>;
-    put(url: string, body: unknown): Observable<unknown>; delete(url: string, o?: unknown): Observable<unknown>; } }
+  export class HttpClient { get<T = unknown>(url: string, o?: unknown): Observable<T>; post<T = unknown>(url: string, body: unknown): Observable<T>;
+    put<T = unknown>(url: string, body: unknown): Observable<T>; delete<T = unknown>(url: string, o?: unknown): Observable<T>; } }
 declare module 'rxjs' {
   export interface Observer<T> { next?: (v: T) => void; error?: (e: unknown) => void; }
   export class Subscription { unsubscribe(): void; }
-  export class Observable<T> { subscribe(o: Observer<T> | ((v: T) => void)): Subscription; pipe(...ops: ((s: Observable<T>) => Observable<T>)[]): Observable<T>; }
-  export function catchError<T>(fn: (error: unknown) => never): (s: Observable<T>) => Observable<T>;
-  export function tap<T>(fn: (value: T) => void): (s: Observable<T>) => Observable<T>;
+  export type OperatorFunction<A, B> = (s: Observable<A>) => Observable<B>;
+  export class Observable<T> { subscribe(o: Observer<T> | ((v: T) => void)): Subscription;
+    pipe(): Observable<T>; pipe<A>(a: OperatorFunction<T, A>): Observable<A>; pipe<A, B>(a: OperatorFunction<T, A>, b: OperatorFunction<A, B>): Observable<B>;
+    pipe<A, B, C>(a: OperatorFunction<T, A>, b: OperatorFunction<A, B>, c: OperatorFunction<B, C>): Observable<C>; }
+  export const EMPTY: Observable<never>;
+  export function catchError<T, R>(fn: (error: unknown) => Observable<R>): OperatorFunction<T, T | R>;
+  export function tap<T>(fn: (value: T) => void): OperatorFunction<T, T>;
+  export function map<T, R>(fn: (value: T) => R): OperatorFunction<T, R>;
 }
 declare module '@openng/optimus-ui/table' { export class TableModule {} }
 declare module '@openng/optimus-ui/button' { export class ButtonModule {} }

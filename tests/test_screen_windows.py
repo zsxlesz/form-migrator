@@ -37,23 +37,21 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(windows['UNUSED_HELPER']['role'], 'unused')
         self.assertEqual(source.count('<p-dialog'), 3)
         self.assertEqual(set(windows['EDIT_WINDOW']['canvases']), {'DETAIL_CONTENT', 'DETAIL_TABS', 'DETAIL_EXTRA'})
-        dialog = next(part.split('</p-dialog>')[0] for part in source.split('<p-dialog')[1:] if "windowVisible()['EDIT_WINDOW']" in part)
+        dialog = next(part.split('</p-dialog>')[0] for part in source.split('<p-dialog')[1:] if "windowVisible['EDIT_WINDOW']" in part)
         self.assertIn('<p-tabs', dialog)
-        for canvas in windows['EDIT_WINDOW']['canvases']: self.assertIn("canvasVisible()['" + canvas + "']", dialog)
+        for canvas in windows['EDIT_WINDOW']['canvases']: self.assertIn("canvasVisible['" + canvas + "']", dialog)
         self.assertIn('[modal]="false"', dialog); self.assertIn('[focusTrap]="false"', dialog)
-        confirm = next(part.split('</p-dialog>')[0] for part in source.split('<p-dialog')[1:] if "windowVisible()['CONFIRM_WINDOW']" in part)
+        confirm = next(part.split('</p-dialog>')[0] for part in source.split('<p-dialog')[1:] if "windowVisible['CONFIRM_WINDOW']" in part)
         self.assertIn('[modal]="true"', confirm); self.assertIn('[closable]="false"', confirm)
         self.assertFalse(p['window_controls']['windows']['EDIT_WINDOW'])
         self.assertFalse(p['window_controls']['canvases']['DETAIL_EXTRA'])
-        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
-        self.assertIn('public setWindowVisible(', runtime); self.assertIn('public showCanvas(', runtime)
-        self.assertIn('public hideCanvas(', runtime)
-        self.assertIn('protected override readonly windowVisible = signal<Record<string, boolean>>({', source)
+        self.assertIn('protected readonly windowVisible: Record<string, boolean> = {', source)  # 4.26: plain fields
+        self.assertIn("[(visible)]=\"windowVisible['EDIT_WINDOW']\"", source)
         self.assertTrue((out / 'analysis/ui-model-strict.json').is_file())
 
     def test_dialog_accordion_keeps_pages_in_one_window(self):
         _, p, source = self.generate(ROOT / 'examples/screen-dialogs_fmb.xml', {'screen_tab_layout': 'accordion'})
-        dialog = next(part.split('</p-dialog>')[0] for part in source.split('<p-dialog')[1:] if "windowVisible()['EDIT_WINDOW']" in part)
+        dialog = next(part.split('</p-dialog>')[0] for part in source.split('<p-dialog')[1:] if "windowVisible['EDIT_WINDOW']" in part)
         self.assertIn('<p-accordion', dialog); self.assertNotIn('<p-tabs', dialog)
         self.assertEqual(source.count('<p-dialog'), 3)
 
@@ -79,7 +77,7 @@ class WindowTests(unittest.TestCase):
         self.assertNotIn('<p-dialog', source)
         self.assertEqual(p['window_controls']['content'], {'WORKSPACE': 'STEP_A'})
         for canvas in ['STEP_A', 'STEP_B']:
-            self.assertIn("activeContentCanvas()['WORKSPACE'] === '" + canvas + "'", source)
+            self.assertIn("activeContentCanvas['WORKSPACE'] === '" + canvas + "'", source)
         self.assertFalse(p['window_controls']['canvases']['STEP_B'])
 
     def test_primary_canvas_supplies_missing_window_name(self):
@@ -136,7 +134,7 @@ class WindowTests(unittest.TestCase):
                 windows = {w['name']: w for w in p['windows']}
                 self.assertEqual((windows['MAIN']['role'], windows['POPW']['role']), ('main', 'dialog'))
                 self.assertIn('PAGE', windows['MAIN']['canvases'])
-                self.assertIn("windowVisible()['POPW']", source)
+                self.assertIn("windowVisible['POPW']", source)
 
     def test_source_references_are_audited_without_automatic_execution(self):
         xml = (ROOT / 'examples/screen-dialogs_fmb.xml').read_text().replace("SHOW_WINDOW('EDIT_WINDOW');", "IF :SEARCH.IDENTIFIER IS NOT NULL THEN SHOW_WINDOW('EDIT_WINDOW'); END IF; SHOW_WINDOW(:GLOBAL.TARGET); -- HIDE_WINDOW('HISTORY_WINDOW');")
@@ -151,12 +149,11 @@ class WindowTests(unittest.TestCase):
         xml = '<FormModule Name="F" CoordinateSystem="Real" RealUnit="Pixel"><Window Name="W" Visible="false"/><Canvas Name="C" WindowName="W"/><Block Name="B"><Item Name="I" ItemType="Text Item" CanvasName="C"/></Block></FormModule>'
         _, p, source = self.generate(xml)
         self.assertFalse(p['window_controls']['windows']['W'])
-        self.assertIn("@if (windowVisible()['W'])", source)
+        self.assertIn("@if (windowVisible['W'])", source)
         _, p, source = self.generate(xml.replace('<Window Name="W" Visible="false"/>', '').replace('WindowName="W"', 'CanvasType="Stacked" Visible="false"'), label='no-window')
         self.assertNotIn('<p-dialog', source); self.assertNotIn('windowVisible', source)
-        self.assertIn('protected override readonly canvasVisible = signal<Record<string, boolean>>({', source)
+        self.assertIn('protected readonly canvasVisible: Record<string, boolean> = {', source)
         self.assertIn('C: false,', source); self.assertFalse(p['window_controls']['canvases']['C'])
-        self.assertIn('public showCanvas(canvas: string): void {', (self.root / 'no-window/frontend/frm-forms-screen.ts').read_text(encoding='utf-8'))
 
     def test_inherited_window_properties_are_effective(self):
         library = self.root / 'base_olb.xml'

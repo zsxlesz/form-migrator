@@ -20,7 +20,7 @@ from frm_forms.cli import main
 from frm_forms.commit_points import transform
 from frm_forms.plsql import Unsupported
 from frm_forms.plsql_passthrough import prepare
-from screen_support import RUNTIME_GLOBALS, screen_method, screen_source
+from screen_support import screen_source
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
@@ -199,7 +199,7 @@ class ReplicaFlowTests(unittest.TestCase):
             code = main(['migrate', str(REPLICA), '--out', str(cls.out), '--screen', '--module', 'rendeles', '--config', str(config)])
         assert code == 0, code
         cls.service = (cls.out / 'backend/DPS/RendelesServiceImpl.java').read_text(encoding='utf-8')
-        cls.screen = screen_source(cls.out)  # the component and frm-forms-screen.ts
+        cls.screen = screen_source(cls.out)
 
     @classmethod
     def tearDownClass(cls):
@@ -213,88 +213,13 @@ class ReplicaFlowTests(unittest.TestCase):
         self.assertIn('commands.addAll(PlsqlValues.prelude(actionCommands, actionParameters));', commit)
         self.assertIn('public String action;', (self.out / 'backend/CL/RendelesDtos.java').read_text(encoding='utf-8'))
 
-    def method(self, name):
-        source = screen_method(self.out, name)  # the component's override, else frm-forms-screen.ts
-        self.assertIsNotNone(source, name)
-        return source
-
-    def test_screen_saves_with_the_prelude_and_resumes_after_the_point(self):
-        if not shutil.which('node'):
-            self.skipTest('Node with TypeScript stripping required')
-        methods = '\n'.join(self.method(name) for name in ('runAction', 'applyChanged', 'formsCommit', 'screenBlocks', 'recordOf',
-                                                            'wireText', 'payload', 'showRecord', 'applyOracleValues', 'rowFields',
-                                                            'fromDto', 'oracleName', 'keyOf', 'blockOf', 'fields'))
-        self.assertIn('commitEndpoint = (request: Record<string, unknown>) => this.', self.screen)
-        script = self.root / 'commit-flow.ts'
-        script.write_text('''import assert from 'node:assert/strict';
-const TOAST_LIFE = {warning: 1, success: 1};
-const localIso = (value: Date) => value.toISOString();
-__RUNTIME_GLOBALS__
-class Group { dirty = false; invalid = false; value: Record<string, unknown> = {}; markAsDirty() { this.dirty = true; } markAsPristine() { this.dirty = false; } markAllAsTouched() {} patchValue(v) { Object.assign(this.value, v); } }
-class Screen {
-  toastLife = TOAST_LIFE;
-  initAction = '@INIT';
-  queryActionBlocks = {};
-  activeQueryActions = {};
-  checkboxValues = {};
-  selectedRecords() { return {}; }
-  formValues: Record<string, Record<string, unknown>> = {RENDELES: {id: 7, statusz: 'N', vevo: 'V1'}, CTRL: {utolso: null}};
-  formGroups = {rendeles: new Group(), ctrl: new Group()};
-  structures = {rendeles: [{ownId: 'RENDELES.ID'}], ctrl: [{ownId: 'CTRL.UTOLSO'}]};
-  recordHandlers = {};
-  oracleNames = {};
-  rowKeys = {RENDELES: ['id', 'statusz', 'vevo']};
-  commitBlocks = {RENDELES: {request: 'changesRendeles', result: 'rowsRendeles', operations: ['create', 'update', 'delete']}};
-  originals: Record<string, Record<string, unknown> | null> = {RENDELES: {id: 7, statusz: 'N', vevo: 'V1'}};
-  pendingDeletes = {};
-  changeDetector = {markForCheck() {}};
-  successes = [];
-  warnings = [];
-  toast = {warning: (...args) => this.warnings.push(args), success: (...args) => this.successes.push(args)};
-  actions = [];
-  commits = [];
-  actionReplies = [];
-  actionEndpoints = {'CTRL.PB_MENT': request => {
-    this.actions.push(structuredClone(request));
-    const reply = this.actionReplies.shift();
-    return {subscribe: handlers => handlers.next({data: reply})};
-  }};
-  commitEndpoint = request => {
-    this.commits.push(structuredClone(request));
-    return {subscribe: handlers => handlers.next({data: {blocks: {}, messages: [], commands: [], globals: {}, rowsRendeles: [{id: 7, statusz: 'L', vevo: 'V1'}]}})};
-  };
-  requestContext() { return {'SYSTEM.CURSOR_BLOCK': 'CTRL'}; }
-  rememberGlobals() {}
-  runCommands(commands) { this.ran = commands; }
-  askAlert() { throw new Error('no alert'); }
-  markPristine(block) { for (const [region, group] of Object.entries(this.formGroups)) if (this.blockOf(region) === block) group.markAsPristine(); }
-__METHODS__
-}
-const screen = new Screen();
-// 1. The button reaches COMMIT_FORM: its work was rolled back, the values of that moment come back.
-screen.actionReplies.push({blocks: {RENDELES: {ID: '7', STATUSZ: 'L', VEVO: 'V1'}, CTRL: {UTOLSO: null}}, messages: [],
-                           commands: [['FRM_COMMIT', '1', '7\\u001dL\\u001dV1\\u001d']], globals: {}});
-// 3. Resumed after the point: the code after COMMIT_FORM ran.
-screen.actionReplies.push({blocks: {CTRL: {UTOLSO: 'L'}}, messages: [], commands: [], globals: {}});
-assert.equal(screen.runAction('CTRL.PB_MENT'), true);
-// 2. The commit carries the changed record and the button's original request (prelude).
-assert.equal(screen.commits.length, 1);
-const commit = screen.commits[0];
-assert.equal(commit.action, 'CTRL.PB_MENT');
-assert.deepEqual(commit.actionBlocks.RENDELES, {ID: '7', STATUSZ: 'N', VEVO: 'V1'});
-assert.equal(commit.actionParameters['FRM.COMMIT_POINT'], '1');
-assert.equal(commit.actionParameters['FRM.COMMIT_STATE'], '7\\u001dL\\u001dV1\\u001d');
-assert.deepEqual(commit.changesRendeles.updated[0].value, {id: '7', statusz: 'L', vevo: 'V1'});
-assert.equal(screen.actions.length, 2);
-assert.equal(screen.actions[0].parameters['FRM.RESUME'], undefined);
-assert.equal(screen.actions[1].parameters['FRM.RESUME'], '1');
-assert.equal(screen.formValues.CTRL.utolso, 'L');
-console.log('typescript commit-point OK');
-'''.replace('__METHODS__', methods).replace('__RUNTIME_GLOBALS__', RUNTIME_GLOBALS))
-        run = subprocess.run(['node', '--experimental-strip-types', '--no-warnings', str(script)], capture_output=True, text=True)
-        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertIn('typescript commit-point OK', run.stdout)
-
+    def test_the_screen_leaves_the_save_point_to_the_developer(self):
+        # 4.26: no shared runtime; the button method says what the backend's FRM_COMMIT needs (save, then FRM.RESUME).
+        method = self.screen[self.screen.index('  protected onPbMentClick(): void {'):]
+        method = method[:method.index('\n  }\n')]
+        self.assertIn('// TODO: a kód közepén mentés (COMMIT_FORM) van: a backend FRM_COMMIT utasítással jelzi', method)
+        self.assertIn('this.showResult(result, ', method)
+        self.assertIn('  protected save(): void {', self.screen)  # the Forms save of the screen is there to call
 
 if __name__ == '__main__':
     unittest.main()

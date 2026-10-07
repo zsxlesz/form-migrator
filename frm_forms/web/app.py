@@ -303,7 +303,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"text": tail(settings.data_dir / "jobs" / job_id / "worker.log")}
 
     @app.get("/api/jobs/{job_id}/helpers/{name}")
-    def helper(job_id: str, name: Literal["CommonMigrateTools.java", "frm-forms-screen.ts"]):
+    def helper(job_id: str, name: Literal["CommonMigrateTools.java", "wf-table.ts"]):
         # The shared helpers are not deployed with a module: downloaded once and kept in the project.
         return FileResponse(manager().helper_path(job_id, name), filename=name,
                             media_type="text/plain; charset=utf-8")

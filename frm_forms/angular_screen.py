@@ -10,13 +10,33 @@ from .angular_single import Code, ts
 from .common import MigrationError, name, write_json
 from .generate import write
 from .screen_model import apply_screen_types, build_screen
-from .screen_validation import CONTROL_WIDGETS, TEXT_WIDGETS
+from .screen_validation import TEXT_WIDGETS
 from .ts_code import key as ts_key, member, nested, record, sq, tsv
 from .screen_layout import contains
 from . import form_calls
-from . import screen_api, screen_emulation
+from . import screen_api
 from . import screen_windows
 from .xmlmodel import canonical
+
+
+WF_TABLE_FILE = 'wf-table.ts'
+WF_TABLE_IMPORT = '../wf-table'
+
+
+def wf_table_source() -> str:
+    """frontend/wf-table.ts: the table every generated screen uses (one copy per project)."""
+    from pathlib import Path
+    return (Path(__file__).with_name('templates') / 'wf-table.ts.tpl').read_text(encoding='utf-8')
+
+
+def button_sources(resolution) -> dict:
+    """The WHEN-BUTTON-PRESSED code of every button (BLOCK.ITEM -> source): the TODO of an unwired button shows it."""
+    from .forms_keys import screen_context
+    from .xmlmodel import tag
+    from .plsql_passthrough import decode_line_escapes
+    context = screen_context(next(e for e in resolution.root.iter() if tag(e) == 'formmodule'))
+    return {(t['block'] + '.' + t['item']).upper(): decode_line_escapes(t['source'] or '') for t in context['triggers']
+            if t['event'] == 'WHEN-BUTTON-PRESSED' and t['item'] and t['block']}
 
 
 def angular_string(value):
@@ -50,7 +70,7 @@ def initial(item):
     return value
 
 
-def structure(item, config):
+def structure(item, config, code=None):
     widget = item['widget']; v = item['validation']
     if item.get('spacer'):
         # Catalogued layout gap (L_URES_*): keeps its cell in the grid, but has no
@@ -99,32 +119,17 @@ def structure(item, config):
         definition.update(options=item['options'], optionLabel='label', optionValue='value')
     value = initial(item)
     if value is not None and widget != 'button': definition['startValue'] = value
-    # frm-forms-screen.ts: the button's onAction and the LOV's autocomplete settings and search.
+    # The button's click and the LOV's search: methods of the component (screen_code).
     if widget == 'button':
-        definition['...button'] = Code('this.button(' + sq(item['owner']) + ')')
+        definition['btnSeverity'] = 'primary'
+        if code is not None and item['owner'] in code.click:
+            definition['onClick'] = Code('() => this.' + code.click[item['owner']] + '()')
     if item['lov']:
-        definition['...lov'] = Code('this.lov(' + sq(item['owner']) + ', ' + sq(item['lov']) + ')')
+        definition.update(dropdown=True, optionLabel='label', optionValue='value', suggestions=[])
+        search = getattr(code, 'lov_search', {}).get(item['owner']) if code is not None else None
+        if search:
+            definition['completeMethod'] = Code('(event: { query: string }) => this.' + search + '(' + sq(item['owner']) + ', event.query)')
     return definition
-
-
-def extra_validators(item):
-    """The FormGroup rules frm-forms-screen.ts cannot read from the FormBlock definition: it adds required, the
-    length limits, the case rule and the checkbox type itself."""
-    widget = item['widget']; v = item['validation']; result = []
-    if widget not in CONTROL_WIDGETS or item.get('spacer'):
-        return result
-    if v['required'] and widget == 'checkbox':
-        result.append('FrmValidators.checked')
-    if widget in TEXT_WIDGETS and v['fixed_length'] is not None and v['fixed_length'] != v['maximum_length']:
-        result.append('Validators.maxLength(' + str(v['fixed_length']) + ')')
-    if widget == 'number':
-        args = {k: v[src] for k, src in [('min', 'minimum'), ('max', 'maximum'), ('precision', 'precision'), ('scale', 'scale')] if v[src] is not None}
-        if item['representation'] == 'safe-integer':
-            args['integer'] = True
-        result.append('FrmValidators.number(' + (tsv(args) if args else '') + ')')
-    if widget in {'date', 'datetime'}:
-        result.append('FrmValidators.date')
-    return result
 
 
 def layout_preview(plan):
@@ -290,25 +295,17 @@ def generate(resolution, ui, output, config, module, discovery):
     plan['navigations'] = navigations  # screen-plan.json and MIGRATION_NOTES
     if wiring:
         wiring['record_states'] = any(h['moment'] == 'record' for h in states['handlers'])
-    # Forms runtime emulation: the action/init endpoints return the Forms built-ins as commands.
-    emulation = bool(wiring and (wiring['actions'] or wiring.get('commit')))
-    if emulation:
-        wiring.update(alerts=alert_definitions(discovery or {}), form_routes=dict(config.get('form_routes') or {}),
-                      init=wiring['api'].get('init'))
+    # The screen's own code (screen_code): what this screen uses, as plain methods of the component.
+    from .screen_code import ScreenCode
+    code = ScreenCode(plan, forms, tables, wiring, config, navigations, manual_navs, states, button_sources(resolution))
+    code.build()
     plan['backend_calls'] = screen_api.summary(wiring)
-    imports, symbols, fields, methods, labels = [], [], [], [], {}
-    runtime_names = set()  # the frm-forms-screen.ts exports the component uses
+    imports, symbols, labels = [], [], {}
 
     def use(symbol, path):
         if symbol not in symbols:
             symbols.append(symbol)
             imports.append('import { ' + symbol + " } from '@openng/optimus-ui/" + path + "';")
-
-    def shared(symbol):
-        runtime_names.add(symbol)
-        if symbol.endswith('Component') and symbol not in symbols:
-            symbols.append(symbol)
-        return symbol
 
     def label(value):
         field = 'text' + str(len(labels) + 1)
@@ -322,9 +319,13 @@ def generate(resolution, ui, output, config, module, discovery):
         prop = section['property']
         output = []
         if section['mode'] == 'table':
-            row_actions = ' (action)="onAction($event)"' if any(i['widget'] == 'button' for i in section['items']) else ''
-            output.append('<frm-table [table]="tables' + member(section['block']) + '"' + row_actions + ' />')
-            shared('FrmTableComponent')
+            t = code.table_name(section['block'])
+            row_actions = (' [actions]="' + t + 'Actions" (action)="onRowAction($event)"'
+                           if any(i['widget'] == 'button' for i in section['items']) else '')
+            output.append('<wf-table [value]="' + t + 'Rows" [columns]="' + t + 'Columns" [rows]="' + str(max(1, min(1000, section['records'])))
+                          + '" [(selection)]="' + t + 'Selection"' + row_actions + ' />')
+            if 'WfTable' not in symbols:
+                symbols.append('WfTable')
         else:
             fb = config['html_selectors']['form_block']
             # structures is a Record: noPropertyAccessFromIndexSignature (Angular CLI default) wants structures['x']
@@ -346,10 +347,8 @@ def generate(resolution, ui, output, config, module, discovery):
         nodes = {'': []}
         for frame in frames: nodes[frame] = []
         for s in relevant:
-            lines = section_html(s)
-            if len(lines) > 1:
-                lines = ['<section class="flex flex-col gap-2">', *lines, '</section>']
-            nodes[s['frame']].append((s['y'], s['x'], lines))
+            # The FormBlock lays out its own fields: no wrapper element around a region.
+            nodes[s['frame']].append((s['y'], s['x'], section_html(s)))
         for g in graphics:
             if g['kind'] == 'text':
                 if g['label'] == plan['module']['title']:
@@ -369,7 +368,7 @@ def generate(resolution, ui, output, config, module, discovery):
                 if not inner: continue
                 use('FieldsetModule', 'fieldset')
                 frame.update(status='rendered', target='p-fieldset.legend; szülő: ' + (parent or 'canvas/fül') + '; régiók: ' + ', '.join(s['key'] for s in relevant if s['frame'] == key), reason='FrameTitle a keret felirata; teljes befoglaló téglalap szerinti csoportosítás.')
-                lines = ['<p-fieldset [legend]="' + label(frame['label']) + '">', '<div class="flex flex-col gap-3">', *inner, '</div>', '</p-fieldset>']
+                lines = ['<p-fieldset [legend]="' + label(frame['label']) + '">', *inner, '</p-fieldset>']
                 children.append((frame['y'], frame['x'], lines))
             return [line for _, _, lines in sorted(children, key=lambda x: (x[0], x[1])) for line in lines]
         return frame_contents('')
@@ -391,7 +390,7 @@ def generate(resolution, ui, output, config, module, discovery):
                 for tab in tabs:
                     inner += ['<p-accordion-panel [value]="' + angular_string(tab['name']) + '" [disabled]="' + str(not tab['enabled']).lower() + '">',
                               '<p-accordion-header>{{ ' + label(tab['label']) + ' }}</p-accordion-header>', '<p-accordion-content>',
-                              '<div class="flex flex-col gap-4">', *contents(surface, tab['name']), '</div>', '</p-accordion-content>', '</p-accordion-panel>']
+                              *contents(surface, tab['name']), '</p-accordion-content>', '</p-accordion-panel>']
                 inner.append('</p-accordion>')
             else:
                 inner += ['<p-tabs [(value)]="' + sk + 'ActiveTab">', '<p-tablist>']
@@ -399,13 +398,13 @@ def generate(resolution, ui, output, config, module, discovery):
                     inner.append('<p-tab [value]="' + angular_string(tab['name']) + '" [disabled]="' + str(not tab['enabled']).lower() + '">{{ ' + label(tab['label']) + ' }}</p-tab>')
                 inner += ['</p-tablist>', '<p-tabpanels>']
                 for tab in tabs:
-                    inner += ['<p-tabpanel [value]="' + angular_string(tab['name']) + '">', '<div class="flex flex-col gap-4">', *contents(surface, tab['name']), '</div>', '</p-tabpanel>']
+                    inner += ['<p-tabpanel [value]="' + angular_string(tab['name']) + '">', *contents(surface, tab['name']), '</p-tabpanel>']
                 inner += ['</p-tabpanels>', '</p-tabs>']
         conditions = []
         if surface['name'] in window_controls['canvases']:
-            conditions.append('canvasVisible()[' + angular_string(surface['name']) + ']')
+            conditions.append('canvasVisible[' + angular_string(surface['name']) + ']')
         if surface['window'] in window_controls['content'] and canonical(surface['type']) == 'content':
-            conditions.append('activeContentCanvas()[' + angular_string(surface['window']) + '] === ' + angular_string(surface['name']))
+            conditions.append('activeContentCanvas[' + angular_string(surface['window']) + '] === ' + angular_string(surface['name']))
         return ['@if (' + ' && '.join(conditions) + ') {', *inner, '}'] if conditions else inner
 
     used_windows = [w for w in plan['windows'] if w['role'] != 'unused']
@@ -416,148 +415,73 @@ def generate(resolution, ui, output, config, module, discovery):
         if window and window['role'] == 'dialog':
             use('DialogModule', 'dialog')
             target = angular_string(window['name'])
-            inner = ['<p-dialog [header]="' + label(window['title']) + '" [visible]="windowVisible()[' + target + ']"',
-                     '  (visibleChange)="setWindowVisible(' + target + ', $event)" [modal]="' + str(window['modal']).lower() + '"',
-                     '  [closable]="' + str(window['close_allowed']).lower() + '" [closeOnEscape]="false" [dismissableMask]="false"',
-                     '  [focusTrap]="' + str(window['modal']).lower() + '" styleClass="w-[95vw] max-w-5xl">',
-                     '<div class="flex max-h-[75vh] flex-col gap-4 overflow-auto">', *inner, '</div>', '</p-dialog>']
+            inner = ['<p-dialog [header]="' + label(window['title']) + '" [(visible)]="windowVisible[' + target + ']"',
+                     '  [modal]="' + str(window['modal']).lower() + '" [closable]="' + str(window['close_allowed']).lower() + '"',
+                     '  [closeOnEscape]="false" [dismissableMask]="false" [focusTrap]="' + str(window['modal']).lower() + '"',
+                     '  styleClass="w-[95vw] max-w-5xl">', *inner, '</p-dialog>']
         elif window and window['name'] in window_controls['windows']:
-            inner = ['@if (windowVisible()[' + angular_string(window['name']) + ']) {', *inner, '}']
+            inner = ['@if (windowVisible[' + angular_string(window['name']) + ']) {', *inner, '}']
         template += inner
-    if emulation and wiring.get('commit'):
-        # The Forms toolbar of the screen: new record, delete (marked), save (COMMIT_FORM chain).
+    if wiring and wiring.get('commit'):
+        # The Forms toolbar of the screen: new record, delete (marked), save (COMMIT_FORM).
         disabled = {op for spec in wiring['ui_disabled'].values() for op in spec}
         operations = {op for spec in wiring['commit']['blocks'].values() for op in spec['operations']}
-        actions = [a for a, ok in (('new', 'create' in operations and 'create' not in disabled),
-                                   ('delete', 'delete' in operations and 'delete' not in disabled),
-                                   ('save', 'write' not in disabled)) if ok]
-        if actions:
-            chosen = '' if actions == ['new', 'delete', 'save'] else ' [actions]="[' + ', '.join("'" + a + "'" for a in actions) + ']"'
-            template.insert(0, '<frm-toolbar' + chosen + ' (action)="onToolbar($event)" />')
-            shared('FrmToolbarComponent')
-    if emulation and wiring.get('alerts_used'):
-        template.append('<frm-alert [alert]="formsAlert" (answer)="answerAlert($event)" />')
-        shared('FrmAlertComponent')
+        buttons = [('newRecord', 'Új rekord', 'create' in operations and 'create' not in disabled),
+                   ('deleteRecord', 'Törlés', code.can_delete() and 'delete' not in disabled),
+                   ('save', 'Mentés', 'write' not in disabled)]
+        toolbar = [f'  <button pButton type="button"{"" if method == "save" else " severity=" + chr(34) + "secondary" + chr(34)} (click)="{method}()">{text}</button>'
+                   for method, text, ok in buttons if ok]
+        if toolbar:
+            use('ButtonModule', 'button')
+            template[:0] = ['<div class="flex justify-end gap-2">', *toolbar, '</div>']
 
-    # ---------------------------------------------------------------- the screen's data
-    life = config['toast_life_ms']
-    fields.append('  protected readonly toast = inject(' + toast_symbol + ');\n'
-                  f"  protected readonly toastLife = {{ success: {life['success']}, warning: {life['warning']}, danger: {life['danger']} }};")
+    # ---------------------------------------------------------------- the component
+    structures = {}
+    for section in forms:
+        entries = []
+        for item in section['items']:
+            definition = structure(item, config, code)
+            if definition is None: continue
+            if item.get('separator') and item.get('separator_col'):
+                # Forms draws this prompt between the two fields, not above the second.
+                separator = {'type': 'label', 'ownId': item['owner'] + '#separator', 'labelText': item['separator'],
+                             'col': str(item['separator_col'])}
+                if item.get('separator_before'): separator['colBefore'] = str(item['separator_before'])
+                entries.append(separator)
+            entries.append(definition)
+        structures[section['property']] = entries
+    for section in tables:
+        if not [i for i in section['items'] if i['widget'] not in {'button', 'image', 'unsupported', 'tree'} and not i.get('spacer')]:
+            plan['notices'].append({'code': 'EMPTY_TABLE', 'owner': section['block'], 'detail': 'Nincs biztonságosan megjeleníthető táblázatos mező.'})
+    methods = [code.constructor()]
     if wiring and wiring['endpoints']:
-        fields.append('  private readonly http = inject(HttpClient);')
-    if labels:
-        fields.append('  protected readonly labels = ' + record(labels) + ';')
-    fields.extend(tab_fields)
-    if forms:
-        structures = {}
-        for section in forms:
-            entries = []
-            for item in section['items']:
-                definition = structure(item, config)
-                if definition is None: continue
-                if item.get('separator') and item.get('separator_col'):
-                    # Forms draws this prompt between the two fields, not above the second.
-                    separator = {'type': 'label', 'ownId': item['owner'] + '#separator', 'labelText': item['separator'],
-                                 'col': str(item['separator_col'])}
-                    if item.get('separator_before'): separator['colBefore'] = str(item['separator_before'])
-                    entries.append(separator)
-                entries.append(definition)
-            structures[section['property']] = entries
-        fields.append('  protected override readonly structures: Record<string, ' + form_type + '[]> = ' + nested(structures) + ';')
-    if tables:
-        table_specs = {}
-        for section in tables:
-            # A spacer is a gap in a form row; in a grid it would be an empty column.
-            columns = [i for i in section['items'] if i['widget'] not in {'button', 'image', 'unsupported', 'tree'} and not i.get('spacer')]
-            if not columns:
-                plan['notices'].append({'code': 'EMPTY_TABLE', 'owner': section['block'], 'detail': 'Nincs biztonságosan megjeleníthető táblázatos mező.'})
-            weights = [max(1, i['width']) for i in columns]; total = sum(weights) or 1
-            cols = [[i['key'], i['label'], str(round(w / total * 100, 2)) + '%'] for i, w in zip(columns, weights)]
-            actions = [{'ownId': i['owner'], 'label': i['label'], **({} if i['enabled'] else {'disabled': True})}
-                       for i in section['items'] if i['widget'] == 'button']
-            args = [str(max(1, min(1000, section['records']))), tsv(cols)] + ([tsv(actions)] if actions else [])
-            table_specs[section['block']] = Code(shared('frmTable') + '(' + ', '.join(args) + ')')
-        fields.append('  protected override readonly tables = ' + record(table_specs) + ';')
-    explicit = {}
-    for item in form_items:
-        rules = extra_validators(item)
-        if rules:
-            explicit[item['owner']] = Code('[' + ', '.join(rules) + ']')
-    if explicit:
-        if any('FrmValidators' in str(v) for v in explicit.values()): shared('FrmValidators')
-        fields.append('  protected override readonly validators = ' + record(explicit) + ';')
-    checkbox_values = {}
-    for item in checkboxes:
-        checkbox_values.setdefault(item['block'], {})[item['key']] = [item['checked'], item['unchecked']]
-    if checkbox_values:
-        fields.append('  protected override readonly checkboxValues = ' + record(checkbox_values) + ';')
-    if wiring:
-        fields.extend(screen_api.fields(wiring))
-    if emulation:
-        fields.extend(screen_emulation.runtime_fields(wiring))
-    if buttons:
-        known = {a['owner']: a['steps'] for a in plan['actions'] if a.get('steps')}
-        if known:
-            fields.append('  protected override readonly actionSteps = ' + record(known) + ';')
-    if navigations:
-        fields.append('  protected override readonly navigations = ' + record(
-            {o: {'route': n['route'], 'params': {p['name']: (p['block'] + '.' + p['key']) if 'block' in p else '=' + str(p['value'])
-                                                 for p in n['params']}} for o, n in navigations.items()}) + ';')
-    if manual_navs:
-        fields.append('  protected override readonly manualNavigations = ' + record(
-            {o: Code('() => this.' + m['method'] + '()') for o, m in manual_navs.items()}) + ';')
-    handlers = states['handlers']
-    # A one-statement handler is written in place; a longer one is a method of its own.
-    calls = {h['method']: h['lines'][0].strip() if len(h['lines']) == 1 and h['lines'][0].strip().startswith('this.')
-             and h['lines'][0].endswith(');') else 'this.' + h['method'] + '();' for h in handlers}
-    for moment, data in (('change', 'changeHandlers'), ('record', 'recordHandlers'), ('button', 'buttonHandlers')):
-        grouped = {}
-        for h in handlers:
-            if h['moment'] == moment:
-                grouped.setdefault(h['block'] if moment == 'record' else h['owner'], []).append(calls[h['method']])
-        if grouped:
-            fields.append('  protected override readonly ' + data + ' = ' + record(
-                {k: Code('() => ' + cs[0][:-1] if len(cs) == 1 else '() => { ' + ' '.join(cs) + ' }') for k, cs in grouped.items()}) + ';')
-    fields.extend(screen_windows.runtime(plan))
-
-    # ---------------------------------------------------------------- endpoints, start-up and the Forms code
-    # The company convention: the constructor always, between the fields and the methods.
-    starts = [calls[h['method']] for h in handlers if h['moment'] == 'init']
-    init = wiring.get('init') if emulation else None
-    methods.append('  constructor() {\n    super();\n' + ''.join('    ' + c + '\n' for c in starts)
-                   + ('    this.runAction(' + sq(init) + ');\n' if init else '') + '  }')
-    if wiring and wiring['endpoints']:
-        methods.append('\n'.join(screen_api.endpoint_method(e) for e in wiring['endpoints']))
-    for h in handlers:
-        if calls[h['method']] == 'this.' + h['method'] + '();':
-            methods.append('  private ' + h['method'] + '(): void {\n' + '\n'.join(h['lines']) + '\n  }')
-    for owner, m in manual_navs.items():
-        rows = ', '.join(ts_key(b) + ': this.tables' + member(b) + '.selection' for b, _ in m['tables'])
-        comment = '\n'.join('    // ' + line if line else '    //' for line in m['code'].split('\n'))
-        methods.append('  private ' + m['method'] + '(): void {\n'
-                       + ('    const selected = { ' + rows + ' };\n    void selected;\n' if rows else '')
-                       + '    // Mintának: void this.router.navigate([\'/<cél modul útvonala>\'], { queryParams: { /* Forms-paraméterek */ } });\n'
-                       + '    //#region Eredeti Forms-kód (kiindulásnak)\n' + comment + '\n    //#endregion\n'
-                       + "    this.toast.warning('Nincs bekötve', 'A navigációt kézzel kell befejezni: " + owner.replace('\\', '\\\\').replace("'", "\\'") + "', true, this.toastLife.warning);\n  }")
+        methods += [code.endpoint_method(e) for e in wiring['endpoints']]
+    group_method = code.form_group_method()
+    if group_method:
+        methods.append(group_method)
+    methods += code.methods
+    methods += code.helper_methods()
+    fields = code.class_fields(tab_fields, labels, toast_symbol, form_type, structures)
+    body = '\n\n'.join(fields) + '\n\n' + '\n\n'.join(methods)
 
     # ---------------------------------------------------------------- the source
-    angular = ['Component', 'inject'] + (['signal'] if window_controls['windows'] or window_controls['canvases'] or window_controls['content'] else [])
-    head = ["import { " + ', '.join(angular) + " } from '@angular/core';"]
+    head = ["import { " + ', '.join(sorted(code.core, key=['Component', 'DestroyRef', 'inject'].index)) + " } from '@angular/core';"]
+    if code.subscriptions:
+        head.append("import { takeUntilDestroyed } from '@angular/core/rxjs-interop';")
+    if wiring and wiring['endpoints']:
+        head.append("import { HttpClient } from '@angular/common/http';")
+    if code.angular_forms:
+        head.append("import { " + ', '.join(sorted(code.angular_forms)) + " } from '@angular/forms';")
+    if code.rxjs:
+        head.append("import { " + ', '.join(sorted(code.rxjs, key=lambda n: (n != 'EMPTY', n))) + " } from 'rxjs';")
     if config['emit_imports'] and config['toast_service_import_path']:
         head.append('import { ' + toast_symbol + ' } from ' + sq(config['toast_service_import_path']) + ';')
     else:
         head.append('// TODO: importáld a saját csomagodból: ' + toast_symbol + ' (config: toast_service_import_path).')
-    if wiring and wiring['endpoints']:
-        head.append("import { HttpClient } from '@angular/common/http';")
-    body = '\n\n'.join(fields) + ('\n\n' + '\n\n'.join(methods) if methods else '')
-    if re.search(r'\bValidators\.', body):
-        head.append("import { Validators } from '@angular/forms';")
-    runtime_names.add('FrmFormsScreen')
-    for symbol in ('FrmActionCall', 'FrmQuery', 'FrmLov'):
-        if symbol in body: runtime_names.add(symbol)
-    order = ['FrmFormsScreen', 'FrmTableComponent', 'FrmToolbarComponent', 'FrmAlertComponent', 'FrmActionCall', 'FrmLov', 'FrmQuery',
-             'FrmValidators', 'frmTable']
-    head.append('import { ' + ', '.join(n for n in order if n in runtime_names) + " } from '" + screen_emulation.RUNTIME_IMPORT + "';")
+    company = ['ServiceBase'] + (['WFF'] if re.search(r'\bWFF\.', body) else [])
+    head.append('// TODO: importáld a saját csomagodból: ' + ', '.join(company) + ' (java-imports.json).')
+    if tables:
+        head.append("import { WfTable } from '" + WF_TABLE_IMPORT + "';")
     if forms:
         if config['emit_imports'] and config['optimus_import_path'] and config['form_block_type_import_path']:
             head.append('import { ' + form_symbol + ' } from ' + sq(config['optimus_import_path']) + ';')
@@ -565,17 +489,21 @@ def generate(resolution, ui, output, config, module, discovery):
         else:
             head.append('// TODO: importáld a saját csomagodból: ' + form_symbol + ' és ' + form_type + '.')
     template_text = '\n'.join('    ' + line for line in template).replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
-    source = '// CREATE_ONCE: szerkeszthető képernyőváz. Migrációs részletek: MIGRATION_NOTES.md.\n' + '\n'.join(head + imports) + '\n'
+    source = '// CREATE_ONCE: szerkeszthető képernyő. Migrációs részletek: MIGRATION_NOTES.md.\n' + '\n'.join(head + imports) + '\n'
+    types = code.type_declarations()
+    if types:
+        source += '\n' + types.rstrip('\n') + '\n'
     source += '\n@Component({\n  selector: ' + sq(plan['module']['selector']) + ',\n  standalone: true,\n  imports: [' + ', '.join(symbols) + '],\n  template: `\n' + template_text + '\n  `,\n})\n'
-    source += 'export class ' + plan['module']['class'] + ' extends FrmFormsScreen {\n' + body + '\n}\n'
-    # Imports from java-imports.json ("/" paths): ToastService, FormBlock...
+    source += 'export class ' + plan['module']['class'] + ' extends ServiceBase {\n' + body + '\n}\n'
+    # Imports from java-imports.json ("/" paths): ToastService, FormBlock, ServiceBase, WfTable ...
     from . import java_imports, ts_imports
     source, ts_report = ts_imports.tidy(source, java_imports.load_ts(config))
     write(root / (key + '.component.ts'), source)
     # One copy per project, identical each time (like CommonMigrateTools): replace it on a new version.
-    runtime_source, _ = ts_imports.tidy(screen_emulation.runtime_source(), java_imports.load_ts(config))
-    write(output / 'frontend' / screen_emulation.RUNTIME_FILE, runtime_source)
-    plan['screen_runtime'] = screen_emulation.RUNTIME_FILE
+    if tables:
+        table_source, _ = ts_imports.tidy(wf_table_source(), java_imports.load_ts(config))
+        write(output / 'frontend' / WF_TABLE_FILE, table_source)
+        plan['wf_table'] = WF_TABLE_FILE
     write_json(output / 'analysis/ts-imports.json', ts_report)
     write_json(output / 'analysis/screen-plan.json', plan)
     write(output / 'analysis/layout-preview.html', layout_preview(plan))
@@ -585,19 +513,6 @@ def generate(resolution, ui, output, config, module, discovery):
     write_json(output / 'analysis/field-lengths.template.json', field_lengths_template(plan))
     write(root / 'MIGRATION_NOTES.md', notes(plan, discovery, config))
     return plan
-
-
-def alert_definitions(discovery: dict) -> dict:
-    """Forms alerts (title, message, button labels) for the emulated SHOW_ALERT dialog."""
-    result = {}
-    for obj in discovery.get('objects', []):
-        if obj.get('kind') != 'alert':
-            continue
-        p = obj.get('properties', {})
-        buttons = [p.get('button' + str(n) + 'label', '') for n in (1, 2, 3)]
-        result[str(obj['name']).upper()] = {'title': p.get('title', ''), 'text': p.get('alertmessage', p.get('message', '')),
-                                            'buttons': [b for b in buttons if b] or ['OK']}
-    return result
 
 
 def field_lengths_template(plan):
@@ -635,18 +550,16 @@ def notes(plan, discovery, config):
              *todo_summary(plan),
              '## Beillesztés', '', '- A komponens egyetlen `.component.ts`; a FormBlock és a Tailwind a fogadó alkalmazásból érkezik.',
              '- A publikus komponensek importja kizárólag `@openng/optimus-ui/*`. A privát FormBlock importját a céges profil adja meg, vagy egészítsd ki a jelölt TODO-t.',
-             '- Táblázatadatok: `tables.<BLOKK>.rows`; kijelölt rekord: `tables.<BLOKK>.selection` (`frmTable`, `<frm-table>`). Új adatokhoz új tömböt rendelj.',
-             '- A komponens útvonalon érhető el, `@Input`/`@Output` nélkül: a bekötött lekérdezés-, LOV- és akció-végpontokat maga hívja; a kézzel átültetendő gombok az `onAction`-ben toasttal jeleznek.',
-             '- A keresési checkboxok false értéke is érvényes. Az action eseményben az ellenőrzött checkbox értékpár szerinti Oracle kód szerepel.',
-             '- A mezők műveleti engedélyeit és formátummaszkjait a query/insert/update móddal együtt ellenőrizd; a váz nem teljes Forms runtime.',
-             '- `--regenerate` megőrzi a komponens kézi módosításait. Új elrendezéshez generálj új célmappába, és hasonlítsd össze.',
-             *(['- A közös képernyőlogika (gombok, lekérdezés, LOV, mezőállapotok, validátorok, indítási kód, alertek, :GLOBAL/:SYSTEM, '
-                'mentési lánc) a `' + plan['screen_runtime'] + '` fájlban van (`FrmFormsScreen`): egyszer kell a projektbe tenni, a képernyő '
-                'mappája mellé (vagy a `java-imports.json` `FrmFormsScreen` bejegyzése szerinti helyre). A képernyő ezt örökli: a saját '
-                'adatait `protected override readonly` mezőkben adja (`structures`, `tables`, `queries`, `lovs` ...), a gombokat és a '
-                'LOV-okat a `...this.button(ownId)` / `...this.lov(ownId, lov)` segéd köti be, a saját részeit felülírt metódusként '
-                '(pl. `selectedRecords`, `clearTable`) adja.']
-               if plan.get('screen_runtime') else []), '',
+             '- Táblázat: `<wf-table>` (`' + WF_TABLE_FILE + '`, egyszer kell a projektbe tenni; a java-imports.json `WfTable` bejegyzése '
+             'adja az importját). Sorai: `<blokk>Rows`, kijelölt sora: `<blokk>Selection`, oszlopai: `<blokk>Columns`. A p-table minden '
+             'bemenete és sablonja (`#header`, `#body`, `#caption` ...) átadható neki, például saját szűrőkhöz.',
+             '- A komponens a céges `ServiceBase`-t örökli, közös futtató nélkül: minden, amit a képernyő használ, a saját fájljában '
+             'van, egyszerű metódusként (végpontok, `query<Blokk>()`, `search<Lov>()`, `on<Gomb>Click()`, `save()` ...). '
+             'Amit a Forms ezen felül csinált (alert-párbeszéd, :GLOBAL tárolás, képernyő- és mentési pontok, a backend által '
+             'visszaadott Forms-utasítások), az a metódusban TODO.',
+             '- A keresési checkboxok false értéke is érvényes. A backend kérésében az ellenőrzött checkbox értékpár szerinti Oracle kód szerepel.',
+             '- A mezők műveleti engedélyeit és formátummaszkjait a query/insert/update móddal együtt ellenőrizd; a képernyő nem Forms-futtató.',
+             '- `--regenerate` megőrzi a komponens kézi módosításait. Új elrendezéshez generálj új célmappába, és hasonlítsd össze.', '',
              '## Képernyőrészek', '', '| Blokk | Canvas / fül | Megjelenítés | Mezők | Látható rekordok |', '|---|---|---|---:|---:|']
     for s in plan['sections']:
         lines.append('| ' + ' | '.join(map(cell, [s['block'], s['canvas'] + (' / ' + s['tab'] if s['tab'] else ''), s['mode'], len(s['items']), s['records']])) + ' |')
@@ -669,11 +582,12 @@ def notes(plan, discovery, config):
                       'Több lehetséges Document főablaknál a FirstNavigationBlock, illetve a screen_primary_window beállítás dönt; nincs modulnévhez kötött kivétel.']
     if plan['window_controls']['canvases']:
         lines += ['', '### Bekötési pontok', '',
-                  '- `showCanvas(canvas)` megjeleníti a canvast, Content esetén az ablak aktív tartalmi oldalává teszi, és megnyitja a hozzárendelt ablakot.',
-                  '- `hideCanvas(canvas)` csak az adott régiót rejti el. A stacked régiók egymásra helyezésének és kölcsönös elrejtésének szabályai kézi bekötést igényelnek.',
-                  '- Az ablak/canvas állapota Angular signal; a FormGroup értékeket az újrakötéskor megőrzi a komponens. Mentés/visszavonás nem történik automatikusan.']
+                  "- `canvasVisible['<CANVAS>'] = true / false` megjeleníti vagy elrejti a canvast; Content canvasnál "
+                  "`activeContentCanvas['<ABLAK>'] = '<CANVAS>'` teszi az ablak aktív tartalmi oldalává. A stacked régiók egymásra "
+                  'helyezésének és kölcsönös elrejtésének szabályai kézi bekötést igényelnek.',
+                  '- Az ablak/canvas állapota a komponens sima mezője (4.26). Mentés/visszavonás nem történik automatikusan.']
         if plan['window_controls']['windows']:
-            lines += ['- `setWindowVisible(window, true/false)` vezérli az ablakot.',
+            lines += ["- `windowVisible['<ABLAK>'] = true / false` vezérli az ablakot (a dialógus `[(visible)]` kötéssel).",
                       '- A dialog X gombja a CloseAllowed értékét követi (hiányában true); Esc és háttérkattintás nem zárja be. A WHEN-WINDOW-CLOSED és a mentési/Cancel szabályok bekötése fejlesztői feladat.']
     if plan['window_references']:
         lines += ['', '### Ablak- és canvasműveletek a forrásban', '',
@@ -715,7 +629,8 @@ def notes(plan, discovery, config):
     validation_rows = [v for v in plan['validation_audit'] if v['owner'] in visible_owners]
     if validation_rows:
         lines += ['', '## Validációk és formátumok', '',
-                  'A FormGroup-validátorok a privát FormBlock belső validátoraitól függetlenül is felkerülnek a kontrollokra. '
+                  'A szabályokat a FormBlock tulajdonságai adják (validator, minLenght/maxLenght, min/max, regexRule); saját validátort '
+                  'a képernyő nem tesz a kontrollokra (4.26), a többit a backend ellenőrzi. '
                   'Required checkboxnál a false is kitöltött érték; ezért ott nem használjuk a `validator: true` kapcsolót, amelynek checkbox-szemantikája a privát komponensben nem ismert.', '',
                   '| Mező | Forrás property | Érték | Lefedettség | Megvalósítás / teendő |', '|---|---|---|---|---|']
         statuses = {'implemented': 'Megvalósítva', 'partial': 'Részleges', 'manual': 'Adapter szükséges'}
@@ -803,7 +718,7 @@ def notes(plan, discovery, config):
     lengths = plan.get('field_lengths') or {}
     if lengths.get('applied') or lengths.get('unknown'):
         lines += ['', '## Mezőhosszak (segítő JSON)', '',
-                  'A megadott min/max felülírja a Forms-hosszt: FormBlock `minLenght`/`maxLenght` és FormGroup-ellenőrzés. '
+                  'A megadott min/max felülírja a Forms-hosszt: FormBlock `minLenght`/`maxLenght`. '
                   'Kitölthető minta: `../../analysis/field-lengths.template.json`.', '']
         if lengths.get('applied'):
             lines += ['| Mező | formControlName | Szabály | min | max |', '|---|---|---|---:|---:|']

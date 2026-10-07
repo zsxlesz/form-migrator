@@ -84,7 +84,7 @@ def skeleton(trigger: dict, place: str, model: dict) -> str:
     if place == 'frontend':
         return (f"// {trigger['id']}: a képernyő-komponensben (frontend/.../*.component.ts)\n"
                 f"private {method}(): void {{\n"
-                "  // Forms-hívások: this.runCommands([['GO_BLOCK', 'B'], ['EXECUTE_QUERY']]) – lásd MIGRATION_NOTES.\n"
+                "  // Forms-hívások: a képernyő saját metódusai, például this.queryB() (EXECUTE_QUERY) – lásd MIGRATION_NOTES.\n"
                 "  // Adatbázis-munka: egy akció-végponton át (ActionRequest: blocks + parameters).\n"
                 "}")
     if place == 'button':

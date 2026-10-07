@@ -116,7 +116,7 @@ type DeployTarget = { kind: 'job' | 'batch'; id: string };
 type PartKey = 'CL' | 'DPS' | 'WBS' | 'frontend';
 // generate: the module's folders chosen before the generation; deploy: the folders of a job's deploy.
 type FolderScope = 'generate' | 'deploy';
-type HelperName = 'CommonMigrateTools.java' | 'frm-forms-screen.ts';
+type HelperName = 'CommonMigrateTools.java' | 'wf-table.ts';
 type FolderKind = 'java' | 'angular' | null;
 interface FolderEntry { name: string; path: string; kind: FolderKind }
 interface FolderListing {
@@ -147,7 +147,7 @@ const OPTIONS_KEY = 'frm-options-v6';
 // The module folders chosen for each module name: choosing the same module again fills them in.
 const FOLDERS_KEY = 'frm-module-folders-v1';
 const PART_KEYS: readonly PartKey[] = ['CL', 'DPS', 'WBS', 'frontend'];
-const HELPERS: readonly HelperName[] = ['CommonMigrateTools.java', 'frm-forms-screen.ts'];
+const HELPERS: readonly HelperName[] = ['CommonMigrateTools.java', 'wf-table.ts'];
 const URL_PATTERN = /^https?:\/\/[^\s]+$/;
 
 // Every explanation lives in a tooltip, next to the control it explains.
@@ -175,7 +175,7 @@ const HELP = {
   fold: 'A csak go_item + LIST_VALUES triggerű gomb beolvad a mező saját lenyitó gombjába.',
   tolerance: 'Sorillesztési tolerancia a kisebb mezőmagasság arányában. 0: csak azonos Y-koordináta; alapérték: 0,25.',
   buttonLabel: 'Melyik FormBlock property hordozza a gombfeliratot: labelText (önálló gomb) vagy btnLabel (inputGroup gomb).',
-  folders: 'A modul saját mappái a projektben (CL, DPS, WBS, frontend), a „Tallózás…” gombbal. A fájlok pontosan ide kerülnek, új mappa nem készül. A Java-mappák útvonalából lesz a csomag (a src/main/java utáni rész, például hu.ceg.rendszer.cl.modules.rendeles): ezzel generálódnak a package sorok és az importok. A CommonMigrateTools.java és a frm-forms-screen.ts nem kerül a projektbe: a feladatnál külön letölthető, elég egyszer a projektbe tenni. A telepítés megkeresi őket, és az importokat a megtalált példányra igazítja (a CommonMigrateTools csomagját nem kell megadni). Üresen hagyva a fájlok csak a ZIP-ben vannak.',
+  folders: 'A modul saját mappái a projektben (CL, DPS, WBS, frontend), a „Tallózás…” gombbal. A fájlok pontosan ide kerülnek, új mappa nem készül. A Java-mappák útvonalából lesz a csomag (a src/main/java utáni rész, például hu.ceg.rendszer.cl.modules.rendeles): ezzel generálódnak a package sorok és az importok. A CommonMigrateTools.java és a wf-table.ts nem kerül a projektbe: a feladatnál külön letölthető, elég egyszer a projektbe tenni. A telepítés megkeresi őket, és az importokat a megtalált példányra igazítja (a CommonMigrateTools csomagját nem kell megadni). Üresen hagyva a fájlok csak a ZIP-ben vannak.',
   dps: 'A WBS RestClient célcíme. Generáláskor nem kapcsolódunk hozzá.',
   imports: 'Import-sorok generálása a céges útvonalakkal. Bekapcsolva az útvonalakat meg kell adni.',
   ai: 'Csak ahol a szabályok már nem elegendők. Az ismeretlen triggerek rövid részletei a megadott Ollama szerverhez kerülhetnek; a válasz ellenőrizendő javaslat.',

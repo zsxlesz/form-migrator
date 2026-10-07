@@ -75,6 +75,9 @@ class MappingTests(unittest.TestCase):
 
     def test_the_screens_of_earlier_deploys_set_the_frontend_folder(self):
         (self.root / 'rendszer-ui/src/app/kepernyok').mkdir()
+        (self.root / 'rendszer-ui/src/app/kepernyok/wf-table.ts').write_text('// v1')
+        self.assertEqual(map_project(self.root)['frontend'], self.root / 'rendszer-ui/src/app/kepernyok')
+        (self.root / 'rendszer-ui/src/app/kepernyok/wf-table.ts').unlink()  # the runtime of 4.14-4.25 marks them too
         (self.root / 'rendszer-ui/src/app/kepernyok/frm-forms-screen.ts').write_text('// v2')
         self.assertEqual(map_project(self.root)['frontend'], self.root / 'rendszer-ui/src/app/kepernyok')
 
@@ -186,12 +189,12 @@ class DeployTests(unittest.TestCase):
         self.assertTrue((app / 'rendeles/rendeles.component.ts').is_file())
         # the shared helpers are never deployed: downloaded once and kept in the project
         self.assertFalse(list(self.root.rglob('CommonMigrateTools.java')))
-        self.assertFalse(list(self.root.rglob('frm-forms-screen.ts')))
+        self.assertFalse(list(self.root.rglob('wf-table.ts')))
         self.assertEqual({h['name']: h['status'] for h in report['helpers']},
-                         {'CommonMigrateTools.java': 'missing', 'frm-forms-screen.ts': 'missing'})
+                         {'CommonMigrateTools.java': 'missing', 'wf-table.ts': 'missing'})
         self.assertEqual({h['name']: h['expected'] for h in report['helpers']},
                          {'CommonMigrateTools.java': str(self.root / 'rendszer-cl/src/main/java/hu/company/features/cl/CommonMigrateTools.java'),
-                          'frm-forms-screen.ts': str(app / 'frm-forms-screen.ts')})
+                          'wf-table.ts': str(app / 'wf-table.ts')})
         self.assertFalse(list(self.root.rglob('*.md')))  # reports and notes stay in the output
         # only the generated files: no record of the deploy anywhere (4.21)
         self.assertFalse(list(self.root.rglob(LEGACY_MANIFEST)))
@@ -234,7 +237,7 @@ class DeployTests(unittest.TestCase):
         report = deploy([self.output], self.root, dry_run=True)
         self.assertEqual(set(report['counts']), {'new'})
         self.assertFalse(list(self.root.rglob(LEGACY_MANIFEST)))
-        self.assertFalse((self.root / 'rendszer-ui/src/app/frm-forms-screen.ts').exists())
+        self.assertFalse((self.root / 'rendszer-ui/src/app/wf-table.ts').exists())
 
     def test_parts_chosen_one_by_one_get_their_files_without_a_main_folder(self):
         elsewhere = company_project(Path(self.work.name) / 'mashol', 'masik')
@@ -255,9 +258,9 @@ class DeployTests(unittest.TestCase):
         tools = self.root / 'rendszer-cl/src/main/java/hu/ceg/common/CommonMigrateTools.java'
         tools.parent.mkdir(parents=True)
         tools.write_text('package hu.ceg.common;\npublic final class CommonMigrateTools { static final String VERSION = "4"; }\n')
-        runtime = self.root / 'rendszer-ui/src/app/shared/frm-forms-screen.ts'
+        runtime = self.root / 'rendszer-ui/src/app/shared/wf-table.ts'
         runtime.parent.mkdir(parents=True)
-        runtime.write_text((self.output / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8'), encoding='utf-8')  # the current one
+        runtime.write_text((self.output / 'frontend/wf-table.ts').read_text(encoding='utf-8'), encoding='utf-8')  # the current one
         report = deploy([self.output], None, folders)  # generated with the default packages: the deploy fits them
         self.assertEqual(set(report['counts']), {'new'})
         dps, wbs, cl, ui = (Path(folders[key]) for key in ('DPS', 'WBS', 'CL', 'frontend'))
@@ -274,11 +277,11 @@ class DeployTests(unittest.TestCase):
         self.assertTrue((cl / 'RendelesConstants.java').is_file())
         self.assertFalse((cl / 'CommonMigrateTools.java').exists())
         self.assertEqual(sorted(p.name for p in ui.iterdir()), ['rendeles.component.ts'])  # no <module> folder
-        self.assertIn("from '../../shared/frm-forms-screen'", (ui / 'rendeles.component.ts').read_text(encoding='utf-8'))
+        self.assertIn("import { WfTable } from '../../shared/wf-table';", (ui / 'rendeles.component.ts').read_text(encoding='utf-8'))
         helpers = {h['name']: h for h in report['helpers']}
         self.assertEqual((helpers['CommonMigrateTools.java']['status'], helpers['CommonMigrateTools.java']['found']),
                          ('outdated', str(tools)))
-        self.assertEqual((helpers['frm-forms-screen.ts']['status'], helpers['frm-forms-screen.ts']['found']), ('ok', str(runtime)))
+        self.assertEqual((helpers['wf-table.ts']['status'], helpers['wf-table.ts']['found']), ('ok', str(runtime)))
         self.assertIn('régebbi változat', markdown(report))
         self.assertEqual(report['packages']['DPS'], 'hu.ceg.rendszer.dps.rendeles')
         # one module per module folder
@@ -465,8 +468,8 @@ class WebDeployTests(unittest.TestCase):
         self.assertEqual(tools.status_code, 200)
         self.assertIn('attachment', tools.headers['content-disposition'])
         self.assertIn('class CommonMigrateTools', tools.text)
-        runtime = self.client.get('/api/jobs/' + job['id'] + '/helpers/frm-forms-screen.ts')
-        self.assertIn('FRM_FORMS_SCREEN_VERSION', runtime.text)
+        table = self.client.get('/api/jobs/' + job['id'] + '/helpers/wf-table.ts')
+        self.assertIn("export const WF_TABLE_VERSION = '1';", table.text)
         self.assertEqual(self.client.get('/api/jobs/' + job['id'] + '/helpers/masik.ts').status_code, 422)
 
     def test_wrong_folders_are_refused_when_the_job_is_created(self):

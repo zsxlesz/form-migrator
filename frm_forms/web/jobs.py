@@ -263,12 +263,12 @@ class JobManager:
         return path
 
     def helper_path(self, job_id: str, name: str) -> Path:
-        """A shared helper of a generated module (CommonMigrateTools.java, frm-forms-screen.ts)."""
+        """A shared helper of a generated module (CommonMigrateTools.java, wf-table.ts)."""
         job = self.get(job_id)
         if job["status"] != "completed":
             raise JobError("A segédfájl a generálás befejezése után tölthető le.", 409)
         relative = {"CommonMigrateTools.java": "backend/CL/CommonMigrateTools.java",
-                    "frm-forms-screen.ts": "frontend/frm-forms-screen.ts"}[name]
+                    "wf-table.ts": "frontend/wf-table.ts"}[name]
         path = self.root / job_id / "module" / relative
         if not path.is_file():
             raise JobError("Ehhez a feladathoz nem készült " + name + ".", 404)

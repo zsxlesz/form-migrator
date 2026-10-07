@@ -112,7 +112,7 @@ class ReplicaTests(unittest.TestCase):
         self.assertEqual(len(self.plan['endpoints']), 21)
         self.assertTrue(self.plan['api']['actions']['CTRL.PB_MENT']['commit_point'])
         self.assertIn('runOnCtrlPbMent(actionValues, actionParameters, blocks, globals, messages, actionCommands);', self.service)
-        self.assertIn("command[0] === 'FRM_COMMIT'", self.screen)
+        self.assertIn('// TODO: a kód közepén mentés (COMMIT_FORM) van', self.screen)  # 4.26: the screen method says what to do
 
     def test_where_order_by_and_rowid_run_like_forms(self):
         sql = ' '.join(self.service.replace('"\n', '').replace('+ "', '').split())  # the wrapped SQL literals joined
@@ -133,7 +133,8 @@ class ReplicaTests(unittest.TestCase):
     def test_start_up_code_is_the_init_endpoint(self):
         self.assertEqual(self.model['init_plan']['status'], 'generated')
         self.assertEqual(self.plan['api']['init'], '@INIT')
-        self.assertIn("this.runAction('@INIT')", self.screen)
+        self.assertIn("    this.actionOnforminit({ blocks: this.blocks(), parameters: this.parameters() }).subscribe(result => this.showResult(result, ''));\n  }",
+                      self.screen)  # the constructor calls it
         self.assertIn("frm_group('CREATE_GROUP', 'RG_ALLAPOT')", self.service)
 
     def test_commit_chain_in_forms_order_with_the_master_key(self):
@@ -142,9 +143,9 @@ class ReplicaTests(unittest.TestCase):
         self.assertEqual(order, sorted(order))
         self.assertIn('row.rendelesId = saved.id;', commit)
         self.assertIn('PlsqlValues.number(values, "RENDELES", "ID")', commit)
-        self.assertIn('<frm-toolbar (action)="onToolbar($event)" />', self.screen)
-        self.assertIn("if (action === 'save') return this.formsCommit();", self.screen)
-        self.assertIn('protected formsCommit(prelude: Record<string, unknown> | null = null, then: (() => void) | null = null): void {', self.screen)
+        self.assertIn('<button pButton type="button" (click)="save()">Mentés</button>', self.screen)
+        self.assertIn("    request['changesRendeles'] = {", self.screen.replace('      request', '    request'))
+        self.assertIn('this.commitForm(request).subscribe(result => {', self.screen)
 
     def test_generated_java_compiles(self):
         if not shutil.which('java'):

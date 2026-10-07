@@ -98,6 +98,12 @@ def frontend_api(ops, base, cls):
                 api['actions'][o['action']['owner']]['alerts'] = True  # the screen needs the alert dialog
             if (o.get('passthrough') or {}).get('commit_points'):
                 api['actions'][o['action']['owner']]['commit_point'] = True  # FRM_COMMIT: save, then resume
+            if (o.get('passthrough') or {}).get('screen_points'):
+                api['actions'][o['action']['owner']]['screen_points'] = True  # FRM_RESUME: a screen step, then resume
+            commands = [c for c in (o.get('passthrough') or {}).get('commands', []) if 'ALERT' not in c]
+            if commands:
+                # The Forms built-ins the code returns as commands: the screen's button method lists them (TODO).
+                api['actions'][o['action']['owner']]['commands'] = commands
             if o['action'].get('init'):
                 api['init'] = o['action']['owner']  # the screen calls it when it opens
             if o.get('query_action'):

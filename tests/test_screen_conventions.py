@@ -58,10 +58,8 @@ class ScreenConventionTests(unittest.TestCase):
         code, err, out, source = self.run_screen(lengths=lengths)
         self.assertEqual(code, 0, err)
         definition = next(line for line in source.splitlines() if "formControlName: 'ubiInptipKod'" in line)
-        self.assertIn('maxLenght: 6, minLenght: 2', definition)  # the runtime turns these into minLength/maxLength validators
+        self.assertIn('maxLenght: 6, minLenght: 2', definition)  # FormBlock properties (4.26: no validators of our own)
         self.assertNotRegex(source, r'\bValidators\.')
-        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
-        self.assertIn('if (field.minLenght) result.push(Validators.minLength(field.minLenght));', runtime)
         plan = json.loads((out / 'analysis/screen-plan.json').read_text(encoding='utf-8'))
         self.assertEqual(plan['field_lengths']['unknown'], ['nincsIlyen'])
         codes = {n['code'] for n in plan['notices']}
@@ -77,11 +75,9 @@ class ScreenConventionTests(unittest.TestCase):
     def test_buttons_are_primary(self):
         code, err, out, source = self.run_screen()
         self.assertEqual(code, 0, err)
-        self.assertIn("...this.button('CGNV$W01_1.PB_RESZLETEK') }", source)
+        self.assertIn("ownId: 'CGNV$W01_1.PB_RESZLETEK', labelText: 'Részletek', col: '2', colBefore: '10', btnSeverity: 'primary', "
+                      "onClick: () => this.onPbReszletekClick() }", source)
         self.assertNotIn('secondary', source)
-        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
-        self.assertIn("return { btnSeverity: 'primary' as const, onClick: () => this.onAction(ownId) };", runtime)
-        self.assertNotIn("'secondary'", runtime)
 
     def test_toast_service_in_every_component_with_configured_import(self):
         code, err, out, source = self.run_screen()
@@ -89,12 +85,9 @@ class ScreenConventionTests(unittest.TestCase):
         self.assertIn('// TODO: importáld a saját csomagodból: ToastService', source)
         self.assertIn('protected readonly toast = inject(ToastService);', source)
         self.assertIn('protected readonly toastLife = { success: 3000, warning: 8000, danger: 6000 };', source)
-        # Missing data, backend errors and empty results are signalled by the shared runtime, with the screen's toast.
-        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
-        self.assertIn('if (!this.validBefore(ownId)) return;', runtime)
-        for call in ["this.toast.warning('Hiányzó vagy hibás adat'", "WFF.err('Hiba', error);", "this.toast.warning('Nincs találat'"]:
-            self.assertIn(call, runtime)
-        self.assertIn('protected abstract readonly toast: FrmToast;', runtime)
+        # Backend errors and empty results are signalled by the screen's own methods, with its toast (4.26).
+        for call in ["WFF.err('Hiba', error);", "this.toast.warning('Nincs találat'"]:
+            self.assertIn(call, source)
         config = {'emit_imports': True, 'optimus_import_path': '@company/optimus', 'optimus_form_block_symbol': 'AnkFormBlockComponent',
                   'form_block_type_import_path': '@company/optimus/form-block', 'toast_service_import_path': '@company/ui/toast',
                   'toast_life_ms': {'success': 2500, 'warning': 10000, 'danger': 7000}}
@@ -111,7 +104,7 @@ class ScreenConventionTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn('protected readonly toast = inject(ToastService);', source)
         self.assertNotIn('HttpClient', source)
-        self.assertNotIn('validBefore', source)  # the shared runtime checks the form before a data step
+        self.assertNotIn('WFF', source)  # no backend call to log
 
 
 if __name__ == '__main__':

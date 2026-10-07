@@ -46,12 +46,11 @@ class FormCallsAndOpenersTests(unittest.TestCase):
         self.assertEqual(screen['navigations']['CGNV$W01_1.PB_RESZLETEK'],
                          {'form': 'ROGZITO', 'call': 'CALL_FORM', 'route': '/rogzito',
                           'params': [{'name': 'P_KOD', 'block': 'V_CX_ADLAP', 'key': 'ubiXyKod'}]})
-        # 4.14: the Router is FrmFormsScreen's (frm-forms-screen.ts); navigate() uses this.router.
-        self.assertIn('extends FrmFormsScreen', component)
-        self.assertIn("'CGNV$W01_1.PB_RESZLETEK': { route: '/rogzito', params: { P_KOD: 'V_CX_ADLAP.ubiXyKod' } },", component)
-        runtime = (self.out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
-        self.assertIn('void this.router.navigate([target.route], { queryParams });', runtime)
-        self.assertIn('    if (this.navigate(ownId)) return;', runtime)
+        # 4.26: the button's own method navigates with ServiceBase's router, the parameter from the screen
+        self.assertIn('extends ServiceBase', component)
+        self.assertIn("  // CGNV$W01_1.PB_RESZLETEK: Forms CALL_FORM('ROGZITO'): navigáció.\n  protected onPbReszletekClick(): void {\n"
+                      "    void this.router.navigate(['/rogzito'], { queryParams: { P_KOD: this.text(this.value('vCxAdlap', 'ubiXyKod')) } });\n  }",
+                      component)
         _, screen, _ = self.generate(form_routes={'rogzito': '/pages/modules/rogzito'})
         self.assertEqual(screen['navigations']['CGNV$W01_1.PB_RESZLETEK']['route'], '/pages/modules/rogzito')
 
@@ -64,12 +63,11 @@ class FormCallsAndOpenersTests(unittest.TestCase):
             self.assertEqual(screen['manual_navigations'], {'CGNV$W01_1.PB_RESZLETEK': {'method': 'navigateCgnvW011PbReszletek'}})
             method = component[component.index('  private navigateCgnvW011PbReszletek(): void {'):]
             method = method[:method.index('\n  }\n') + 4]
-            self.assertIn('const selected = { AIT: this.tables.AIT.selection };', method)
+            self.assertIn('const selected = { AIT: this.aitSelection };', method)
             self.assertIn('    //#region Eredeti Forms-kód (kiindulásnak)\n', method); self.assertIn('    //#endregion\n', method)
             self.assertIn('// PROCEDURE rogzitoform_hivasa IS', method)
             self.assertIn("this.toast.warning('Nincs bekötve'", method)
-            self.assertIn("'CGNV$W01_1.PB_RESZLETEK': () => this.navigateCgnvW011PbReszletek(),", component)
-            self.assertIn('const manual = this.manualNavigations[ownId];', (self.out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8'))
+            self.assertIn('  protected onPbReszletekClick(): void {\n    this.navigateCgnvW011PbReszletek();\n  }', component)
         self.assertEqual(form, form)
 
     def test_a_form_call_that_also_writes_data_stays_a_backend_task(self):

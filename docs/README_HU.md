@@ -1,4 +1,15 @@
-# FRM Forms Migrator 4.25.2 — használat
+# FRM Forms Migrator 4.26.0 — használat
+
+**4.26 – nincs saját futtató, a képernyő a céges keretre épül:**
+
+- **A `frm-forms-screen.ts` megszűnt:** a komponens a céges `ServiceBase`-t örökli, és csak azt tartalmazza, amit a
+  képernyő használ, egyszerű metódusként (végpontok, `query<Blokk>()`, `search<Lov>()`, `on<Gomb>Click()`, `save()` ...).
+  A ritka Forms-emulációk (alertek, :GLOBAL, képernyő- és mentési pontok, a backend Forms-utasításai) TODO-k.
+- **`wf-table.ts`:** önálló táblázat-komponens (`<wf-table>`) a p-table köré. A p-table minden bemenete, kimenete és
+  sablonja (`#header`, `#body`, `#caption` ...) átadható neki; az importja a java-imports.json `WfTable` bejegyzése.
+- **Nincs wrapper div** az `ank-form-block`-ok körül.
+
+Részletek: [JAVITASOK_4_26_HU.md](JAVITASOK_4_26_HU.md).
 
 **4.25.2 – hibás PrimaryCanvas:** ha egy ablak `PrimaryCanvas`-a nem az ablak saját Content canvasa (például a
 Designer Stacked `CG$POPUP_…` canvasa), a migrálás nem áll le: `SCREEN_PRIMARY_CANVAS_IGNORED` figyelmeztetés, és az

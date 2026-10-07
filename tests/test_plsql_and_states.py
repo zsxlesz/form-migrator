@@ -141,21 +141,19 @@ class GenerationTests(unittest.TestCase):
                          [('FORM', 'init'), ('B.CB', 'change'), ('B.TIPUS', 'change'), ('B.PB_ENGED', 'button')])
         self.assertEqual([m['owner'] for m in plan['manual']], ['B.KOD'])
         source = (out / 'frontend/allapot/allapot.component.ts').read_text(encoding='utf-8')
+        # 4.26: the component's own code; a one-statement handler stays in place, a longer one is a method
         for code in ["constructor() {\n    super();\n    this.setItemState('B.PB_MENT', { enabled: false });\n  }",
-                     "'B.PB_ENGED': () => this.setItemState('B.PB_MENT', { enabled: true }),",
-                     "'B.CB': () => this.stateBCbWhenCheckboxChanged(),",
+                     "  protected onPbEngedClick(): void {\n    this.setItemState('B.PB_MENT', { enabled: true });\n  }",
+                     "group.get('cb')?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.stateBCbWhenCheckboxChanged());",
                      "this.setItemState('B.MEGJ', { enabled: true, required: true });",  # one call per item and moment
                      "this.setItemValue('B.MEGJ', null);",
                      # IF ... THEN VISIBLE TRUE ELSE VISIBLE FALSE: the property follows the condition (NVL kept)
-                     "'B.TIPUS': () => this.setItemState('B.EXTRA', { visible: this.cmp((this.isNull(this.stateValue('B.TIPUS')) ? 'A' "
-                     ": this.stateValue('B.TIPUS')), '=', 'X') }),"]:
+                     "subscribe(() => this.setItemState('B.EXTRA', { visible: this.cmp((this.isNull(this.stateValue('B.TIPUS')) ? 'A' "
+                     ": this.stateValue('B.TIPUS')), '=', 'X') }));",
+                     'if (state.required) control.addValidators(Validators.required); else control.removeValidators(Validators.required);']:
             self.assertIn(code, source)
         self.assertNotIn('stateFormWhenNewFormInstance', source)  # one statement: no method of its own
-        self.assertIn('protected override readonly structures: Record<string, FormBlock.Structure[]>', source)  # replaced when a state changes
-        runtime = (out / 'frontend/frm-forms-screen.ts').read_text(encoding='utf-8')
-        for code in ['if (state.required) control.addValidators(Validators.required); else control.removeValidators(Validators.required);',
-                     'const handler = this.changeHandlers[field.ownId ?? \'\'];', 'const handler = this.buttonHandlers[ownId];']:
-            self.assertIn(code, runtime)
+        self.assertIn('protected readonly structures: Record<string, FormBlock.Structure[]>', source)
         notes = (out / 'frontend/allapot/MIGRATION_NOTES.md').read_text(encoding='utf-8')
         self.assertIn('## Mezőállapotok (Forms-logikából)', notes)
 

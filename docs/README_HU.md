@@ -1,4 +1,8 @@
-# FRM Forms Migrator 4.25.1 — használat
+# FRM Forms Migrator 4.25.2 — használat
+
+**4.25.2 – hibás PrimaryCanvas:** ha egy ablak `PrimaryCanvas`-a nem az ablak saját Content canvasa (például a
+Designer Stacked `CG$POPUP_…` canvasa), a migrálás nem áll le: `SCREEN_PRIMARY_CANVAS_IGNORED` figyelmeztetés, és az
+ablak az első Content canvasán indul. Részletek: [JAVITASOK_4_25_2_HU.md](JAVITASOK_4_25_2_HU.md).
 
 **4.25.1 – a CommonMigrateTools csomagját nem kell megadni:** a felületről kikerült a „CommonMigrateTools Java
 package” mező. A telepítés (és ha a célmappák ismertek, már a generálás) megkeresi a projektben lévő

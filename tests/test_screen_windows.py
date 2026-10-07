@@ -104,10 +104,39 @@ class WindowTests(unittest.TestCase):
         xml = simple_windows('FirstNavigationBlock="B1"')
         self.rejected(xml.replace('WindowName="LEFT"', 'WindowName="MISSING"'), 'SCREEN_UNKNOWN_WINDOW')
         self.rejected(xml.replace(' WindowName="LEFT"', ''), 'SCREEN_CANVAS_WINDOW_AMBIGUOUS')
-        self.rejected(xml.replace('Name="RIGHT" WindowStyle', 'Name="RIGHT" PrimaryCanvas="C1" WindowStyle'), 'SCREEN_WINDOW_CANVAS_CONFLICT')
         self.rejected(xml.replace('Name="LEFT" WindowStyle', 'Name="LEFT" PrimaryCanvas="MISSING" WindowStyle'), 'SCREEN_UNKNOWN_PRIMARY_CANVAS')
         self.rejected(xml.replace('Name="LEFT" WindowStyle="Document"', 'Name="LEFT" WindowStyle="Unknown"'), 'SCREEN_WINDOW_STYLE')
         self.rejected(xml.replace('Name="RIGHT" WindowStyle', 'Name="LEFT" WindowStyle'), 'DUPLICATE_CHILD')
+
+    def test_a_primary_canvas_that_is_not_the_window_s_content_canvas_is_ignored(self):
+        """4.25.2: Designer forms (CG$POPUP_n) may name a stacked canvas, a blank one or another window's canvas as the
+        window's PrimaryCanvas: a notice, not the end of the migration; Canvas.WindowName decides."""
+        main_window = ('<Window Name="MAIN" WindowStyle="Document"/><Canvas Name="PAGE" CanvasType="Content" WindowName="MAIN"/>'
+                       '<Block Name="B"><Item Name="A" ItemType="Text Item" CanvasName="PAGE"/>')
+        cases = {
+            'stacked': ('<Window Name="POPW" WindowStyle="Dialog" PrimaryCanvas="CG$POPUP_17"/>'
+                        '<Canvas Name="CG$POPUP_17" CanvasType="Stacked" WindowName="POPW"/>',
+                        '<Item Name="P" ItemType="Text Item" CanvasName="CG$POPUP_17"/>', 'Stacked típusú'),
+            'blank stacked': ('<Window Name="POPW" WindowStyle="Dialog" PrimaryCanvas="CG$POPUP_17"/>'
+                              '<Canvas Name="CG$POPUP_17" CanvasType="Stacked" WindowName="POPW"/>'
+                              '<Canvas Name="POPC" CanvasType="Content" WindowName="POPW"/>',
+                              '<Item Name="P" ItemType="Text Item" CanvasName="POPC"/>', 'üres, Stacked típusú'),
+            'another window': ('<Window Name="POPW" WindowStyle="Dialog" PrimaryCanvas="PAGE"/>'
+                               '<Canvas Name="POPC" CanvasType="Content" WindowName="POPW"/>',
+                               '<Item Name="P" ItemType="Text Item" CanvasName="POPC"/>', 'a(z) MAIN ablakhoz tartozik'),
+        }
+        for label, (window, item, problem) in cases.items():
+            with self.subTest(label):
+                xml = ('<FormModule Name="F" FirstNavigationBlock="B" CoordinateSystem="Real" RealUnit="Pixel">' + main_window.split('<Block')[0]
+                       + window + '<Block' + main_window.split('<Block')[1] + item + '</Block></FormModule>')
+                _, p, source = self.generate(xml, label=label.replace(' ', '-'))
+                notice = next(n for n in p['notices'] if n['code'] == 'SCREEN_PRIMARY_CANVAS_IGNORED')
+                self.assertEqual(notice['owner'], 'POPW')
+                self.assertIn(problem, notice['detail'])
+                windows = {w['name']: w for w in p['windows']}
+                self.assertEqual((windows['MAIN']['role'], windows['POPW']['role']), ('main', 'dialog'))
+                self.assertIn('PAGE', windows['MAIN']['canvases'])
+                self.assertIn("windowVisible()['POPW']", source)
 
     def test_source_references_are_audited_without_automatic_execution(self):
         xml = (ROOT / 'examples/screen-dialogs_fmb.xml').read_text().replace("SHOW_WINDOW('EDIT_WINDOW');", "IF :SEARCH.IDENTIFIER IS NOT NULL THEN SHOW_WINDOW('EDIT_WINDOW'); END IF; SHOW_WINDOW(:GLOBAL.TARGET); -- HIDE_WINDOW('HISTORY_WINDOW');")

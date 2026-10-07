@@ -100,8 +100,10 @@ def build_windows(form, canvases, surfaces, sections, config, text, notices, met
         owners = [w['name'] for w in windows.values() if w['primary_canvas'] and w['primary_canvas'] == surface['name']]
         if explicit and explicit not in windows:
             raise MigrationError('SCREEN_UNKNOWN_WINDOW: ' + surface['name'] + ' → ' + explicit)
-        if len(owners) > 1 or (explicit and owners and explicit not in owners):
+        if len(owners) > 1 and not explicit:
             raise MigrationError('SCREEN_WINDOW_CANVAS_CONFLICT: WindowName / PrimaryCanvas: ' + surface['name'])
+        # Canvas.WindowName decides where Forms shows the canvas; another window's PrimaryCanvas naming it is a stale
+        # reference, ignored below (SCREEN_PRIMARY_CANVAS_IGNORED).
         target = explicit or (owners[0] if owners else '')
         basis = 'Canvas.WindowName' if explicit else 'Window.PrimaryCanvas' if owners else ''
         if not target and len(windows) == 1:
@@ -123,16 +125,29 @@ def build_windows(form, canvases, surfaces, sections, config, text, notices, met
         if not window['canvases'] or not primary or primary in skipped_canvases: continue
         if primary not in canvases:
             raise MigrationError('SCREEN_UNKNOWN_PRIMARY_CANVAS: ' + window['name'] + ' → ' + primary)
+        problem = ''
         if primary not in by_canvas:
             node = canvases[primary]; p = props(node)
-            surface = {'name': primary, 'key': '', 'type': get(p, 'CanvasType') or 'Content',
-                       'visible': flag(p, 'Visible', True), 'window': '', 'modal': False, 'title': '', 'tabs': []}
-            # A real tab canvas must already have its complete page model.
-            if any(tag(c) == 'tabpage' for c in node):
-                raise MigrationError('SCREEN_PRIMARY_CANVAS_TYPE: a PrimaryCanvas tartalmi canvas legyen: ' + primary)
-            surfaces.append(surface); by_canvas[primary] = surface; assign(surface)
-        if by_canvas[primary]['window'] != window['name'] or canonical(by_canvas[primary]['type']) != 'content':
-            raise MigrationError('SCREEN_PRIMARY_CANVAS_TYPE: a saját ablak Content canvasa szükséges: ' + primary)
+            kind = get(p, 'CanvasType') or 'Content'
+            if any(tag(c) == 'tabpage' for c in node) or canonical(kind) != 'content':
+                problem = 'üres, ' + ('Tab' if any(tag(c) == 'tabpage' for c in node) else kind) + ' típusú canvas'
+            elif get(p, 'WindowName') and get(p, 'WindowName') != window['name']:
+                problem = 'üres canvas, a(z) ' + get(p, 'WindowName') + ' ablakhoz tartozik'
+            else:
+                surface = {'name': primary, 'key': '', 'type': kind,
+                           'visible': flag(p, 'Visible', True), 'window': '', 'modal': False, 'title': '', 'tabs': []}
+                surfaces.append(surface); by_canvas[primary] = surface; assign(surface)
+        if not problem and by_canvas[primary]['window'] != window['name']:
+            problem = 'a(z) ' + (by_canvas[primary]['window'] or '(ablak nélküli)') + ' ablakhoz tartozik'
+        elif not problem and canonical(by_canvas[primary]['type']) != 'content':
+            problem = by_canvas[primary]['type'] + ' típusú, nem Content canvas'
+        if problem:
+            # Designer forms (CG$POPUP_n ...) may name a stacked or another window's canvas: the window still shows
+            # its own canvases, it starts on its first Content canvas.
+            notices.append({'code': 'SCREEN_PRIMARY_CANVAS_IGNORED', 'owner': window['name'],
+                            'detail': 'A PrimaryCanvas (' + primary + ') nem az ablak saját Content canvasa: ' + problem
+                                      + '. Figyelmen kívül hagyva; a kezdő canvas az ablak első Content canvasa.'})
+            window['primary_canvas'] = ''
 
     used = [w for w in windows.values() if w['canvases']]
     for window in used:

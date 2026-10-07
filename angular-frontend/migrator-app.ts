@@ -55,7 +55,6 @@ interface Options {
   module: string | null; AWU_AZON: string; cl_package?: string; api_prefix: string; angular_selector_prefix: string;
   // The module's own folders in the project: the Java folders give the packages, the deploy writes there.
   project_layout?: Partial<Record<PartKey, string>>;
-  common_migrate_tools_package: string;
   wbs_base_url: string; dps_base_url: string; ollama_url: string;
   html_selectors: { form_block: string; button: string; table: string };
   form_block_types: { text: string; number: string; datetime: string; checkbox: string; select: string; radio: string; password: string; textarea: string };
@@ -176,8 +175,7 @@ const HELP = {
   fold: 'A csak go_item + LIST_VALUES triggerű gomb beolvad a mező saját lenyitó gombjába.',
   tolerance: 'Sorillesztési tolerancia a kisebb mezőmagasság arányában. 0: csak azonos Y-koordináta; alapérték: 0,25.',
   buttonLabel: 'Melyik FormBlock property hordozza a gombfeliratot: labelText (önálló gomb) vagy btnLabel (inputGroup gomb).',
-  folders: 'A modul saját mappái a projektben (CL, DPS, WBS, frontend), a „Tallózás…” gombbal. A fájlok pontosan ide kerülnek, új mappa nem készül. A Java-mappák útvonalából lesz a csomag (a src/main/java utáni rész, például hu.ceg.rendszer.cl.modules.rendeles): ezzel generálódnak a package sorok és az importok. A CommonMigrateTools.java és a frm-forms-screen.ts nem kerül a projektbe: a feladatnál külön letölthető. Üresen hagyva a fájlok csak a ZIP-ben vannak.',
-  commonToolsPackage: 'A közös CommonMigrateTools osztály Java package-e, például hu.ceg.common.cl. Az osztálynevet és az import szót ne írd bele. Üresen: ha a célmappák meg vannak adva, a projektben már meglévő CommonMigrateTools.java csomagja, különben a szerver alapértelmezése. Minden modul ugyaninnen importálja a közös segédeket; a CommonMigrateTools.java fájlt csak egyszer kell a közös CL-projektbe tenni (a feladatnál külön letölthető).',
+  folders: 'A modul saját mappái a projektben (CL, DPS, WBS, frontend), a „Tallózás…” gombbal. A fájlok pontosan ide kerülnek, új mappa nem készül. A Java-mappák útvonalából lesz a csomag (a src/main/java utáni rész, például hu.ceg.rendszer.cl.modules.rendeles): ezzel generálódnak a package sorok és az importok. A CommonMigrateTools.java és a frm-forms-screen.ts nem kerül a projektbe: a feladatnál külön letölthető, elég egyszer a projektbe tenni. A telepítés megkeresi őket, és az importokat a megtalált példányra igazítja (a CommonMigrateTools csomagját nem kell megadni). Üresen hagyva a fájlok csak a ZIP-ben vannak.',
   dps: 'A WBS RestClient célcíme. Generáláskor nem kapcsolódunk hozzá.',
   imports: 'Import-sorok generálása a céges útvonalakkal. Bekapcsolva az útvonalakat meg kell adni.',
   ai: 'Csak ahol a szabályok már nem elegendők. Az ismeretlen triggerek rövid részletei a megadott Ollama szerverhez kerülhetnek; a válasz ellenőrizendő javaslat.',
@@ -1490,32 +1488,6 @@ function highlight(text: string, lang: CodeLang): string {
                       </div>
                     }
 
-                    <div class="grid gap-4 md:grid-cols-2">
-                      <label class="flex flex-col gap-2"
-                      ><span
-                        class="text-sm font-medium cursor-help"
-                        [pTooltip]="help.commonToolsPackage"
-                      >CommonMigrateTools Java package <span class="opacity-60">ⓘ</span></span
-                      >
-                        <input
-                          pInputText
-                          name="common_migrate_tools_package"
-                          formControlName="common_migrate_tools_package"
-                          maxlength="200"
-                          placeholder="pl. hu.company..."
-                          class="w-full"
-                        />
-                        @if (
-                          form.controls.common_migrate_tools_package.invalid &&
-                          form.controls.common_migrate_tools_package.touched
-                          ) {
-                          <small class="text-red-600" role="alert"
-                          >Ponttal tagolt Java csomagnevet adj meg, például hu.ceg.common</small
-                          >
-                        }
-                      </label>
-                    </div>
-
                     <!--<p-accordion [multiple]="true">
                       <p-accordion-panel value="target"><p-accordion-header>Célkörnyezet és Java</p-accordion-header><p-accordion-content>
 
@@ -2731,10 +2703,6 @@ export class Migrator implements OnInit, OnDestroy {
       [Validators.pattern(/^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/), Validators.maxLength(70)],
     ],
     AWU_AZON: [''],
-    common_migrate_tools_package: [
-      '',
-      [Validators.pattern(/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/), Validators.maxLength(200)],
-    ],
     api_prefix: ['/api/forms', [Validators.required, Validators.pattern(/^\/[A-Za-z0-9/_-]*$/)]],
     angular_selector_prefix: [
       'app',

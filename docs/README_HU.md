@@ -1,4 +1,9 @@
-# FRM Forms Migrator 4.25.0 — használat
+# FRM Forms Migrator 4.25.1 — használat
+
+**4.25.1 – a CommonMigrateTools csomagját nem kell megadni:** a felületről kikerült a „CommonMigrateTools Java
+package” mező. A telepítés (és ha a célmappák ismertek, már a generálás) megkeresi a projektben lévő
+`CommonMigrateTools.java`-t, és az importokat annak a csomagjára igazítja, ugyanúgy, mint a `frm-forms-screen.ts`-nél.
+Részletek: [JAVITASOK_4_25_1_HU.md](JAVITASOK_4_25_1_HU.md).
 
 **4.25 – változóértékek a java-variables.json-ból:** a generált Java saját változóinak (fejlesztői bemenetek,
 lekérdezőgombok képernyőértékei) név szerint adható érték:

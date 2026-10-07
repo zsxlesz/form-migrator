@@ -225,7 +225,7 @@ lehet átnézni.
 ## CommonMigrateTools: közös segédfájl a CL-ben
 
 A generált backend általános segédei egyetlen fájlban vannak: `backend/CL/CommonMigrateTools.java`.
-A csomagja a `common_migrate_tools_package` beállítás, alapból `<java_package>.cl`. Beágyazott
+A csomagja a projektben lévő példányé (lásd lent), alapból `<java_package>.cl`. Beágyazott
 osztályként tartalmazza a következőket:
 
 | Osztály | Feladat |
@@ -247,13 +247,16 @@ osztályként tartalmazza a következőket:
 - **Függőségek:** csak JDK és Spring (web, jdbc). Java 11 és Spring Boot 2.3 (Spring Framework 5.2)
   kompatibilis. A CL-projektnek ezért el kell érnie a spring-jdbc-t is.
 
-**Beállítás a migrátor felületén:** „Célkörnyezet és Java” → „CommonMigrateTools Java package”.
-Például `hu.ceg.common.cl` értéknél a generált segédfájl `package hu.ceg.common.cl;`
-deklarációt kap, a DPS pedig például `hu.ceg.common.cl.CommonMigrateTools.DbCalls`-t importál.
-Csak a package-et add meg, osztálynév, `import`, pontosvessző vagy fájlrendszerbeli útvonal nélkül.
-Üresen megmarad az alapértelmezés. A „Beállítások mentése” ezt is megjegyzi;
-tömeges generáláskor minden modul ugyanazt az értéket kapja. A szerver configjában
-megadott érték a felület alapértéke is.
+**A csomagját nem kell megadni (4.25.1):** a CommonMigrateTools ugyanúgy működik, mint a `frm-forms-screen.ts`.
+A telepítés (Előnézet / Telepítés) megkeresi a projektben lévő `CommonMigrateTools.java`-t a kiválasztott
+Java-mappák `src/main/java`-jában, és a generált importokat annak a `package` sorára írja át. Ha a célmappák már a
+generálás előtt ki vannak választva, a generátor is megkeresi, és eleve azt a csomagot írja. Ha a projektben még
+nincs, a riport megmutatja, hova kell tenni a letöltött fájlt. A letöltött fájl és a generált importok csomagja ilyenkor
+az alapértelmezés (`<java_package>.cl`). A felületen ezért megszűnt a „CommonMigrateTools Java package” mező.
+
+**Felülírás (ritkán kell):** a CLI- vagy szerverconfig `common_migrate_tools_package` beállítása továbbra is
+megadja a csomagot, például `"hu.ceg.common.cl"`. Ez akkor hasznos, ha a modult telepítés nélkül, a ZIP-ből
+másolod be. Csak a package-et add meg, osztálynév, `import`, pontosvessző vagy fájlrendszerbeli útvonal nélkül.
 
 ## Típusnevek és importok
 

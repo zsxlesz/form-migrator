@@ -18,7 +18,8 @@ Where the files go:
     source root, the frontend under the screens folder in <module>/.
 The shared helpers (CommonMigrateTools.java, frm-forms-screen.ts) are never deployed: they are downloaded once
 and kept in the project. The deploy looks for them there (helpers in the report: found, version) and points the
-imports at the copy it found.
+imports at the copy it found: the generated code may use any package for CommonMigrateTools and the relative path
+'../frm-forms-screen', nothing has to be set for them before the generation.
 
 Generated files are overwritten; CREATE_ONCE files (ServiceImpl, ControllerImpl, the component) are written
 only when they do not exist yet - the fresh version stays in the output. Only the generated files are written:

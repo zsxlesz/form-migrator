@@ -134,12 +134,13 @@ class WebFlowTests(unittest.TestCase):
         self.assertNotIn('ACTION_CGNVW011PBRESZLETEKACTIONA6B26D41_PATH', java)
         self.assertNotIn("'/api/", component)  # the server and module path come from ServiceBase
         self.assertIn('export class TesztComponent extends ServiceBase {', component)  # 4.26: no shared runtime
-        self.assertIn("  aitSearch(body: unknown) {\n    return this.http.post<Page>(this.url('ait/query/search'), body).pipe(\n"
+        self.assertIn("  aitSearch(body: unknown) {\n    return this.http.post<any>(this.url('ait/query/search'), body).pipe(\n"
                       "      tap(res => WFF.debug(this.modName + '.aitSearch', res)),\n"
                       "      catchError(error => {\n        WFF.err('Hiba', error);\n        return EMPTY;\n      }),\n    );\n  }", component)
         self.assertNotIn('@Input', component)
         self.assertNotIn('@Output', component)  # a routed component, not a child
-        self.assertIn("this.lovInptip({ term: term || null, parameters: {}, limit: 50 }).subscribe(page => {", component)
+        self.assertIn('  lovInptip(body: unknown) {', component)  # 4.27: the LOV endpoint is there; its suggestions are the developer's
+        self.assertIn("this.aitSearch({ criteria: { vElekAdlapUbiInptipKod: vElekAdlap.ubiInptipKod }, offset: 0, limit: 200 })", component)
         self.assertIn('## Backend-hívások', (out / 'frontend/teszt/MIGRATION_NOTES.md').read_text(encoding='utf-8'))
         plan = json.loads((out / 'analysis/screen-plan.json').read_text(encoding='utf-8'))
         self.assertEqual(plan['backend_calls']['queries'], {'AIT': 'aitSearch'})

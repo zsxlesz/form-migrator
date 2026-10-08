@@ -1,4 +1,4 @@
-"""The generated screen as tests read it (4.26: one component file, no shared runtime; the table is wf-table.ts)."""
+"""The generated screen as tests read it (4.26: one component file, no shared runtime; the table is wf-table.ts; 4.27: a frame)."""
 from pathlib import Path
 import re
 
@@ -38,13 +38,6 @@ def screen_field(out: Path, name: str) -> str | None:
         return None
     end = source.index(';\n', match.end())
     return source[match.start():end + 1]
-
-
-# What a Node harness needs from the component file besides the class members it extracts.
-SCREEN_GLOBALS = '''interface Page { rows?: Record<string, unknown>[] | null; messages?: string[]; }
-interface ActionResult { blocks?: Record<string, Record<string, string | null>>; messages?: string[]; commands?: (string | null)[][]; }
-interface CommitResult extends ActionResult { [rows: string]: unknown; }
-'''
 
 
 # The company names the generated files use from the host project (TODO imports in the generated code).

@@ -218,8 +218,10 @@ class ScreenTests(unittest.TestCase):
         action = next(a for a in plan['actions'] if a['owner'] == 'FILTER.KERES')
         self.assertEqual(action['steps'], [{'op': 'goBlock', 'block': 'RESULT'}, {'op': 'executeQuery'}])
         self.assertEqual(action['framework_calls'], ["qms$event_item('WHEN-BUTTON-PRESSED')"])
-        # frontend-only: no query of RESULT to call, the button lists its steps in its TODO (4.26)
-        self.assertIn("// Felismert Forms-lépések: goBlock('RESULT'); executeQuery (a képernyőn nincs", source)
+        # frontend-only: no query of RESULT to call, the button has a TODO with its original code (4.27)
+        click = source[source.index('  protected onKeresClick(): void {'):]
+        self.assertIn('    // TODO: a gomb kódját kézzel kell átültetni.\n    //#region Eredeti Forms-kód\n', click)
+        self.assertIn('execute_query', click.split('//#endregion', 1)[0].lower())
         self.assertNotIn('actionRequested', source)  # routed component: no output events
         notes = (out / 'frontend/testScreen/MIGRATION_NOTES.md').read_text()
         self.assertIn('## Migrációs teendők', notes); self.assertIn('1 felismert gomb', notes)

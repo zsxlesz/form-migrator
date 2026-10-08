@@ -17,7 +17,6 @@ from frm_forms.cli import main
 from frm_forms.plsql import Unsupported, parse
 from frm_forms.plsql_passthrough import normal_mode_sql, prepare
 from frm_forms.rules import Compiler
-from frm_forms.screen_states import Translator
 
 
 def fixture():
@@ -110,15 +109,13 @@ class NormalModeTests(unittest.TestCase):
             with self.subTest(source=source), self.assertRaisesRegex(Unsupported, 'csak olvasható'):
                 normal_mode_sql(source)
 
-    def test_java_and_frontend_conditions_use_the_same_mode(self):
+    def test_java_conditions_use_the_normal_mode(self):
         compiler = Compiler({'name': 'B', 'items': []})
-        frontend = Translator('B', {})
         for reference in (':system.mode', "NAME_IN('System.Mode')"):
             node = parse('IF ' + reference + " = 'NORMAL' THEN NULL; END IF;")[0]['branches'][0]['condition']
             java, kind = compiler.expression(node)
             self.assertEqual(kind, 'boolean')
             self.assertIn('SqlValues.compare("NORMAL", "NORMAL", "=")', java)
-            self.assertEqual(frontend.expression(node), "this.cmp('NORMAL', '=', 'NORMAL')")
 
     def test_complete_generation_has_a_live_lov_and_compiled_block_query(self):
         for mode in ('plsql', 'java'):
@@ -140,10 +137,6 @@ class NormalModeTests(unittest.TestCase):
                 self.assertNotIn('SELECT NULL FROM DUAL WHERE 1 = 0', method)
                 self.assertIn("'NORMAL' = 'ENTER-QUERY'", re.sub(r'"\s*\+\s*"', '', method))  # SQL wrapped below 120 characters
                 self.assertTrue(all(t['status'] == 'converted' for t in model['triggers'] if t['event'] == 'POST-QUERY'))
-                states = json.loads((out / 'analysis/screen-plan.json').read_text())['item_states']
-                self.assertEqual(states['manual'], [])
-                component = next((out / 'frontend').rglob('*.component.ts')).read_text()
-                self.assertIn("this.cmp('NORMAL', '=', 'NORMAL')", component)
                 # Evidence retains the original query; it is not overwritten with the adaptation.
                 self.assertIn(':SYSTEM.MODE', (out / 'analysis/backend-evidence.md').read_text())
 

@@ -85,9 +85,7 @@ class ScreenConventionTests(unittest.TestCase):
         self.assertIn('// TODO: importáld a saját csomagodból: ToastService', source)
         self.assertIn('protected readonly toast = inject(ToastService);', source)
         self.assertIn('protected readonly toastLife = { success: 3000, warning: 8000, danger: 6000 };', source)
-        # Backend errors and empty results are signalled by the screen's own methods, with its toast (4.26).
-        for call in ["WFF.err('Hiba', error);", "this.toast.warning('Nincs találat'"]:
-            self.assertIn(call, source)
+        self.assertIn("WFF.err('Hiba', error);", source)  # backend errors: the endpoint method (4.27: the frame itself calls no toast)
         config = {'emit_imports': True, 'optimus_import_path': '@company/optimus', 'optimus_form_block_symbol': 'AnkFormBlockComponent',
                   'form_block_type_import_path': '@company/optimus/form-block', 'toast_service_import_path': '@company/ui/toast',
                   'toast_life_ms': {'success': 2500, 'warning': 10000, 'danger': 7000}}

@@ -232,13 +232,13 @@ APPROXIMATIONS = {
         'Többnyire nincs teendő. A KEY-EXIT logikáját (mentetlen változások, visszanavigálás) érdemes átnézni.'),
     'item_event': (
         'Mezőesemény, amely nem fut (vezérlőblokk WHEN-VALIDATE-ITEM / POST-CHANGE, WHEN-*-CHANGED)', 'trigger',
-        'Nem fut: nincs végpont, amely futtatná (vezérlőblokk mezője, vagy a kód nem csak mezőállapotot állít).',
+        'Nem fut: nincs végpont, amely futtatná (vezérlőblokk mezője); a mezőállapotokat sem fordítja a képernyő (4.27).',
         'Mezőesemény-végpont a gombokéhoz hasonlóan (eredeti PL/SQL az adatbázisban, Forms-hívások képernyő-utasításként), '
         'amelyet a képernyő a mező elhagyásakor vagy változásakor hív.'),
     'screen_event': (
         'Képernyőesemény, amely nem fut (WHEN-NEW-BLOCK/RECORD/ITEM-INSTANCE, WHEN-WINDOW-*, WHEN-CUSTOM-ITEM-EVENT …)',
         'trigger',
-        'Nem fut: a képernyő legfeljebb a mezőállapot-szabályokat (SET_ITEM_PROPERTY) veszi át belőle.',
+        'Nem fut: a képernyő váz (4.27), a mezőállapot-szabályokat (SET_ITEM_PROPERTY) sem veszi át belőle.',
         'Navigációs eseménynél a képernyő horga és egy akció-végpont; ablak-, időzítő- és egyedi eseménynél kézi átültetés.'),
     'mid_code_step': (
         'Képernyőlépés a kód közepén (EXECUTE_QUERY, CLEAR_BLOCK, CALL_FORM …)', 'trigger',

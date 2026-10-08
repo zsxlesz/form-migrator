@@ -94,15 +94,26 @@ def frontend_api(ops, base, cls):
                                         for b in o['blocks']}}
         elif o['op'] == 'action':
             api['actions'][o['action']['owner']] = {'constant': o['constant']}
+            # What the code reads: the screen sends these (blocks: BLOCK.ITEM, parameters: GLOBAL/PARAMETER/SYSTEM).
+            query = o.get('query_action') or {}
+            plan = query.get('prepared') or o.get('passthrough')
+            if plan or query.get('java'):
+                sources = [b['source'] for b in (plan or {}).get('binds', []) if not b.get('input') and b['block'] != query.get('context')]
+                sources += [b['source'] for variant in query.get('variants', []) for b in variant['binds']]
+                sources += [s for s, r in ((query.get('java') or {}).get('reads') or {}).items() if not r.get('input')]
+                # FRM.* (alert reply, resume and save points) is the backend's own protocol, not a screen value.
+                sources = [s for s in dict.fromkeys(sources) if s.split('.', 1)[0] != 'FRM']
+                context = [s for s in sources if s.split('.', 1)[0] in {'GLOBAL', 'PARAMETER', 'SYSTEM'}]
+                api['actions'][o['action']['owner']].update(reads=[s for s in sources if s not in context], parameters=context)
             if 'SHOW_ALERT' in (o.get('passthrough') or {}).get('commands', []):
-                api['actions'][o['action']['owner']]['alerts'] = True  # the screen needs the alert dialog
+                api['actions'][o['action']['owner']]['alerts'] = True  # the code shows a Forms alert
             if (o.get('passthrough') or {}).get('commit_points'):
                 api['actions'][o['action']['owner']]['commit_point'] = True  # FRM_COMMIT: save, then resume
             if (o.get('passthrough') or {}).get('screen_points'):
                 api['actions'][o['action']['owner']]['screen_points'] = True  # FRM_RESUME: a screen step, then resume
             commands = [c for c in (o.get('passthrough') or {}).get('commands', []) if 'ALERT' not in c]
             if commands:
-                # The Forms built-ins the code returns as commands: the screen's button method lists them (TODO).
+                # The Forms built-ins the code returns as commands (the screen leaves them to the developer).
                 api['actions'][o['action']['owner']]['commands'] = commands
             if o['action'].get('init'):
                 api['init'] = o['action']['owner']  # the screen calls it when it opens

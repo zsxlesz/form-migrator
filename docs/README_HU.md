@@ -1,4 +1,16 @@
-# FRM Forms Migrator 4.26.0 — használat
+# FRM Forms Migrator 4.27.0 — használat
+
+**4.27 – frontend: csak a keret:**
+
+- **A komponens váz:** FormBlock-régiók, `<wf-table>`-ök, végpontmetódusok, és gombonként a gomb HTTP-kérése,
+  kezdetlegesen, a képernyő értékeivel (a backend-akció a kód által olvasott mezőket kapja; a lekérdező gomb a
+  sorokat a táblázatba teszi).
+- **Nincs Forms-emuláció:** kikerült a `text()`, `data()`, `blocks()`, `parameters()`, `showResult()`, a
+  mezőállapot-fordítás (`setItemState` ...), a LOV-keresés és -visszaírás, a mentési lánc (`newRecord`,
+  `deleteRecord`, eredeti rekordok), a válaszinterfészek és a toastok. Ezek helyén TODO, a nem fordított gomboknál
+  az eredeti Forms-kóddal.
+
+Részletek: [JAVITASOK_4_27_HU.md](JAVITASOK_4_27_HU.md).
 
 **4.26 – nincs saját futtató, a képernyő a céges keretre épül:**
 

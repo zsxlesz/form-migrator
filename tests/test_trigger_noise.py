@@ -100,8 +100,7 @@ class TriggerNoiseTests(unittest.TestCase):
             self.assertNotIn('calendar' + item + 'Action', source)
         api = plan['api']['actions']
         self.assertEqual(set(api), kept)
-        frontend = screen_source(out)  # the component and frm-forms-screen.ts (4.14)
-        self.assertIn("this.toast.success('Kész'", frontend)
+        frontend = screen_source(out)  # the component (4.26)
         for entry in api.values():  # this.url(...) with the endpoint as the CL names it
             self.assertIn("this.url('" + plan['api']['paths'][entry['constant']].lstrip('/') + "')", frontend)
         handoff = json.loads((out / 'analysis/backend-handoff.json').read_text())

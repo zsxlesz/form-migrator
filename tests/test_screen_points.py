@@ -133,14 +133,14 @@ class ReplicaTests(unittest.TestCase):
         self.assertIn('-- RENDELES_PKG inicializálása', self.service)
         self.assertIn('FUNCTION kerekit(p NUMBER) RETURN NUMBER', self.service)
 
-    def test_the_screen_method_says_how_to_resume(self):
-        # 4.26: no shared runtime carries out FRM_RESUME; the button's method has the TODO and the query to call.
+    def test_the_screen_method_sends_the_request(self):
+        # 4.27: the button sends its request; carrying out FRM_RESUME (the screen step, then FRM.RESUME) is the developer's.
         screen = component(self.out)
         method = screen[screen.index('  protected onPbFrissitClick(): void {'):]
         method = method[:method.index('\n  }\n')]
-        self.assertIn('// TODO: a kód közepén képernyőlépés van (FRM_RESUME)', method)
-        self.assertIn('GO_BLOCK, EXECUTE_QUERY', method)
-        self.assertIn('this.queryTetel()', method)
+        self.assertIn('this.actionOnctrlpbfrissit({', method)
+        self.assertIn("TETEL: { CIKK: this.tetelSelection?.['cikk'] }", method)  # a table's value: its selected row
+        self.assertNotIn('RESUME', method)
 
     def test_generated_java_compiles(self):
         if not shutil.which('java'):

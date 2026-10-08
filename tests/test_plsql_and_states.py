@@ -134,29 +134,22 @@ class GenerationTests(unittest.TestCase):
         self.assertFalse(any(e['method'].startswith('onGombokPbUj') for e in plan['endpoints']))
         self.assertIn('GOMBOK.PB_UJ', [a['owner'] for a in plan['skipped_actions']])
 
-    def test_item_states_follow_the_forms_moments(self):
+    def test_item_states_are_left_to_the_developer(self):
+        # 4.27: the screen is a frame: SET_ITEM_PROPERTY is not translated, the button keeps its original code
         out = self.run_form(STATES_FORM, 'allapot')
-        plan = json.loads((out / 'analysis/screen-plan.json').read_text(encoding='utf-8'))['item_states']
-        self.assertEqual([(h['owner'], h['moment']) for h in plan['handlers']],
-                         [('FORM', 'init'), ('B.CB', 'change'), ('B.TIPUS', 'change'), ('B.PB_ENGED', 'button')])
-        self.assertEqual([m['owner'] for m in plan['manual']], ['B.KOD'])
+        plan = json.loads((out / 'analysis/screen-plan.json').read_text(encoding='utf-8'))
+        self.assertNotIn('item_states', plan)
         source = (out / 'frontend/allapot/allapot.component.ts').read_text(encoding='utf-8')
-        # 4.26: the component's own code; a one-statement handler stays in place, a longer one is a method
-        for code in ["constructor() {\n    super();\n    this.setItemState('B.PB_MENT', { enabled: false });\n  }",
-                     "  protected onPbEngedClick(): void {\n    this.setItemState('B.PB_MENT', { enabled: true });\n  }",
-                     "group.get('cb')?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.stateBCbWhenCheckboxChanged());",
-                     "this.setItemState('B.MEGJ', { enabled: true, required: true });",  # one call per item and moment
-                     "this.setItemValue('B.MEGJ', null);",
-                     # IF ... THEN VISIBLE TRUE ELSE VISIBLE FALSE: the property follows the condition (NVL kept)
-                     "subscribe(() => this.setItemState('B.EXTRA', { visible: this.cmp((this.isNull(this.stateValue('B.TIPUS')) ? 'A' "
-                     ": this.stateValue('B.TIPUS')), '=', 'X') }));",
-                     'if (state.required) control.addValidators(Validators.required); else control.removeValidators(Validators.required);']:
-            self.assertIn(code, source)
-        self.assertNotIn('stateFormWhenNewFormInstance', source)  # one statement: no method of its own
-        self.assertIn('protected readonly structures: Record<string, FormBlock.Structure[]>', source)
+        for absent in ('setItemState', 'setItemValue', 'stateValue', 'valueChanges', 'Validators'):
+            self.assertNotIn(absent, source)
+        self.assertIn('constructor() {\n    super();\n  }', source)
+        click = source[source.index('  protected onPbEngedClick(): void {'):]
+        self.assertIn('// TODO: a gomb kódját kézzel kell átültetni.\n    //#region Eredeti Forms-kód\n', click)
+        self.assertIn('set_item_property', click.split('//#endregion', 1)[0].lower())
+        coverage = json.loads((out / 'analysis/runtime-coverage.json').read_text(encoding='utf-8'))
+        self.assertFalse(any(t['engine'] == 'typescript' and t['event'] != 'WHEN-BUTTON-PRESSED' for t in coverage['triggers']))
         notes = (out / 'frontend/allapot/MIGRATION_NOTES.md').read_text(encoding='utf-8')
-        self.assertIn('## Mezőállapotok (Forms-logikából)', notes)
-
+        self.assertNotIn('## Mezőállapotok (Forms-logikából)', notes)
 
 if __name__ == '__main__':
     unittest.main()

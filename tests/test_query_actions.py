@@ -13,7 +13,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from java_support import COMPANY_IMPORTS, write_stubs
-from screen_support import SCREEN_GLOBALS, component, screen_field, screen_method
+from screen_support import component, screen_method
 from frm_forms.cli import main
 from frm_forms.plsql_passthrough import scan
 from frm_forms.service_inline import mask
@@ -352,13 +352,20 @@ END;'''
                 self.assertFalse(self.action(out)['implemented'])
                 self.assertEqual(self.action(out)['runs'], 'manual')
 
-    def test_frontend_sends_flags_and_displays_rows_without_clearing_on_validation(self):
+    def test_frontend_sends_the_values_the_code_reads_and_shows_the_rows(self):
         out = self.generate()
-        screen = component(out)  # 4.26: the component's own methods, no shared runtime
-        self.assertIn('  protected onPbLekerdezesClick(): void {\n    this.actionOnt1Pblekerdezes({ blocks: this.blocks(), '
-                      'parameters: this.parameters(), offset: 0, limit: 200 }).subscribe(page => this.showBlk(page));\n  }', screen)
-        self.assertIn("    'T1.COL2': ['t1', 'col2', '1', '0'],", screen)  # the checkbox goes as its Forms value
-        self.assertIn('value ? checked : unchecked ?? null', screen)
+        screen = component(out)  # 4.27: the button's request, built from the form values; no Forms conversion
+        self.assertIn("""  protected onPbLekerdezesClick(): void {
+    const t1 = this.forms['t1']?.getRawValue() ?? {};
+    this.actionOnt1Pblekerdezes({
+      blocks: { T1: { COL1: t1.col1, COL2: t1.col2, COL3: t1.col3, COL4: t1.col4, COL5: t1.col5 } },
+      parameters: {},
+      offset: 0,
+      limit: 200,
+    }).subscribe(res => {
+      this.blkRows = res.rows ?? [];
+    });
+  }""", screen)
 
     def test_company_contract_uses_the_same_query_request_and_page_in_every_layer(self):
         from test_company_cl import CL_IMPORTS
@@ -549,41 +556,32 @@ public class QuerySmoke {
         if not shutil.which('node'):
             self.skipTest('Node with TypeScript stripping required')
         out = self.generate()
-        members = [screen_field(out, 'items'), screen_field(out, 'blkColumns')]
-        members += [screen_method(out, name) for name in ('onPbLekerdezesClick', 'showBlk', 'blocks', 'parameters', 'value', 'text')]
-        self.assertNotIn(None, members)
+        method = screen_method(out, 'onPbLekerdezesClick')
+        self.assertIsNotNone(method)
         script = self.root / 'query-flow.ts'
         script.write_text('''import assert from 'node:assert/strict';
-__SCREEN_GLOBALS__
-class Group { values: Record<string, unknown>; constructor(values: Record<string, unknown>) { this.values = values; } get(key: string) { return key in this.values ? {value: this.values[key]} : null; } }
-const window = {location: {search: '?p_id=5', hash: ''}};
+class Group { values: Record<string, unknown>; constructor(values: Record<string, unknown>) { this.values = values; } getRawValue() { return {...this.values}; } }
 class Screen {
-  forms = {t1: new Group({col1: 'MB_34ADLAP', col2: true, col3: false, col4: true, col5: 'X'})};
+  forms: Record<string, Group> = {t1: new Group({col1: 'MB_34ADLAP', col2: true, col3: false, col4: true, col5: 'X'})};
   blkRows: Record<string, unknown>[] = [{col7: 'old'}];
-  blkSelection: Record<string, unknown> | null = null;
-  toastLife = {warning: 1, success: 1};
-  warnings = [];
-  toast = {warning: (...args) => this.warnings.push(args), success: () => undefined};
-  requests = [];
-  reply: Page = {rows: [{col6: '00', col7: 'MB_34'}], messages: []};
-  actionOnt1Pblekerdezes(request) {
+  requests: unknown[] = [];
+  reply: Record<string, unknown> = {rows: [{col6: '00', col7: 'MB_34'}], messages: []};
+  actionOnt1Pblekerdezes(request: unknown) {
     this.requests.push(request);
-    return {subscribe: next => next(this.reply)};
+    return {subscribe: (next: (res: any) => void) => next(this.reply)};
   }
-__MEMBERS__
+__METHOD__
 }
 const screen = new Screen();
 screen.onPbLekerdezesClick();
-assert.deepEqual(screen.requests[0], {blocks: {T1: {COL1: 'MB_34ADLAP', COL2: '1', COL3: '0', COL4: '1', COL5: 'X'}},
-                                      parameters: {'PARAMETER.P_ID': '5'}, offset: 0, limit: 200});
+assert.deepEqual(screen.requests[0], {blocks: {T1: {COL1: 'MB_34ADLAP', COL5: 'X', COL2: true, COL3: false, COL4: true}},
+                                      parameters: {}, offset: 0, limit: 200});
 assert.deepEqual(screen.blkRows, [{col6: '00', col7: 'MB_34'}]);
-assert.equal(screen.warnings.length, 0);
-screen.reply = {rows: [], messages: ['Adatlap kiválasztása nem történt meg!']};
+screen.reply = {messages: ['Adatlap kiválasztása nem történt meg!']};
 screen.onPbLekerdezesClick();
 assert.deepEqual(screen.blkRows, []);
-assert.equal(screen.warnings.length, 2);  // no rows, and the message
 console.log('typescript query-action OK');
-'''.replace('__MEMBERS__', '\n'.join(members)).replace('__SCREEN_GLOBALS__', SCREEN_GLOBALS))
+'''.replace('__METHOD__', method))
         run = subprocess.run(['node', '--experimental-strip-types', '--no-warnings', str(script)], capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('typescript query-action OK', run.stdout)

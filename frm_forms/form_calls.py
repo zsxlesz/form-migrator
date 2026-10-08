@@ -179,7 +179,7 @@ def route(config: dict, form: str) -> str:
     return (config.get('form_routes') or {}).get(form) or '/' + form.lower()
 
 
-def notes(navigations: dict, manual: dict | None = None) -> list[str]:
+def notes(navigations: dict, manual: list | None = None) -> list[str]:
     if not navigations and not manual:
         return []
     lines = ['', '## Navigáció (CALL_FORM / OPEN_FORM / NEW_FORM)', '',
@@ -191,11 +191,8 @@ def notes(navigations: dict, manual: dict | None = None) -> list[str]:
         params = ', '.join(p['name'] + ' = ' + (p['block'] + '.' + p['key'] if p.get('block') else repr(p.get('value')))
                            for p in nav['params']) or '–'
         lines.append(f"| `{owner}` | `{nav['call']}('{nav['form']}')` | `{nav['route']}` | {params} |")
-    return lines
-
     if manual:
-        lines += ['', 'Összetett formhívás (például a célform egy kódtól függ): a gombnak a komponensben saját '
-                  '`navigate…` metódusa van a kijelölt táblázatsorokkal, a `Router`-rel és kommentként az eredeti '
-                  'kóddal; a döntést és az útvonalat a fejlesztő írja meg. Backend-végpont nem készül hozzá.', '']
-        lines += [f"- `{owner}` → `{entry['method']}()`" for owner, entry in manual.items()]
+        lines += ['', 'Összetett formhívás (például a célform egy kódtól függ): a gomb metódusában TODO és kommentként az '
+                  'eredeti kód; a döntést és az útvonalat a fejlesztő írja meg. Backend-végpont nem készül hozzá.', '']
+        lines += [f'- `{owner}`' for owner in manual]
     return lines

@@ -29,7 +29,7 @@ declare module '@angular/forms' { import { Observable } from 'rxjs';
   export class Validators { static required: ValidatorFn; static maxLength(n: number): ValidatorFn; static minLength(n: number): ValidatorFn; static pattern(p: string | RegExp): ValidatorFn; static min(n: number): ValidatorFn; static max(n: number): ValidatorFn; }
   export class FormGroup { dirty: boolean; invalid: boolean; touched: boolean; controls: Record<string, AbstractControl>;
     markAsDirty(): void; markAsPristine(): void; markAllAsTouched(): void; markAsTouched(): void; patchValue(v: Record<string, unknown>, o?: unknown): void;
-    getRawValue(): Record<string, unknown>; reset(v?: unknown, o?: unknown): void; get(name: string): AbstractControl | null; contains(name: string): boolean;
+    getRawValue(): any; reset(v?: unknown, o?: unknown): void; get(name: string): AbstractControl | null; contains(name: string): boolean;
     valueChanges: Observable<unknown>; }
 }
 declare module '@angular/router' { export class Router { url: string; navigate(commands: unknown[], extras?: unknown): Promise<boolean>; } }
@@ -40,7 +40,7 @@ declare module 'rxjs' {
   export interface Observer<T> { next?: (v: T) => void; error?: (e: unknown) => void; }
   export class Subscription { unsubscribe(): void; }
   export type OperatorFunction<A, B> = (s: Observable<A>) => Observable<B>;
-  export class Observable<T> { subscribe(o: Observer<T> | ((v: T) => void)): Subscription;
+  export class Observable<T> { subscribe(o?: Observer<T> | ((v: T) => void)): Subscription;
     pipe(): Observable<T>; pipe<A>(a: OperatorFunction<T, A>): Observable<A>; pipe<A, B>(a: OperatorFunction<T, A>, b: OperatorFunction<A, B>): Observable<B>;
     pipe<A, B, C>(a: OperatorFunction<T, A>, b: OperatorFunction<A, B>, c: OperatorFunction<B, C>): Observable<C>; }
   export const EMPTY: Observable<never>;

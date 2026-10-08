@@ -46,28 +46,29 @@ class FormCallsAndOpenersTests(unittest.TestCase):
         self.assertEqual(screen['navigations']['CGNV$W01_1.PB_RESZLETEK'],
                          {'form': 'ROGZITO', 'call': 'CALL_FORM', 'route': '/rogzito',
                           'params': [{'name': 'P_KOD', 'block': 'V_CX_ADLAP', 'key': 'ubiXyKod'}]})
-        # 4.26: the button's own method navigates with ServiceBase's router, the parameter from the screen
+        # the button's own method navigates with ServiceBase's router, the parameter from the screen (4.27: as it is)
         self.assertIn('extends ServiceBase', component)
         self.assertIn("  // CGNV$W01_1.PB_RESZLETEK: Forms CALL_FORM('ROGZITO'): navigáció.\n  protected onPbReszletekClick(): void {\n"
-                      "    void this.router.navigate(['/rogzito'], { queryParams: { P_KOD: this.text(this.value('vCxAdlap', 'ubiXyKod')) } });\n  }",
+                      "    const vCxAdlap = this.forms['vCxAdlap']?.getRawValue() ?? {};\n"
+                      "    void this.router.navigate(['/rogzito'], { queryParams: { P_KOD: vCxAdlap.ubiXyKod } });\n  }",
                       component)
         _, screen, _ = self.generate(form_routes={'rogzito': '/pages/modules/rogzito'})
         self.assertEqual(screen['navigations']['CGNV$W01_1.PB_RESZLETEK']['route'], '/pages/modules/rogzito')
 
-    def test_a_form_call_with_its_own_logic_becomes_a_component_method_without_endpoint(self):
-        # The target form chosen by a code (and a SELECT): navigation the developer finishes in the component.
+    def test_a_form_call_with_its_own_logic_is_a_todo_without_endpoint(self):
+        # The target form chosen by a code (and a SELECT): the developer writes the navigation (4.27: TODO in the button).
         form = REAL.replace("v_form := ;ROGZITO_A;;", "SELECT max(f) INTO v_form FROM rogzito_t;".replace(';', ';'))
         for variant in (REAL, FORM.replace("v_kod := :V_CX_ADLAP.UBI_XY_KOD;", "SELECT max(kod) INTO v_kod FROM rogzito_t;")):
             plan, screen, component = self.generate(variant)
             self.assertNotIn('CGNV$W01_1.PB_RESZLETEK', [e['owner'] for e in plan['endpoints'] if e.get('operation') == 'action'])
-            self.assertEqual(screen['manual_navigations'], {'CGNV$W01_1.PB_RESZLETEK': {'method': 'navigateCgnvW011PbReszletek'}})
-            method = component[component.index('  private navigateCgnvW011PbReszletek(): void {'):]
+            self.assertEqual(screen['manual_navigations'], ['CGNV$W01_1.PB_RESZLETEK'])
+            method = component[component.index('  protected onPbReszletekClick(): void {'):]
             method = method[:method.index('\n  }\n') + 4]
-            self.assertIn('const selected = { AIT: this.aitSelection };', method)
-            self.assertIn('    //#region Eredeti Forms-kód (kiindulásnak)\n', method); self.assertIn('    //#endregion\n', method)
+            self.assertIn("    // TODO: összetett formhívás: a célt és a paramétereket kézzel kell megírni, például "
+                          "void this.router.navigate(['/<útvonal>'], { queryParams: { ... } });\n", method)
+            self.assertIn('    //#region Eredeti Forms-kód\n', method); self.assertIn('    //#endregion\n', method)
             self.assertIn('// PROCEDURE rogzitoform_hivasa IS', method)
-            self.assertIn("this.toast.warning('Nincs bekötve'", method)
-            self.assertIn('  protected onPbReszletekClick(): void {\n    this.navigateCgnvW011PbReszletek();\n  }', component)
+            self.assertNotIn('navigate' + 'CgnvW011PbReszletek', component)
         self.assertEqual(form, form)
 
     def test_a_form_call_that_also_writes_data_stays_a_backend_task(self):

@@ -6,15 +6,14 @@ A triggerfordítás és a tényleges eseménybekötés külön leltára: `RUNTIM
 
 ## Migrációs teendők
 
-0 gomb-akció kézi bekötése · 1 felismert gomb (közös adapter) · 1 LOV-végpont · 4 saját/vegyes trigger · 0 kikövetkeztetett típus ellenőrzése.
+0 gomb-akció kézi bekötése · 1 felismert gomb · 1 LOV-végpont · 4 saját/vegyes trigger · 0 kikövetkeztetett típus ellenőrzése.
 
 ## Beillesztés
 
 - A komponens egyetlen `.component.ts`; a FormBlock és a Tailwind a fogadó alkalmazásból érkezik.
 - A publikus komponensek importja kizárólag `@openng/optimus-ui/*`. A privát FormBlock importját a céges profil adja meg, vagy egészítsd ki a jelölt TODO-t.
 - Táblázat: `<wf-table>` (`wf-table.ts`, egyszer kell a projektbe tenni; a java-imports.json `WfTable` bejegyzése adja az importját). Sorai: `<blokk>Rows`, kijelölt sora: `<blokk>Selection`, oszlopai: `<blokk>Columns`. A p-table minden bemenete és sablonja (`#header`, `#body`, `#caption` ...) átadható neki, például saját szűrőkhöz.
-- A komponens a céges `ServiceBase`-t örökli, közös futtató nélkül: minden, amit a képernyő használ, a saját fájljában van, egyszerű metódusként (végpontok, `query<Blokk>()`, `search<Lov>()`, `on<Gomb>Click()`, `save()` ...). Amit a Forms ezen felül csinált (alert-párbeszéd, :GLOBAL tárolás, képernyő- és mentési pontok, a backend által visszaadott Forms-utasítások), az a metódusban TODO.
-- A keresési checkboxok false értéke is érvényes. A backend kérésében az ellenőrzött checkbox értékpár szerinti Oracle kód szerepel.
+- A komponens a céges `ServiceBase`-t örökli, és csak a keretet adja (4.27): a FormBlock-régiók szerkezetét, a táblázatokat, a végpontmetódusokat és gombonként (`on<Gomb>Click()`) a gomb HTTP-kérését, kezdetlegesen, a képernyő értékeivel. Forms-emulációt nem tartalmaz: a mezőállapotok, a LOV-javaslatok és visszaírt értékek, az alertek, a :GLOBAL értékek, a checkbox Forms-értékei és a válaszok feldolgozása fejlesztői feladat (TODO a metódusban, a nem fordított gomboknál az eredeti Forms-kóddal).
 - A mezők műveleti engedélyeit és formátummaszkjait a query/insert/update móddal együtt ellenőrizd; a képernyő nem Forms-futtató.
 - `--regenerate` megőrzi a komponens kézi módosításait. Új elrendezéshez generálj új célmappába, és hasonlítsd össze.
 
@@ -108,7 +107,7 @@ A blokk NavigationStyle tulajdonságához nincs FormBlock.Structure megfelelő; 
 
 ## Gombok és eredeti hívások
 
-A felismert gombok lépései az `actionSteps` mezőben vannak (Forms beépített lépések: goBlock, executeQuery, commit, clearBlock, exitForm, showWindow…). Ezeket a host egyetlen közös adapterben valósítja meg, gombonkénti kód nélkül. A keretrendszer-diszpécserhívások (katalógus) nem teendők.
+A gomb metódusa (`on<Gomb>Click()`) a felismert lépések kérését küldi (executeQuery: a blokk keresése, commit: `save()`, showWindow/showView: láthatóság), vagy a gomb backend-akcióját hívja; a többi gombnál TODO és az eredeti Forms-kód. A keretrendszer-diszpécserhívások (katalógus) nem teendők.
 
 | ownId | Felirat | Felismert lépések | Saját hívások (kézi) |
 |---|---|---|---|
@@ -116,9 +115,7 @@ A felismert gombok lépései az `actionSteps` mezőben vannak (Forms beépített
 
 ## LOV bekötés
 
-A LOV-os mezők a generált LOV-végpontot hívják; a javaslatokat a `setLovSuggestions(ownId, choices, requestId)` teszi a mezőbe, a korábbi keresés későn érkező válaszát figyelmen kívül hagyja.
-
-Egy találat: `{label, value, returnValues: {"BLOCK.ITEM": érték}}`. A FormBlock az `optionValue="value"` szerinti skalárt írja a kontrollba; kiválasztáskor a megadott ReturnItem mezők is frissülnek, másik blokkban is. Az alábbi SQL és paraméterek dokumentáció; nem böngészőből végrehajtandó kód.
+A LOV-os mező autocomplete (`dropdown`, üres `suggestions`), a LOV-végpontnak saját metódusa van (`lov<Név>`). A javaslatok betöltése (`completeMethod`) és a ReturnItem mezők kitöltése fejlesztői feladat. Az alábbi SQL és paraméterek dokumentáció; nem böngészőből végrehajtandó kód.
 
 ### INPTIP — V_ELEK_ADLAP.UBI_INPTIP_KOD
 
@@ -174,10 +171,10 @@ Minden végpontnak saját metódusa van a komponensben: `this.http.<ige>(this.ur
 
 | Metódus | Hívás | CL-konstans | Használja |
 |---|---|---|---|
-| `aitUpdate` | `PUT this.url('ait/update')` | `TesztConstants.AIT_UPDATE_PATH` | mentés: a fejlesztő hívja |
-| `aitSearch` | `POST this.url('ait/query/search')` | `TesztConstants.AIT_SEARCH_PATH` | lekérdezés (`query<Blokk>()`) |
-| `lovInptip` | `POST this.url('lov/inptip')` | `TesztConstants.LOV_INPTIP_PATH` | LOV-keresés |
-| `commitForm` | `POST this.url('commit')` | `TesztConstants.COMMIT_FORM_PATH` | mentés (Forms COMMIT_FORM) |
+| `aitUpdate` | `PUT this.url('ait/update')` | `TesztConstants.AIT_UPDATE_PATH` | a képernyő nem hívja (lásd lent) |
+| `aitSearch` | `POST this.url('ait/query/search')` | `TesztConstants.AIT_SEARCH_PATH` | lekérdezés (gomb) |
+| `lovInptip` | `POST this.url('lov/inptip')` | `TesztConstants.LOV_INPTIP_PATH` | a képernyő nem hívja (lásd lent) |
+| `commitForm` | `POST this.url('commit')` | `TesztConstants.COMMIT_FORM_PATH` | a képernyő nem hívja (lásd lent) |
 
 ### Végpontok, amelyeket a képernyő nem hív
 
@@ -186,6 +183,7 @@ Nem hiba: a backend kész, de a generált képernyő nem hívja őket. Ha egyik 
 | Metódus | Művelet | Blokk / gomb | Miért nem hívja |
 |---|---|---|---|
 | `aitUpdate` | update | `AIT` | a blokk nem űrlapként jelenik meg: a mentést a fejlesztő köti be |
+| `lovInptip` | lov | `INPTIP` | a LOV-mező javaslatainak betöltése fejlesztői feladat (completeMethod) |
 | `commitForm` | commit | `@FORM` | a képernyőn nincs menthető űrlapblokk |
 
 Mentés (create/update/delete): a metódusok elkészülnek, de a Forms COMMIT-szemantikája (több rekord, sorrend, hibakezelés) miatt a mentést a fejlesztő köti be; a komponens nem ment automatikusan.

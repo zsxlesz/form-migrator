@@ -63,7 +63,7 @@ akkor tiltott, ha a `schema.json` kifejezetten tiltja.
   | Saját logikájú billentyű-trigger webes megfelelővel (KEY-NEXT-ITEM, KEY-Fn, KEY-LISTVAL, KEY-CLRBLK …) | nem fut |
   | A Forms-felület billentyűi (KEY-HELP, KEY-ENTQRY, KEY-EXIT, KEY-CLRFRM, KEY-OTHERS …) | nem fut; többnyire nincs teendő, a súgót és a kilépést a host alkalmazás adja |
   | Mezőesemény, amely nem fut (vezérlőblokk WHEN-VALIDATE-ITEM / POST-CHANGE, WHEN-*-CHANGED) | nincs végpont, amely futtatná |
-  | Képernyőesemény, amely nem fut (WHEN-NEW-BLOCK/RECORD/ITEM-INSTANCE, WHEN-WINDOW-* …) | legfeljebb a mezőállapot-szabályok jönnek át |
+  | Képernyőesemény, amely nem fut (WHEN-NEW-BLOCK/RECORD/ITEM-INSTANCE, WHEN-WINDOW-* …) | a képernyő váz (4.27): a mezőállapot-szabályok sem jönnek át |
   | Képernyőlépés a kód közepén (EXECUTE_QUERY, CLEAR_BLOCK …) | 4.15-től képernyőpont; ami így sem követhető (ciklus, átnyúló helyi változó …), az kézi feladat |
   | Saját hiba- és üzenetkezelés (ON-ERROR, ON-MESSAGE) | nem fut |
   | POST-QUERY többsoros blokkon | működik, de soronként egy adatbázis-hívás |

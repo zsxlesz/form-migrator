@@ -214,11 +214,12 @@ class ReplicaFlowTests(unittest.TestCase):
         self.assertIn('public String action;', (self.out / 'backend/CL/RendelesDtos.java').read_text(encoding='utf-8'))
 
     def test_the_screen_leaves_the_save_point_to_the_developer(self):
-        # 4.26: no shared runtime; the button method says what the backend's FRM_COMMIT needs (save, then FRM.RESUME).
+        # 4.27: the button sends its request; the backend's FRM_COMMIT (save, then FRM.RESUME) is the developer's.
         method = self.screen[self.screen.index('  protected onPbMentClick(): void {'):]
         method = method[:method.index('\n  }\n')]
-        self.assertIn('// TODO: a kód közepén mentés (COMMIT_FORM) van: a backend FRM_COMMIT utasítással jelzi', method)
-        self.assertIn('this.showResult(result, ', method)
+        self.assertIn('this.actionOnctrlpbment({', method)
+        self.assertIn('// TODO: a válasz feldolgozása', method)
+        self.assertNotIn('FRM', method.split('{', 1)[1])  # the backend's own protocol values are not sent
         self.assertIn('  protected save(): void {', self.screen)  # the Forms save of the screen is there to call
 
 if __name__ == '__main__':

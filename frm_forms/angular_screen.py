@@ -6,12 +6,12 @@ import re
 from collections import Counter
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 
-from .angular_single import Code, ts
-from .common import MigrationError, name, write_json
+from .angular_single import Code
+from .common import MigrationError, write_json
 from .generate import write
 from .screen_model import apply_screen_types, build_screen
 from .screen_validation import TEXT_WIDGETS
-from .ts_code import key as ts_key, member, nested, record, sq, tsv
+from .ts_code import sq
 from .screen_layout import contains
 from . import form_calls
 from . import screen_api
@@ -119,16 +119,14 @@ def structure(item, config, code=None):
         definition.update(options=item['options'], optionLabel='label', optionValue='value')
     value = initial(item)
     if value is not None and widget != 'button': definition['startValue'] = value
-    # The button's click and the LOV's search: methods of the component (screen_code).
+    # The button's click: a method of the component (screen_code).
     if widget == 'button':
         definition['btnSeverity'] = 'primary'
         if code is not None and item['owner'] in code.click:
             definition['onClick'] = Code('() => this.' + code.click[item['owner']] + '()')
     if item['lov']:
+        # The LOV endpoint has its method (lov<Name>); filling the suggestions is the developer's.
         definition.update(dropdown=True, optionLabel='label', optionValue='value', suggestions=[])
-        search = getattr(code, 'lov_search', {}).get(item['owner']) if code is not None else None
-        if search:
-            definition['completeMethod'] = Code('(event: { query: string }) => this.' + search + '(' + sq(item['owner']) + ', event.query)')
     return definition
 
 
@@ -206,14 +204,14 @@ def todo_summary(plan):
     """One line the developer can act on, repeated at the top of every run."""
     actions = plan['actions']; audit = plan.get('trigger_audit') or {'counts': {'mixed': 0, 'own': 0}}
     manual = [a for a in actions if not a.get('steps')]
-    parts = [str(len(manual)) + ' gomb-akció kézi bekötése', str(len(actions) - len(manual)) + ' felismert gomb (közös adapter)',
+    parts = [str(len(manual)) + ' gomb-akció kézi bekötése', str(len(actions) - len(manual)) + ' felismert gomb',
              str(len(plan['lookups'])) + ' LOV-végpont', str(audit['counts']['own'] + audit['counts']['mixed']) + ' saját/vegyes trigger',
              str(len(plan['inferred_types'])) + ' kikövetkeztetett típus ellenőrzése']
     return ['## Migrációs teendők', '', ' · '.join(parts) + '.', '']
 
 
-def manual_navigations(resolution, tables, navigations) -> dict:
-    """Buttons whose form call the adapter cannot translate: a component method to finish by hand."""
+def manual_navigations(resolution, navigations) -> dict:
+    """Buttons whose form call cannot be translated: a TODO with the readable original code."""
     from .forms_keys import screen_context
     from .xmlmodel import get, tag
     context = screen_context(next(e for e in resolution.root.iter() if tag(e) == 'formmodule'))
@@ -225,9 +223,7 @@ def manual_navigations(resolution, tables, navigations) -> dict:
         owner = trigger['block'] + '.' + trigger['item']
         if owner in navigations or not form_calls.manual_navigation(trigger['source'] or '', model):
             continue
-        code = form_calls.readable(trigger['source'] or '', model)
-        used = [(s['block'], s['property']) for s in tables if re.search(r':' + re.escape(s['block']) + r'\.', code, re.I)]
-        result[owner] = {'method': 'navigate' + name(owner, 'pascal'), 'code': code, 'tables': used or [(s['block'], s['property']) for s in tables]}
+        result[owner] = {'code': form_calls.readable(trigger['source'] or '', model)}
     return result
 
 
@@ -277,28 +273,22 @@ def generate(resolution, ui, output, config, module, discovery):
     form_type = config['form_block_structure_type']
     forms = [s for s in plan['sections'] if s['mode'] == 'form']
     tables = [s for s in plan['sections'] if s['mode'] == 'table']
-    form_items = [i for s in forms for i in s['items']]
     buttons = bool(plan['actions'])
-    checkboxes = [i for i in form_items if i['widget'] == 'checkbox']
     toast_symbol = config['toast_service_symbol']
     window_controls = plan['window_controls']
-    # Item states (SET_ITEM_PROPERTY) from the Forms code, run at the Forms moment.
-    from . import framework, screen_states
-    states = screen_states.analyse(plan, discovery or {}, framework.load(config)) if forms else {'handlers': [], 'manual': [], 'touched': [], 'regions': [], 'controls': {}}
-    plan['item_states'] = {'handlers': [{k: h[k] for k in ('owner', 'event', 'moment', 'touched')} for h in states['handlers']], 'manual': states['manual']}
     # Backend calls through the exact CL Constants paths (analysis/backend-plan.json "api").
-    wiring = screen_api.wiring(plan, ui, screen_api.load_api(output), key, forms, tables, checkboxes, buttons)
+    wiring = screen_api.wiring(plan, ui, screen_api.load_api(output), key, forms, tables)
     # Forms CALL_FORM/OPEN_FORM/NEW_FORM buttons -> Angular Router, with the parameter list.
     navigations = screen_navigations(resolution, forms, config) if buttons else {}
-    manual_navs = manual_navigations(resolution, tables, navigations) if buttons else {}
-    plan['manual_navigations'] = {o: {'method': m['method']} for o, m in manual_navs.items()}
+    manual_navs = manual_navigations(resolution, navigations) if buttons else {}
+    plan['manual_navigations'] = sorted(manual_navs)
     plan['navigations'] = navigations  # screen-plan.json and MIGRATION_NOTES
-    if wiring:
-        wiring['record_states'] = any(h['moment'] == 'record' for h in states['handlers'])
-    # The screen's own code (screen_code): what this screen uses, as plain methods of the component.
+    # The screen's code (screen_code): the frame, the endpoints and the requests of the buttons.
     from .screen_code import ScreenCode
-    code = ScreenCode(plan, forms, tables, wiring, config, navigations, manual_navs, states, button_sources(resolution))
+    code = ScreenCode(plan, forms, tables, wiring, config, navigations, manual_navs, button_sources(resolution))
     code.build()
+    if wiring:
+        wiring['called'] = sorted(code.called)
     plan['backend_calls'] = screen_api.summary(wiring)
     imports, symbols, labels = [], [], {}
 
@@ -422,18 +412,11 @@ def generate(resolution, ui, output, config, module, discovery):
         elif window and window['name'] in window_controls['windows']:
             inner = ['@if (windowVisible[' + angular_string(window['name']) + ']) {', *inner, '}']
         template += inner
-    if wiring and wiring.get('commit'):
-        # The Forms toolbar of the screen: new record, delete (marked), save (COMMIT_FORM).
-        disabled = {op for spec in wiring['ui_disabled'].values() for op in spec}
-        operations = {op for spec in wiring['commit']['blocks'].values() for op in spec['operations']}
-        buttons = [('newRecord', 'Új rekord', 'create' in operations and 'create' not in disabled),
-                   ('deleteRecord', 'Törlés', code.can_delete() and 'delete' not in disabled),
-                   ('save', 'Mentés', 'write' not in disabled)]
-        toolbar = [f'  <button pButton type="button"{"" if method == "save" else " severity=" + chr(34) + "secondary" + chr(34)} (click)="{method}()">{text}</button>'
-                   for method, text, ok in buttons if ok]
-        if toolbar:
-            use('ButtonModule', 'button')
-            template[:0] = ['<div class="flex justify-end gap-2">', *toolbar, '</div>']
+    disabled = {op for spec in (wiring or {}).get('ui_disabled', {}).values() for op in spec}
+    if wiring and wiring.get('commit') and 'write' not in disabled:
+        # The save of the screen (Forms COMMIT_FORM); a KEY-COMMIT without its default save offers none.
+        use('ButtonModule', 'button')
+        template[:0] = ['<button pButton type="button" (click)="save()">Mentés</button>']
 
     # ---------------------------------------------------------------- the component
     structures = {}
@@ -460,14 +443,11 @@ def generate(resolution, ui, output, config, module, discovery):
     if group_method:
         methods.append(group_method)
     methods += code.methods
-    methods += code.helper_methods()
     fields = code.class_fields(tab_fields, labels, toast_symbol, form_type, structures)
     body = '\n\n'.join(fields) + '\n\n' + '\n\n'.join(methods)
 
     # ---------------------------------------------------------------- the source
-    head = ["import { " + ', '.join(sorted(code.core, key=['Component', 'DestroyRef', 'inject'].index)) + " } from '@angular/core';"]
-    if code.subscriptions:
-        head.append("import { takeUntilDestroyed } from '@angular/core/rxjs-interop';")
+    head = ["import { " + ', '.join(sorted(code.core, key=['Component', 'inject'].index)) + " } from '@angular/core';"]
     if wiring and wiring['endpoints']:
         head.append("import { HttpClient } from '@angular/common/http';")
     if code.angular_forms:
@@ -490,9 +470,6 @@ def generate(resolution, ui, output, config, module, discovery):
             head.append('// TODO: importáld a saját csomagodból: ' + form_symbol + ' és ' + form_type + '.')
     template_text = '\n'.join('    ' + line for line in template).replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
     source = '// CREATE_ONCE: szerkeszthető képernyő. Migrációs részletek: MIGRATION_NOTES.md.\n' + '\n'.join(head + imports) + '\n'
-    types = code.type_declarations()
-    if types:
-        source += '\n' + types.rstrip('\n') + '\n'
     source += '\n@Component({\n  selector: ' + sq(plan['module']['selector']) + ',\n  standalone: true,\n  imports: [' + ', '.join(symbols) + '],\n  template: `\n' + template_text + '\n  `,\n})\n'
     source += 'export class ' + plan['module']['class'] + ' extends ServiceBase {\n' + body + '\n}\n'
     # Imports from java-imports.json ("/" paths): ToastService, FormBlock, ServiceBase, WfTable ...
@@ -553,11 +530,11 @@ def notes(plan, discovery, config):
              '- Táblázat: `<wf-table>` (`' + WF_TABLE_FILE + '`, egyszer kell a projektbe tenni; a java-imports.json `WfTable` bejegyzése '
              'adja az importját). Sorai: `<blokk>Rows`, kijelölt sora: `<blokk>Selection`, oszlopai: `<blokk>Columns`. A p-table minden '
              'bemenete és sablonja (`#header`, `#body`, `#caption` ...) átadható neki, például saját szűrőkhöz.',
-             '- A komponens a céges `ServiceBase`-t örökli, közös futtató nélkül: minden, amit a képernyő használ, a saját fájljában '
-             'van, egyszerű metódusként (végpontok, `query<Blokk>()`, `search<Lov>()`, `on<Gomb>Click()`, `save()` ...). '
-             'Amit a Forms ezen felül csinált (alert-párbeszéd, :GLOBAL tárolás, képernyő- és mentési pontok, a backend által '
-             'visszaadott Forms-utasítások), az a metódusban TODO.',
-             '- A keresési checkboxok false értéke is érvényes. A backend kérésében az ellenőrzött checkbox értékpár szerinti Oracle kód szerepel.',
+             '- A komponens a céges `ServiceBase`-t örökli, és csak a keretet adja (4.27): a FormBlock-régiók szerkezetét, a '
+             'táblázatokat, a végpontmetódusokat és gombonként (`on<Gomb>Click()`) a gomb HTTP-kérését, kezdetlegesen, a '
+             'képernyő értékeivel. Forms-emulációt nem tartalmaz: a mezőállapotok, a LOV-javaslatok és visszaírt értékek, az '
+             'alertek, a :GLOBAL értékek, a checkbox Forms-értékei és a válaszok feldolgozása fejlesztői feladat (TODO a metódusban, '
+             'a nem fordított gomboknál az eredeti Forms-kóddal).',
              '- A mezők műveleti engedélyeit és formátummaszkjait a query/insert/update móddal együtt ellenőrizd; a képernyő nem Forms-futtató.',
              '- `--regenerate` megőrzi a komponens kézi módosításait. Új elrendezéshez generálj új célmappába, és hasonlítsd össze.', '',
              '## Képernyőrészek', '', '| Blokk | Canvas / fül | Megjelenítés | Mezők | Látható rekordok |', '|---|---|---|---:|---:|']
@@ -672,9 +649,9 @@ def notes(plan, discovery, config):
         lines += ['| ' + ' | '.join(cell(r[k]) for k in ['name', 'master', 'detail', 'join']) + ' |' for r in plan['relations']]
     if plan['actions']:
         lines += ['', '## Gombok és eredeti hívások', '',
-                  'A felismert gombok lépései az `actionSteps` mezőben vannak (Forms beépített lépések: goBlock, executeQuery, '
-                  'commit, clearBlock, exitForm, showWindow…). Ezeket a host egyetlen közös adapterben valósítja meg, gombonkénti kód nélkül. '
-                  'A keretrendszer-diszpécserhívások (katalógus) nem teendők.', '',
+                  'A gomb metódusa (`on<Gomb>Click()`) a felismert lépések kérését küldi (executeQuery: a blokk keresése, commit: '
+                  '`save()`, showWindow/showView: láthatóság), vagy a gomb backend-akcióját hívja; a többi gombnál TODO és az '
+                  'eredeti Forms-kód. A keretrendszer-diszpécserhívások (katalógus) nem teendők.', '',
                   '| ownId | Felirat | Felismert lépések | Saját hívások (kézi) |', '|---|---|---|---|']
         for a in plan['actions']:
             steps = ', '.join(s['op'] + ('(' + next(iter(v for k, v in s.items() if k != 'op'), '') + ')' if len(s) > 1 else '')
@@ -683,8 +660,9 @@ def notes(plan, discovery, config):
             lines.append('| ' + ' | '.join(map(cell, [a['owner'], a['label'], steps or '—',
                                                       own if not a.get('steps') else '—'])) + ' |')
     if plan['lookups']:
-        lines += ['', '## LOV bekötés', '', 'A LOV-os mezők a generált LOV-végpontot hívják; a javaslatokat a `setLovSuggestions(ownId, choices, requestId)` teszi a mezőbe, a korábbi keresés későn érkező válaszát figyelmen kívül hagyja.', '',
-                  'Egy találat: `{label, value, returnValues: {"BLOCK.ITEM": érték}}`. A FormBlock az `optionValue="value"` szerinti skalárt írja a kontrollba; kiválasztáskor a megadott ReturnItem mezők is frissülnek, másik blokkban is. Az alábbi SQL és paraméterek dokumentáció; nem böngészőből végrehajtandó kód.', '']
+        lines += ['', '## LOV bekötés', '', 'A LOV-os mező autocomplete (`dropdown`, üres `suggestions`), a LOV-végpontnak saját metódusa van '
+                  '(`lov<Név>`). A javaslatok betöltése (`completeMethod`) és a ReturnItem mezők kitöltése fejlesztői feladat. '
+                  'Az alábbi SQL és paraméterek dokumentáció; nem böngészőből végrehajtandó kód.', '']
         for l in plan['lookups']:
             lines += ['### ' + l['name'] + ' — ' + l['owner'], '', 'Rekordcsoport: `' + l.get('record_group', '') + '`. Paraméterek: ' + ', '.join('`' + p + '`' for p in l['parameters']), '',
                       '| Oszlop | Felirat | ReturnItem |', '|---|---|---|']
@@ -700,21 +678,6 @@ def notes(plan, discovery, config):
                   'mezőként visszaállítható. Típus: `screen_spacer_type`.', '',
                   '| Mező | Minta | col | Felirat |', '|---|---|---:|---|']
         lines += ['| ' + ' | '.join(map(cell, [x['owner'], x['pattern'], str(x['col']), x['label'] or '—'])) + ' |' for x in plan['spacers']]
-    states = plan.get('item_states') or {}
-    if states.get('handlers') or states.get('manual'):
-        moments = {'init': 'induláskor', 'record': 'rekord betöltésekor', 'change': 'a mező értékváltozásakor', 'button': 'gombnyomásra'}
-        lines += ['', '## Mezőállapotok (Forms-logikából)', '',
-                  'A triggerek SET_ITEM_PROPERTY hívásai (ENABLED, VISIBLE/DISPLAYED, REQUIRED, UPDATE/INSERT_ALLOWED) a feltételeikkel együtt '
-                  'TypeScriptre fordultak, és a Forms-eseménynek megfelelő pillanatban futnak: `setItemState` (FormBlock disabled/invisible/'
-                  'validator/readonly + FormControl enable/disable/required).', '']
-        if states.get('handlers'):
-            lines += ['| Trigger | Esemény | Mikor | Érintett mezők |', '|---|---|---|---|']
-            lines += ['| ' + ' | '.join(map(cell, [h['owner'], h['event'], moments[h['moment']], ', '.join(h['touched']) or '—'])) + ' |'
-                      for h in states['handlers']]
-        if states.get('manual'):
-            lines += ['', 'Kézi átültetést igényel (a trigger mást is csinál, vagy nem szó szerinti hivatkozást használ):', '',
-                      '| Trigger | Esemény | Ok | Állapothívások |', '|---|---|---|---|']
-            lines += ['| ' + ' | '.join(map(cell, [m['owner'], m['event'], m['reason'], '; '.join(m['calls']) or '—'])) + ' |' for m in states['manual']]
     lengths = plan.get('field_lengths') or {}
     if lengths.get('applied') or lengths.get('unknown'):
         lines += ['', '## Mezőhosszak (segítő JSON)', '',

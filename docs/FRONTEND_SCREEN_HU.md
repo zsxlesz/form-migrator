@@ -152,51 +152,26 @@ A szöveges beviteli mezők minimális és maximális hossza egy JSON-fájlban a
 
 ## Mezőállapotok (SET_ITEM_PROPERTY)
 
-A generátor követi, mikor lesz egy mező vagy gomb tiltott, rejtett, kötelező vagy csak
-olvasható. A triggerek `SET_ITEM_PROPERTY` hívásai (ENABLED, VISIBLE/DISPLAYED, REQUIRED,
-UPDATE/INSERT_ALLOWED) a körülöttük lévő IF-feltételekkel, egyszerű értékadásokkal és
-MESSAGE-hívásokkal együtt TypeScriptre fordulnak, és a Forms-eseménynek megfelelően futnak:
+4.27 óta a képernyő nem fordítja le a triggerek `SET_ITEM_PROPERTY` hívásait (ENABLED, VISIBLE/DISPLAYED,
+REQUIRED, UPDATE/INSERT_ALLOWED): a generált komponens csak a keret, Forms-emulációt nem tartalmaz.
 
-| Forms-esemény | A képernyőn |
-|---|---|
-| PRE-FORM, WHEN-NEW-FORM-INSTANCE, WHEN-NEW-BLOCK-INSTANCE | induláskor (konstruktor) |
-| WHEN-NEW-RECORD-INSTANCE, POST-QUERY (űrlapblokk) | induláskor és rekordbetöltéskor |
-| WHEN-CHECKBOX/LIST/RADIO-CHANGED, WHEN-VALIDATE-ITEM, POST-CHANGE | a mező értékváltozásakor |
-| WHEN-BUTTON-PRESSED (csak állapotkezelés) | gombnyomásra |
-
-- **Alkalmazás:** a komponens saját `setItemState` metódusa (csak ha a képernyőnek van ilyen kezelője) a
-  FormBlock-struktúrán (`disabled`, `invisible`, `validator`, `readonly`) és a FormControlon (enable/disable,
-  `Validators.required`) is érvényesíti az állapotot.
-- **Tömör kód:**
-  - ugyanannak a mezőnek az egymás utáni tulajdonságai egy hívásba kerülnek:
-    `this.setItemState('B.MEGJ', { enabled: true, required: true })`;
-  - az `IF feltétel THEN … PROPERTY_TRUE ELSE … PROPERTY_FALSE` minta egyetlen sor:
-    `this.setItemState('B.EXTRA', { visible: this.cmp(…) })`;
-  - az egyutasításos kezelő nem kap saját metódust: közvetlenül a konstruktorba, a gomb
-    `on<Gomb>Click()` metódusába, illetve a mező `valueChanges` feliratkozásába kerül
-    (`onFormGroupGenerated`).
-- **Feltételek:** SQL-szerűen értékelődnek ki (NULL-lal való összehasonlítás hamis), a
-  checkboxok Checked/Unchecked értékével.
-- **Kézi lista:** ha egy trigger mást is csinál (például SELECT), vagy nem szó szerinti
-  mezőnévvel hivatkozik, nem fordul le félig. A `MIGRATION_NOTES.md` **Mezőállapotok**
-  szakasza listázza a nyers hívásokkal együtt.
+- **Kezdőállapot:** a mező Forms-tulajdonságai (Enabled, UpdateAllowed, Required ...) továbbra is a FormBlock
+  struktúrájába kerülnek (`disabled`, `readonly`, `validator`).
+- **Futás közbeni állapot:** fejlesztői feladat, a FormBlock-struktúra (`structures[...]`) és a FormGroup
+  (`forms[...]`) segítségével. A gombnyomásra állapotot állító gomb metódusa TODO-t és az eredeti Forms-kódot kapja.
+- **Leltár:** a `RUNTIME_COVERAGE.md` és az `analysis/runtime-coverage.json` a triggereket kézi teendőként listázza.
 
 ## Toast és gombok
 
 - **ToastService:** minden generált komponens `toast` néven megkapja:
   `protected readonly toast = inject(ToastService)`. Importja a `toast_service_import_path`
   (és `emit_imports: true`) beállításból készül; ennek hiányában TODO-megjegyzés jelzi, hogy
-  a saját csomagodból kell importálni.
+  a saját csomagodból kell importálni. A generált váz maga nem hívja (4.27): a fejlesztő üzeneteihez van ott.
 - **Hívás:** mind a négy paraméterrel: `this.toast.success(cím, részletek, true, élettartam)`
-  (ugyanígy `warning` és `danger`). A harmadik paraméter (`save`) az előzményekbe mentést
-  kéri, a generált kódban mindig `true`.
-- **Mikor jelez:**
-  - mentésnél (`save()`) a módosított, de hiányos vagy hibás blokk esetén `toast.warning`, és kérés nem indul;
-  - backend-hiba: a végpontmetódus `catchError`-ja `WFF.err('Hiba', error)` hívással jelez;
-  - üres lekérdezés és backend-üzenet: `warning`;
-  - sikeres gombművelet és mentés: `toast.success`.
+  (ugyanígy `warning` és `danger`). A harmadik paraméter (`save`) az előzményekbe mentést kéri.
 - **Élettartamok:** `toast_life_ms` (alap: success 3000, warning 8000, danger 6000 ms), a
   komponensben `protected readonly toastLife = { success: 3000, warning: 8000, danger: 6000 };`.
+- **Backend-hiba:** a végpontmetódus `catchError`-ja `WFF.err('Hiba', error)` hívással jelez.
 - **Gombok:** a gomb a struktúrában `btnSeverity: 'primary', onClick: () => this.on<Gomb>Click()`; a
   metódus a komponensben van, a gomb Forms-kódja szerint (lásd lent).
 
@@ -214,12 +189,18 @@ listává alakulnak (`goBlock`, `goItem`, `executeQuery`, `enterQuery`, `commit`
 `clearBlock`, `clearForm`, `exitForm`, rekordnavigáció, `showWindow`/`hideWindow`,
 `showCanvas`/`hideCanvas`, literális `message`). Csak akkor, ha a trigger minden
 utasítása felismert; feltétel, változó vagy saját eljárás esetén `steps: null`, a
-jegyzet pedig kilistázza a saját hívásokat. A lépésekből a gomb `on<Gomb>Click()`
-metódusának utasításai lesznek: `go_block('RESULT'); execute_query;` → `this.queryResult();`,
-`show_window('EDIT')` → `this.windowVisible['EDIT'] = true;`, `commit_form` → `this.save();`. A
-fókuszlépéseknek (`goItem`, rekordnavigáció) nincs webes megfelelőjük, kimaradnak. Ha egy lépéshez
-nincs mit hívni (például nincs a blokkhoz generált lekérdezés), a gomb TODO-t kap a felismert
-lépésekkel és az eredeti Forms-kóddal.
+jegyzet pedig kilistázza a saját hívásokat.
+
+A gomb `on<Gomb>Click()` metódusa (4.27) csak a HTTP-kérést és az ablakok láthatóságát építi ki a lépésekből:
+
+- `go_block('RESULT'); execute_query;` → a RESULT blokk keresésének kérése, a feltételek a képernyőről, a sorok a
+  táblázatba (`this.resultRows = res.rows ?? [];`);
+- `commit_form` → `this.save();`;
+- `show_window('EDIT')` → `this.windowVisible['EDIT'] = true;` (ugyanígy `show_view` / `hide_view`);
+- a fókuszlépések (`goItem`, rekordnavigáció, `enterQuery`, `listValues`) kimaradnak.
+
+Ha a gombnak más lépése is van (`clear_block`, `message`, `exit_form` ...), vagy egy lépéshez nincs mit hívni
+(például nincs a blokkhoz generált lekérdezés), a gomb TODO-t kap az eredeti Forms-kóddal.
 
 A `MIGRATION_NOTES.md` első szekciója a tényleges teendőket összesíti; a
 **Triggerek besorolása** a triggereket keretrendszeri / vegyes / saját / üres
@@ -462,14 +443,14 @@ formában jelennek meg; a nyers SQL és XML a forrásauditban változatlan.
 ## Backend-hívások (céges minta)
 
 A generált komponens útvonalon elérhető oldal, nem gyerekkomponens: nincs `@Input` és `@Output`.
-A céges `ServiceBase`-t örökli; közös futtató nincs (4.26). Minden végpontnak saját metódusa van:
+A céges `ServiceBase`-t örökli; közös futtató nincs. Minden végpontnak saját metódusa van:
 
 ```ts
 export class XyComponent extends ServiceBase {
   private readonly http = inject(HttpClient);
 
   aitSearch(body: unknown) {
-    return this.http.post<Page>(this.url('ait/query/search'), body).pipe(
+    return this.http.post<any>(this.url('ait/query/search'), body).pipe(
       tap(res => WFF.debug(this.modName + '.aitSearch', res)),
       catchError(error => {
         WFF.err('Hiba', error);
@@ -483,27 +464,31 @@ export class XyComponent extends ServiceBase {
 - **Végpontmetódusok:** minden generált végpontnak (lekérdezés, lista, LOV, gomb, mentés) saját
   metódusa van. A `this.url('…')` argumentuma a végpont neve úgy, ahogy a CL használja (céges
   formátumban pontosan a `…_NAME` érték). Erre rákeresve a hívás a CL-ben, a DPS-ben, a WBS-ben és a
-  komponensben is megtalálható. A szerver- és modulútvonalat a `ServiceBase.url()` teszi elé.
-- **Ki hívja:** a komponens saját metódusai, név szerint: `queryTetel()` (lekérdezés),
-  `searchLovStatusz()` (LOV), `onPbKeresClick()` (gomb), `save()` (mentés), a konstruktor (indítás).
-  A válasz típusa a fájl elején álló kis interfész (`Page`, `ActionResult`, `CommitResult`).
+  komponensben is megtalálható. A szerver- és modulútvonalat a `ServiceBase.url()` teszi elé. A válasz típusa
+  `any` (4.27): saját interfész és válaszboríték-kezelő (`data()`) nincs.
+- **Ki hívja:** a gombok metódusai (`onPbKeresClick()`), a `save()` és az indítási végpontot a konstruktor. A
+  többi (például a LOV vagy egy gomb nélküli lekérdezés) kész metódus, a fejlesztő hívja.
 - **Naplózás:** minden sikeres válasz legelőször a `WFF.debug(this.modName + '.<metódus>', res)` hívásba
   kerül (`tap`), ahol a `<metódus>` a végpontmetódus neve. A `modName` (a modul útvonala) és a `router`
   a céges `ServiceBase`-ből öröklődik.
-- **Hibák:** a `catchError` a `WFF.err('Hiba', error)` hívással jelez, és a hívás ott véget ér. Az üres
-  találatot, a backend-üzeneteket és a sikeres műveletet a `ToastService` mutatja.
-- **Gombok és indítás:** a kérés a képernyő értékeit Oracle-nevekkel (`blocks()`, a táblákból a kijelölt
-  sor) és az URL `:PARAMETER` értékeit (`parameters()`) viszi. A válasz visszaírt mezőit a `showResult()`
-  teszi a képernyőre, az üzeneteit toastként mutatja.
-- **Ami nem fut magától:** a backend Forms-utasításokat is visszaadhat (`commands`: GO_BLOCK,
-  EXECUTE_QUERY ...); a képernyő ezeket nem hajtja végre, csak naplózza. A gomb metódusában TODO sorolja
-  fel, melyeket adhatja vissza a kódja, és melyik lekérdezést kell hívni. Ugyanígy TODO az alert-párbeszéd
-  (`SHOW_ALERT`, `FRM.ALERTS`), a képernyő- és mentési pont (`FRM_RESUME`, `FRM_COMMIT`), és a :GLOBAL/:SYSTEM
-  érték, ha a backend olvassa.
-- **Válaszboríték:** céges módban a válasz `RestResponseDto`-ban érkezik. Az adatot a komponens `data()`
-  metódusa veszi ki; a boríték mezőneve ott igazítható.
-- **Be nem kötött gombok:** a kézzel átültetendő gomb metódusa TODO-t, az eredeti Forms-kódot
-  (regionban) és toastot tartalmaz.
+- **Hibák:** a `catchError` a `WFF.err('Hiba', error)` hívással jelez, és a hívás ott véget ér.
+- **A gomb kérése (4.27):** a backend-akció kérése azokat a mezőket viszi Oracle-néven, amelyeket a gomb kódja
+  olvas, a régió értékeiből (`getRawValue()`), a táblázatból a kijelölt sorból, átalakítás nélkül:
+
+  ```ts
+  const rendeles = this.forms['rendeles']?.getRawValue() ?? {};
+  // TODO: a válasz feldolgozása (res.blocks: a visszaírt mezők, res.messages: az üzenetek).
+  this.actionOnctrlpbujraszamol({ blocks: { RENDELES: { ID: rendeles.id, OSSZEG: rendeles.osszeg } }, parameters: {} }).subscribe();
+  ```
+
+  A :GLOBAL / :PARAMETER / :SYSTEM értékek `null`-ként, TODO-val szerepelnek a `parameters`-ben; a képernyőn nem
+  szereplő mező `null` és TODO. A backend saját protokollértékei (`FRM.ALERTS`, `FRM.RESUME`, `FRM.COMMIT`) nem
+  kerülnek a kérésbe. A checkbox booleanként, a dátum `Date`-ként megy: az Oracle-értékre alakítás, a visszaírt
+  mezők, az üzenetek, az alertek, a képernyő- és mentési pontok, a Forms-utasítások (`commands`) fejlesztői feladat.
+- **Válaszboríték:** céges módban a válasz `RestResponseDto`-ban érkezik: a lekérdező gomb TODO-ja jelzi, hogy a
+  sorokat a boríték adatmezőjéből kell venni.
+- **Be nem kötött gombok:** a kézzel átültetendő gomb metódusa TODO-t és az eredeti Forms-kódot (regionban)
+  tartalmaz.
 - **Importok:** a `ServiceBase`, a `WFF`, a `ToastService`, a `WfTable` és a FormBlock-osztályok a
   `java-imports.json` `/`-es bejegyzéseiből kapnak importot (lásd AUTOMATIZALAS_HU.md), például
   `"WfTable": { "ts": "../wf-table" }`. Ami nincs a térképben, arra TODO-sor és az
@@ -543,21 +528,18 @@ adatait adja:
 
 ## Események és LOV
 
-A gomb a struktúrában `onClick: () => this.on<Gomb>Click()`. A metódus a gomb Forms-kódja szerint:
+A gomb a struktúrában `onClick: () => this.on<Gomb>Click()`. A metódus a gomb Forms-kódja szerint (4.27):
 
-1. csak mezőállapotot állít (SET_ITEM_PROPERTY) → a lefordított állapotkezelés;
-2. navigál (CALL_FORM, OPEN_FORM, NEW_FORM) → `this.router.navigate([...], { queryParams })`;
-3. felismert lépések → a lépések utasításai (lásd Gomblépések);
-4. backend-akció (az eredeti PL/SQL) → a végpont hívása és `showResult()`;
-5. különben TODO az eredeti Forms-kóddal.
+1. navigál (CALL_FORM, OPEN_FORM, NEW_FORM) → `this.router.navigate([...], { queryParams })`, a paraméterek a
+   képernyő értékeivel; összetett formhívásnál TODO az eredeti kóddal;
+2. felismert lépések → a lekérdezés kérése, `save()`, ablak-láthatóság (lásd Gomblépések);
+3. backend-akció (az eredeti PL/SQL vagy a Java-lekérdezés) → a végpont hívása a kód által olvasott mezőkkel;
+   lekérdező gombnál a sorok a táblázatba kerülnek;
+4. különben TODO az eredeti Forms-kóddal.
 
-A checkboxok booleanként jelennek meg; a kérésben az eredeti checked/unchecked kód megy.
-
-A LOV a struktúrában lenyitó (`dropdown`, `optionLabel`/`optionValue`, `suggestions`) és
-`completeMethod: (event: { query: string }) => this.search<Lov>('BLOKK.MEZŐ', event.query)`. A keresés a LOV
-végpontját hívja a kötött mezők értékeivel, a találatokat a mező `suggestions` tulajdonságába teszi
-(`suggest()`). Ha a LOV-nak ReturnItem oszlopai is vannak, a `choose<Lov>()` a kiválasztott sor többi
-oszlopát a hozzá tartozó mezőkbe írja (más blokkba is).
+A LOV a struktúrában lenyitó autocomplete (`dropdown`, `optionLabel`/`optionValue`, üres `suggestions`). A LOV
+végpontjának saját metódusa van (`lov<Név>`); a javaslatok betöltése (`completeMethod`) és a ReturnItem
+mezők kitöltése fejlesztői feladat (4.27).
 
 Az SQL, a paraméterek, a ReturnItem mapping és a master-detail kapcsolatok a
 migrációs jegyzetben találhatók. Kliensből nem futtatunk SQL-t vagy PL/SQL-t.
@@ -635,11 +617,11 @@ A generált sablon nem kap saját keretet (`<div class="flex flex-col gap-4 p-4"
 (`<h1>{{ title }}</h1>`): a keretet és a címet a befogadó oldal adja. A sablon közvetlenül a
 szakaszokkal kezdődik.
 
-## A komponens felépítése (4.26)
+## A komponens felépítése (4.27)
 
-A generált komponens a céges `ServiceBase`-t örökli, és minden kódja a saját fájljában van: közös futtató
-nincs, egy képernyő módosítása nem érint más képernyőt. Csak az kerül bele, amit a képernyő használ.
-Rövidítve (a felmérési replikából):
+A generált komponens a céges `ServiceBase`-t örökli, és csak a keretet adja: a FormBlock-régiók szerkezetét, a
+táblázatokat, a végpontmetódusokat és gombonként a gomb HTTP-kérését. Forms-emulációt (mezőállapotok, LOV-visszaírás,
+alertek, mentési lánc, Forms-értékek átalakítása) nem tartalmaz. Rövidítve (a felmérési replikából):
 
 ```ts
 export class RendelesComponent extends ServiceBase {
@@ -660,34 +642,43 @@ export class RendelesComponent extends ServiceBase {
 
   constructor() {
     super();
-    this.actionOnforminit({ blocks: this.blocks(), parameters: this.parameters() }).subscribe(result => this.showResult(result, ''));
+    // Indításkor (Forms WHEN-NEW-FORM-INSTANCE): @INIT.
+    this.actionOnforminit({ blocks: {}, parameters: { 'GLOBAL.CG$APP': null } }).subscribe();
   }
 
   // ... végpontmetódusok ...
 
-  protected onPbKeresClick(): void {
-    this.actionOnctrlpbkeres({ blocks: this.blocks(), parameters: this.parameters() }).subscribe(result => this.showResult(result, 'A művelet sikeresen lefutott.'));
+  protected onFormGroupGenerated(region: string, group: FormGroup): void {
+    this.forms[region] = group;
   }
 
-  protected queryTetel(): void {
-    this.tetelSearch({ criteria: { rendelesId: this.text(this.value('rendeles', 'id')) }, offset: 0, limit: 200 }).subscribe(page => this.showTetel(page));
+  // CTRL.PB_KERES: a gomb kódja a backendben fut.
+  protected onPbKeresClick(): void {
+    const ctrl = this.forms['ctrl']?.getRawValue() ?? {};
+    // TODO: a válasz feldolgozása (res.blocks: a visszaírt mezők, res.messages: az üzenetek).
+    this.actionOnctrlpbkeres({ blocks: { CTRL: { MODUS: ctrl.modus } }, parameters: {} }).subscribe();
+  }
+
+  // Mentés (Forms COMMIT_FORM): a változások egy kérésben; a backend egy tranzakcióban, Forms-sorrendben ment.
+  protected save(): void {
+    // TODO: a blokkok változásai a DTO mezőivel: inserted: [új rekord], updated: [{ original, value }], deleted: [rekord].
+    this.commitForm({ changesRendeles: { inserted: [], updated: [], deleted: [] } }).subscribe();
   }
 }
 ```
 
 - **Konstruktor:** mindig van `constructor() { super(); }`, a mezők és a függvények között; ha a képernyőnek
-  indulási kódja van (az indítási végpont, induláskori mezőállapot), az is ide kerül.
+  indítási végpontja van, a hívása is ide kerül.
 - **Sablon:** a struktúrákra szögletes zárójellel hivatkozik:
   `<ank-form-block [formStructure]="structures['ctrl']" (formGroupGenerated)="onFormGroupGenerated('ctrl', $event)" />`.
   A `structures` típusa `Record<string, …>`, és az Angular CLI alap tsconfigja (`noPropertyAccessFromIndexSignature`)
   a `structures.ctrl` alakot TS4111 hibával elutasítja. Az `ank-form-block` körül nincs `div`: a FormBlock maga
   rendezi el a mezőit (keretben, fülön és dialógusban is).
-- **Metódusok:** a végpontok; `onFormGroupGenerated` (a régiók FormGroupjai a `forms`-ban); `on<Gomb>Click()`;
-  `query<Blokk>()`, `show<Blokk>()`, `fill<Blokk>()`; `search<Lov>()`, `choose<Lov>()`; `save()`, `newRecord()`,
-  `deleteRecord()`; a mezőállapotok kezelői; és néhány kis segéd (`value`, `text`, `blocks`, `parameters`,
-  `showResult` ...), ha valamelyik metódus használja őket.
-- **Mentés:** az eszköztár (Új rekord, Törlés, Mentés) sima gombsor; a `save()` blokkonként összeállítja a
-  módosított rekordot (a lekérdezett eredetihez képest módosítás, különben beszúrás), a törlésre jelölteket,
-  és egy kérésben küldi a mentési végpontnak.
-- **Kommentek:** csak a továbbfejlesztést segítő megjegyzések maradnak (TODO-importok, a gombok TODO-i,
-  kézi navigációnál az eredeti Forms-kód, képernyőn nem szereplő mező állapota).
+- **Metódusok:** a végpontok; `onFormGroupGenerated` (a régiók FormGroupjai a `forms`-ban); `on<Gomb>Click()`
+  gombonként; `save()`, ha a képernyőnek van mentési végpontja és menthető űrlapblokkja; `onRowAction()`, ha egy
+  táblázatnak sor végi gombjai vannak. Segédmetódus (`text`, `data`, `blocks`, `parameters`, `showResult` ...) nincs.
+- **Mentés:** a sablon tetején egy **Mentés** gomb (`save()`). A `save()` a mentési végpont kérését küldi, a
+  blokkok változásai üres listák: összeállításuk (a lekérdezett rekordhoz képest módosítás, új rekord, törlés)
+  fejlesztői feladat (TODO).
+- **Kommentek:** csak a továbbfejlesztést segítő megjegyzések maradnak (TODO-importok, a gombok TODO-i, a nem
+  fordított gomboknál az eredeti Forms-kód).

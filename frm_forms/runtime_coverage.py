@@ -34,7 +34,6 @@ def coverage(model, backend=None, screen=None):
     endpoints = backend.get('endpoints', [])
     calls = screen.get('backend_calls') or {}
     visible = {a['owner'] for a in screen.get('actions', [])}
-    handlers = {(h['owner'], h['event']): h for h in screen.get('item_states', {}).get('handlers', [])}
     steps = {a['owner']: a.get('steps') for a in screen.get('actions', [])}
     rows = []
     for index, trigger in enumerate(model['triggers']):
@@ -89,28 +88,23 @@ def coverage(model, backend=None, screen=None):
             if query and query['target'] not in {s['block'] for s in screen.get('sections', [])}:
                 row['gaps'].append('A lekérdezett blokk nincs a generált képernyőn; az eredmény megjelenítését külön be kell kötni.')
         else:
-            state = handlers.get((owner if trigger.get('block') else 'FORM', event))
-            if state:
-                row.update(status='frontend', engine='typescript', execution='Angular állapotkezelő: ' + state['moment'] + '.')
-                if event in {'WHEN-VALIDATE-ITEM', 'POST-CHANGE', 'WHEN-NEW-BLOCK-INSTANCE'}:
-                    row['gaps'].append('Közelítő eseményidőzítés; a Forms navigációs/validációs láncával egyeztetendő.')
-            else:
-                sequence = steps.get(owner) if event == 'WHEN-BUTTON-PRESSED' else None
-                if sequence and calls.get('queries'):
-                    block, queries = '', []
-                    for step in sequence:
-                        if step['op'] == 'goBlock':
-                            block = step['block'].upper()
-                        elif step['op'] == 'executeQuery' and block in calls['queries']:
-                            queries.append(block)
-                        else:
-                            queries = []; break
-                    if queries:
-                        row.update(status='frontend', engine='typescript', execution='Gombnyomás → executeQuery: ' + ', '.join(queries) + '.')
-                        linked = [e for e in endpoints if e['block'] in queries and e['operation'] in {'list', 'search'}]
-                        row['gaps'].append('A GO_BLOCK fókusz-, validációs és rekordnavigációs mellékhatásai hostfeladatok.')
-                        if len(queries) > 1:
-                            row['gaps'].append('A lekérdezések aszinkronok; az egymás eredményétől függő hívássorrend nincs garantálva.')
+            # A trigger outside the backend: only a button's query runs (the screen's frame has no Forms emulation).
+            sequence = steps.get(owner) if event == 'WHEN-BUTTON-PRESSED' else None
+            if sequence and calls.get('queries'):
+                block, queries = '', []
+                for step in sequence:
+                    if step['op'] == 'goBlock':
+                        block = step['block'].upper()
+                    elif step['op'] == 'executeQuery' and block in calls['queries']:
+                        queries.append(block)
+                    else:
+                        queries = []; break
+                if queries:
+                    row.update(status='frontend', engine='typescript', execution='Gombnyomás → executeQuery: ' + ', '.join(queries) + '.')
+                    linked = [e for e in endpoints if e['block'] in queries and e['operation'] in {'list', 'search'}]
+                    row['gaps'].append('A GO_BLOCK fókusz-, validációs és rekordnavigációs mellékhatásai hostfeladatok.')
+                    if len(queries) > 1:
+                        row['gaps'].append('A lekérdezések aszinkronok; az egymás eredményétől függő hívássorrend nincs garantálva.')
             if row['status'] == 'manual':
                 row['gaps'].append(trigger.get('reason') or 'Felismert frontendutasítás is lehet: az actionRequested jelzés önmagában nem végrehajtás.')
         for endpoint in linked:

@@ -1,9 +1,9 @@
-"""4.26: the generated screen carries its own code; frm-forms-screen.ts is gone, the table is wf-table.ts.
+"""4.26/4.27: the generated screen is a frame: FormBlock regions, wf-tables, endpoints, the requests of the buttons.
 
-The component extends the company ServiceBase. What the screen uses (its endpoints, queries, LOVs, buttons, save,
-windows, item states) are plain methods of the component, generated only where needed; a change to one screen
-touches one file. The shared wf-table.ts wraps the p-table: every p-table input, output and template (#header,
-#body, #caption ...) can be given to it. With tsc (FRM_TSC or on PATH) the screens are type-checked with the tsconfig
+The component extends the company ServiceBase. 4.27: it has no Forms emulation; its endpoint methods and, per button,
+the button's HTTP request built simply from the screen's values (or its navigation, or a TODO with the original
+Forms code) are all it has. The shared wf-table.ts wraps the p-table: every p-table input, output and template
+(#header, #body, #caption ...) can be given to it. With tsc (FRM_TSC or on PATH) the screens are type-checked with the tsconfig
 of a new Angular CLI project against stubs (tests/ts_stubs); with the Angular compiler (FRM_NGC=<path to ngc>) the
 templates too (strictTemplates), a developer's own wf-table templates included.
 """
@@ -21,7 +21,7 @@ import unittest
 from java_support import COMPANY_IMPORTS
 from frm_forms.angular_screen import wf_table_source
 from frm_forms.cli import main
-from screen_support import ANGULAR_CLI_OPTIONS, SCREEN_GLOBALS, component, ngc_check, screen_field, screen_method, with_company_imports
+from screen_support import ANGULAR_CLI_OPTIONS, component, ngc_check, screen_method, with_company_imports
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLICA = ROOT / 'tests' / 'fixtures' / 'felmeres_replika_fmb.xml'
@@ -157,7 +157,7 @@ class ScreenComponentTests(unittest.TestCase):
     def test_every_successful_request_is_logged_first_with_the_module_and_method_name(self):
         for out in (self.out, self.listas):
             source = component(out)
-            methods = re.findall(r"\n  (\w+)\([^)]*\) \{\n    return this\.http\.(?:get|post|put|delete)<[^>]+>\(this\.url\('[^']*'\)", source)
+            methods = re.findall(r"\n  (\w+)\([^)]*\) \{\n    return this\.http\.(?:get|post|put|delete)<any>\(this\.url\('[^']*'\)", source)
             logged = re.findall(r"tap\(res => WFF\.debug\(this\.modName \+ '\.(\w+)', res\)\),", source)
             self.assertTrue(methods)
             self.assertEqual(methods, logged)  # the name logged is the method's own
@@ -176,21 +176,76 @@ class ScreenComponentTests(unittest.TestCase):
             self.assertTrue(all(constructor < m for m in methods), out.name)
         self.assertIn('  constructor() {\n    super();\n  }\n', component(self.simple))  # nothing to start: still there
 
-    def test_only_what_the_screen_uses(self):
+    def test_only_the_frame_no_forms_emulation(self):
+        for out in self.outputs:
+            screen = component(out)
+            for absent in ('private text(', 'private data<', 'private blocks(', 'private parameters(', 'showResult', 'showBlocks',
+                           'setItemState', 'stateValue', 'private value(', 'private readonly items', 'originals', 'newRecord',
+                           'deleteRecord', 'interface Page', 'ActionResult', 'this.toast', 'DestroyRef', 'takeUntilDestroyed', 'suggest(',
+                           'completeMethod', 'Validators'):
+                self.assertFalse(absent in screen, out.name + ': ' + absent)
         simple = component(self.simple)
         self.assertNotIn('HttpClient', simple)  # nothing to call
-        for absent in ('blocks()', 'parameters()', 'save()', 'interface Page', 'WfTable'):
-            self.assertNotIn(absent, simple)
-        self.assertIn("    'B.AKTIV': ['b', 'aktiv', 'I', 'N'],", simple)  # the checkbox's Forms values for the item state
-        self.assertIn("subscribe(() => this.setItemState('B.NEV', { enabled: this.cmp(this.stateValue('B.AKTIV'), '=', 'I') }));", simple)
+        self.assertIn('protected readonly toast = inject(ToastService);', simple)  # the company toast: in every component
+        self.assertNotIn('AKTIV', simple.split('constructor()', 1)[1])  # the item state trigger: not translated
         listas = component(self.listas)
-        self.assertIn('  protected queryPartner(): void {', listas)
+        self.assertRegex(listas, r'\n  partnerList\(offset = 0, limit = 200\) \{')  # no button queries it: the endpoint is there to call
         self.assertNotIn('save()', listas)  # no form block to save
         replica = component(self.out)
-        for method in ('protected save(): void {', 'protected newRecord(): void {', 'protected deleteRecord(): void {',
-                       'private blocks(): Record<string, Record<string, string | null>> {', 'private showResult(result: ActionResult, done: string): void {'):
-            self.assertIn(method, replica)
-        self.assertLess(len(replica.splitlines()), 650)
+        self.assertIn('<button pButton type="button" (click)="save()">Mentés</button>', replica)
+        self.assertLess(len(replica.splitlines()), 420)
+
+    def test_a_button_sends_its_request_with_the_screen_values(self):
+        replica = component(self.out)
+        self.assertIn("""  // CTRL.PB_UJRASZAMOL: a gomb kódja a backendben fut.
+  protected onPbUjraszamolClick(): void {
+    const rendeles = this.forms['rendeles']?.getRawValue() ?? {};
+    // TODO: a válasz feldolgozása (res.blocks: a visszaírt mezők, res.messages: az üzenetek).
+    this.actionOnctrlpbujraszamol({ blocks: { RENDELES: { ID: rendeles.id, OSSZEG: rendeles.osszeg } }, parameters: {} }).subscribe();
+  }""", replica)
+        # :GLOBAL / :SYSTEM values the code reads: null, with a TODO; the backend's own FRM.* values are not sent
+        self.assertIn("    // TODO: a :PARAMETER / :GLOBAL értékek: GLOBAL.EV.\n", replica)
+        self.assertIn("parameters: { 'GLOBAL.EV': null }", replica)
+        self.assertNotIn('FRM:', replica)
+        self.assertIn("    this.actionOnforminit({ blocks: {}, parameters: { 'GLOBAL.CG$APP': null } }).subscribe();\n", replica)
+        save = screen_method(self.out, 'save')
+        self.assertIn("this.commitForm({ changesRendeles: { inserted: [], updated: [], deleted: [] } }).subscribe();", save)
+        self.assertIn("// Az űrlap értékei: this.forms['rendeles']?.getRawValue().", save)
+
+    def test_the_button_requests_run_in_node(self):
+        if not shutil.which('node'):
+            self.skipTest('Node with TypeScript stripping required')
+        members = [screen_method(self.out, name) for name in ('onPbUjraszamolClick', 'onPbAlapClick', 'save')]
+        self.assertNotIn(None, members)
+        script = self.root / 'button-flow.ts'
+        script.write_text('''import assert from 'node:assert/strict';
+class Group {
+  values: Record<string, unknown> = {};
+  getRawValue() { return {...this.values}; }
+}
+const sent: [string, unknown][] = [];
+const call = (name: string) => (body: unknown) => { sent.push([name, structuredClone(body)]); return {subscribe() {}}; };
+class Screen {
+  forms: Record<string, Group> = {rendeles: new Group(), ctrl: new Group()};
+  actionOnctrlpbujraszamol = call('ujraszamol');
+  actionOnctrlpbalap = call('alap');
+  commitForm = call('commit');
+__MEMBERS__
+}
+const screen = new Screen();
+screen.forms.rendeles.values = {id: 7, osszeg: 1200, vevo: 'V1'};
+screen.onPbUjraszamolClick();
+assert.deepEqual(sent[0], ['ujraszamol', {blocks: {RENDELES: {ID: 7, OSSZEG: 1200}}, parameters: {}}]);
+delete screen.forms.ctrl;  // a region not yet generated: its values are missing, the request still goes
+screen.onPbAlapClick();
+assert.deepEqual(sent[1], ['alap', {blocks: {CTRL: {EV: undefined}}, parameters: {'GLOBAL.EV': null}}]);
+screen.save();
+assert.deepEqual(sent[2], ['commit', {changesRendeles: {inserted: [], updated: [], deleted: []}}]);
+console.log('typescript buttons OK');
+'''.replace('__MEMBERS__', '\n'.join(members)))
+        run = subprocess.run(['node', '--experimental-strip-types', '--no-warnings', str(script)], capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn('typescript buttons OK', run.stdout)
 
     def test_no_wrapper_around_the_form_blocks(self):
         for out in self.outputs:
@@ -208,59 +263,6 @@ class ScreenComponentTests(unittest.TestCase):
         self.assertIn("  protected onPbNyitClick(): void {\n    this.windowVisible['EDIT'] = true;\n    this.canvasVisible['EXTRA'] = true;", dialogs)
         self.assertIn("  protected onPbBezarClick(): void {\n    this.windowVisible['EDIT'] = false;\n  }", dialogs)
         self.assertNotIn('signal', dialogs)
-
-    def test_save_sends_the_changed_record_in_node(self):
-        if not shutil.which('node'):
-            self.skipTest('Node with TypeScript stripping required')
-        members = [screen_field(self.out, 'items'), screen_field(self.out, 'originals'), screen_field(self.out, 'deleted')]
-        members += [screen_method(self.out, name) for name in ('save', 'deleteRecord', 'fillRendeles', 'blocks', 'parameters', 'showResult',
-                                                              'showBlocks', 'value', 'text')]
-        self.assertNotIn(None, members)
-        script = self.root / 'save-flow.ts'
-        script.write_text('''import assert from 'node:assert/strict';
-__SCREEN_GLOBALS__
-const window = {location: {search: '', hash: ''}};
-class Group {
-  values: Record<string, unknown> = {}; dirty = false; invalid = false;
-  get(key: string) { const group = this; return {get value() { return group.values[key] ?? null; }, setValue(v: unknown) { group.values[key] = v; }}; }
-  reset(values: Record<string, unknown> = {}) { this.values = {...values}; this.dirty = false; }
-  markAsPristine() { this.dirty = false; } markAllAsTouched() {}
-}
-class Screen {
-  forms = {ctrl: new Group(), rendeles: new Group()};
-  tetelSelection = null; partnerSelection = null;
-  toastLife = {warning: 1, success: 1};
-  warnings = []; successes = [];
-  toast = {warning: (...args) => this.warnings.push(args), success: (...args) => this.successes.push(args)};
-  commits = [];
-  commitForm(request) {
-    this.commits.push(structuredClone(request));
-    return {subscribe: next => next({messages: [], rowsRendeles: [{id: 7, vevo: 'V2', statusz: 'L'}]})};
-  }
-__MEMBERS__
-}
-const screen = new Screen();
-screen.save();
-assert.equal(screen.commits.length, 0);  // nothing changed
-screen.fillRendeles({id: 7, vevo: 'V1', statusz: 'N'});
-screen.forms.rendeles.values.vevo = 'V2';
-screen.forms.rendeles.dirty = true;
-screen.save();
-const request = screen.commits[0];
-assert.deepEqual(request.changesRendeles.updated, [{original: {id: 7, vevo: 'V1', statusz: 'N'},
-  value: {id: '7', vevo: 'V2', vevoNev: null, datum: null, statusz: 'N', osszeg: null}}]);
-assert.deepEqual(request.changesRendeles.inserted, []);
-assert.equal(request.blocks.RENDELES.VEVO, 'V2');
-assert.equal(screen.forms.rendeles.values.statusz, 'L');  // the saved record comes back
-assert.equal(screen.successes.length, 1);
-screen.deleteRecord();
-screen.save();
-assert.deepEqual(screen.commits[1].changesRendeles, {inserted: [], updated: [], deleted: [{id: 7, vevo: 'V2', statusz: 'L'}]});
-console.log('typescript save OK');
-'''.replace('__MEMBERS__', '\n'.join(members)).replace('__SCREEN_GLOBALS__', SCREEN_GLOBALS))
-        run = subprocess.run(['node', '--experimental-strip-types', '--no-warnings', str(script)], capture_output=True, text=True)
-        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertIn('typescript save OK', run.stdout)
 
     def test_typescript_strict(self):
         tsc = os.environ.get('FRM_TSC') or shutil.which('tsc')
